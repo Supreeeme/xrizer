@@ -31,18 +31,24 @@ jobs:
     - if: steps.cache-glslc.outputs.cache-hit != 'true'
       name: Build glslc
       run: |
-        cd shaderc && mkdir build && cd build
-        cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$(realpath ../../bin) -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WERROR_COMPILE=OFF ..
+        cd shaderc && mkdir build
+        cmake -GNinja -Bbuild -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX="$(realpath ../bin)" \
+          -DSHADERC_SKIP_TESTS=ON \
+          -DSHADERC_SKIP_EXAMPLES=ON \
+          -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+          -DSHADERC_ENABLE_WERROR_COMPILE=OFF .
         ninja install
-        cd ../..
+        cd ..
         echo "$(realpath bin)" >> "$GITHUB_PATH"
+        ls bin
     - name: Install miri
       run: rustup toolchain install nightly && rustup +nightly component add miri
     - uses: actions/checkout@v4
     - name: Format
       run: cargo fmt --check
     - name: Build
-      run: echo "$PATH" && which glslc && cargo build --verbose
+      run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
     - name: Run tests with miri
