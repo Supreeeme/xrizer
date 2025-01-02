@@ -17,16 +17,24 @@ jobs:
     steps:
     - name: Cache glslc
       uses: actions/cache@v3
-      id: glslc
+      id: cache-glslc
       with:
-        path: install/bin/glslc
-    - if: ${{ steps.glslc.outputs.cache-hit != 'true' }}
-      name: Download glslc
+        path: glslc/bin/glslc
+    - if: steps.cache-glslc.outputs.cache-hit != 'true'
+      name: Checkout glslc
+      uses: actions/checkout@v4
+      with:
+        repository: google/shaderc
+        ref: v2024.4
+        path: shaderc
+    - if: steps.cache-glslc.outputs.cache-hit != 'true'
+      name: Build glslc
       run: |
-        wget -r --cut-dirs=100 -nH https://storage.googleapis.com/shaderc/badges/build_link_linux_clang_release.html
-        tar -xzf install.tgz
-        echo "$(realpath install/bin)" >> "$GITHUB_PATH"
-        ./install/bin/glslc
+        cd shaderc && mkdir build && cd build
+        cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$(realpath ../../bin) -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WERROR_COMPILE=OFF ..
+        ninja install
+        cd ../..
+        echo "$(realpath bin)" >> "$GITHUB_PATH"
     - name: Install miri
       run: rustup toolchain install nightly && rustup +nightly component add miri
     - uses: actions/checkout@v4
