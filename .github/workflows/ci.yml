@@ -8,8 +8,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-
-env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -22,7 +20,7 @@ jobs:
       build-container: ${{ steps.filter.outputs.changed }}
     steps:
       - id: filter
-        uses: dorny/paths-filter
+        uses: dorny/paths-filter@v3.0.2
         with:
           filters: |
             changed: .github/workflows/ubuntu.dockerfile
