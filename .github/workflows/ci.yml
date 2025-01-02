@@ -32,13 +32,13 @@ jobs:
       name: Build glslc
       run: |
         cd shaderc && mkdir build
-        cmake -GNinja -Bbuild -DCMAKE_BUILD_TYPE=Release \
+        cmake -Bbuild -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX="$(realpath ../bin)" \
           -DSHADERC_SKIP_TESTS=ON \
           -DSHADERC_SKIP_EXAMPLES=ON \
           -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
           -DSHADERC_ENABLE_WERROR_COMPILE=OFF .
-        ninja install
+        make -j$(nproc) install
         cd ..
         echo "$(realpath bin)" >> "$GITHUB_PATH"
         ls bin
