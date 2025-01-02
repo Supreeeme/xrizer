@@ -31,7 +31,8 @@ jobs:
     - if: steps.cache-glslc.outputs.cache-hit != 'true'
       name: Build glslc
       run: |
-        cd shaderc && mkdir build
+        cd shaderc
+        ./utils/git-sync-deps
         cmake -Bbuild -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX="$(realpath ../bin)" \
           -DSHADERC_SKIP_TESTS=ON \
