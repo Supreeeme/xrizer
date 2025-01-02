@@ -57,38 +57,12 @@ jobs:
     needs: ubuntu-build
     if: ${{ needs.ubuntu-build.result == 'skipped' || needs.ubuntu-build.result == 'success' }}
     runs-on: ubuntu-latest
+    container:
+      image: ${{ env.REGISTRY }}/${{ github.actor }}/${{ env.IMAGE_NAME }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
     steps:
-    - name: Cache glslc
-      uses: actions/cache@v3
-      id: cache-glslc
-      with:
-        path: bin/glslc
-        key: glslc
-    - if: steps.cache-glslc.outputs.cache-hit != 'true'
-      name: Checkout glslc
-      uses: actions/checkout@v4
-      with:
-        repository: google/shaderc
-        ref: v2024.4
-        path: shaderc
-    - if: steps.cache-glslc.outputs.cache-hit != 'true'
-      name: Build glslc
-      run: |
-        cd shaderc
-        ./utils/git-sync-deps
-        cmake -Bbuild -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_INSTALL_PREFIX="$(realpath ../bin)" \
-          -DSHADERC_ENABLE_INSTALL=ON \
-          -DSHADERC_SKIP_TESTS=ON \
-          -DSHADERC_SKIP_EXAMPLES=ON \
-          -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
-          -DSHADERC_ENABLE_WERROR_COMPILE=OFF .
-        make -j$(nproc) install
-        cd ..
-        echo "$(realpath bin)" >> "$GITHUB_PATH"
-        ls bin
-    - name: Install miri
-      run: rustup toolchain install nightly && rustup +nightly component add miri
     - uses: actions/checkout@v4
     - name: Format
       run: cargo fmt --check
