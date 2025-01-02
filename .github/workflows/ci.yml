@@ -35,6 +35,7 @@ jobs:
         ./utils/git-sync-deps
         cmake -Bbuild -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX="$(realpath ../bin)" \
+          -DSHADERC_ENABLE_INSTALL=ON \
           -DSHADERC_SKIP_TESTS=ON \
           -DSHADERC_SKIP_EXAMPLES=ON \
           -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
