@@ -58,10 +58,10 @@ jobs:
     if: ${{ needs.ubuntu-build.result == 'skipped' || needs.ubuntu-build.result == 'success' }}
     runs-on: ubuntu-latest
     container:
-      image: ${{ env.REGISTRY }}/${{ github.actor }}/${{ env.IMAGE_NAME }}
+      image: ghcr.io/${{ github.actor }}/${{ github.repository }}
       credentials:
         username: ${{ github.actor }}
-        password: ${{ secrets.github_token }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v4
     - name: Format
