@@ -19,7 +19,8 @@ jobs:
       uses: actions/cache@v3
       id: cache-glslc
       with:
-        path: glslc/bin/glslc
+        path: bin/glslc
+        key: glslc
     - if: steps.cache-glslc.outputs.cache-hit != 'true'
       name: Checkout glslc
       uses: actions/checkout@v4
