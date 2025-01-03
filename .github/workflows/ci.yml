@@ -12,23 +12,8 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  dockerfile-changed:
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-    outputs:
-      build-container: ${{ steps.filter.outputs.changed }}
-    steps:
-      - id: filter
-        uses: dorny/paths-filter@v3.0.2
-        with:
-          filters: |
-            changed: .github/workflows/ubuntu.dockerfile
-
   ubuntu-build:
     runs-on: ubuntu-latest
-    needs: dockerfile-changed
-    if: ${{ needs.dockerfile-changed.outputs.changed == 'true' }}
     permissions:
       contents: read
       packages: write
@@ -38,40 +23,32 @@ jobs:
       image: ${{ steps.output.image }}
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/login-action@v3.3.0
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: extract metadata
         id: meta
-        uses: docker/metadata-action@v5.6.1
+        uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
       - name: build and push
-        uses: docker/build-push-action@v6.10.0
+        uses: docker/build-push-action@v6
         with:
           file: .github/workflows/ubuntu.dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: output
         run: echo "image='${{ steps.meta.outputs.tags }}' >> "${GITHUB_OUTPUT}"
 
-  repo-lower:
-    runs-on: ubuntu-latest
-    outputs:
-      repo: ${{ steps.getrepo.outputs.repo }}
-    steps:
-      - id: getrepo
-        run: echo "repo=${GITHUB_REPOSITORY@L}" >> "${GITHUB_OUTPUT}"
-
   build:
-    needs: [ubuntu-build, repo-lower]
-    if: ${{ needs.ubuntu-build.result == 'skipped' || needs.ubuntu-build.result == 'success' }}
+    needs: ubuntu-build
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ needs.ubuntu-build.result == 'success' && needs.ubuntu-build.outputs.image || needs.repo-lower.outputs.repo }}
+      image: ghcr.io/${{ needs.ubuntu-build.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
