@@ -16,4 +16,5 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 	&& rustup default stable \
 	&& rustup toolchain install nightly \
 	&& rustup +nightly component add miri
-ENV PATH="/root/.cargo/bin:$PATH"
+
+ENV PATH="/root/.cargo/bin:$PATH" CARGO_HOME="/root/.cargo" RUSTUP_HOME="/root/.rustup"
