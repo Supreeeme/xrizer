@@ -13,6 +13,7 @@ RUN wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | tee /etc/
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 	&& . "$HOME/.cargo/env" \
 	&& rustup toolchain install stable \
+	&& rustup default stable \
 	&& rustup toolchain install nightly \
 	&& rustup +nightly component add miri
 ENV PATH="/root/.cargo/bin:$PATH"
