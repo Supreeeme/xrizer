@@ -53,12 +53,20 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.tags }}
 
+  repo-lower:
+    runs-on: ubuntu-latest
+    outputs:
+      repo: ${{ steps.getrepo.outputs.repo }}
+    steps:
+      - id: getrepo
+        run: echo "repo=${GITHUB_REPOSITORY@L}" >> "${GITHUB_OUTPUT}"
+
   build:
-    needs: ubuntu-build
+    needs: [ubuntu-build, repo-lower]
     if: ${{ needs.ubuntu-build.result == 'skipped' || needs.ubuntu-build.result == 'success' }}
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ github.actor }}/${{ github.repository }}
+      image: ghcr.io/${{ needs.repo-lower.outputs.repo }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
