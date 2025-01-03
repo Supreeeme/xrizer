@@ -44,7 +44,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: output
-        run: echo "image='${{ steps.meta.outputs.tags }}' >> "${GITHUB_OUTPUT}"
+        run: echo "image='${{ steps.meta.outputs.tags }}'" >> "${GITHUB_OUTPUT}"
 
   build:
     needs: ubuntu-build
