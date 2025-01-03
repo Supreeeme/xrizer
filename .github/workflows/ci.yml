@@ -90,6 +90,7 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
     - uses: actions/checkout@v4
     - name: Run tests with miri
       run: cargo +nightly miri test
