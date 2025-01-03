@@ -20,7 +20,7 @@ jobs:
       id-token: write
 
     outputs:
-      image: ${{ steps.output.image }}
+      image: ${{ steps.output.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -44,7 +44,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - id: output
-        run: echo "image='${{ steps.meta.outputs.tags }}'" >> "${GITHUB_OUTPUT}"
+        run: echo "image=${{ steps.meta.outputs.tags }}" >> "${GITHUB_OUTPUT}"
 
   build:
     needs: ubuntu-build
