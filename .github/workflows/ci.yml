@@ -10,47 +10,53 @@ env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  UBUNTU_DOCKERFILE: .github/workflows/ubuntu.dockerfile
 
 jobs:
+  check-should-build-container:
+    runs-on: ubuntu-latest
+    steps:
+      - id: changed
+        uses: tj-actions/changed-files@v45
+        with:
+          files: ${{ env.UBUNTU_DOCKERFILE }}
+      - id: name
+        run: echo "container_path=${{ env.REGISTRY }}/${GITHUB_REPOSITORY@L}" >> "$GITHUB_OUTPUT"
+    outputs:
+      should-build: ${{ steps.changed.outputs.any_changed }}
+      container-path: ${{ steps.name.outputs.container_path }}
+
   ubuntu-build:
     runs-on: ubuntu-latest
+    needs: check-should-build-container
+    if: ${{ needs.check-should-build-container.outputs.should-build == 'true' }}
     permissions:
       contents: read
       packages: write
       id-token: write
 
-    outputs:
-      image: ${{ steps.output.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
+      - uses: docker/build-push-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-      - name: build and push
-        uses: docker/build-push-action@v6
-        with:
-          file: .github/workflows/ubuntu.dockerfile
+          file: ${{ env.UBUNTU_DOCKERFILE }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ needs.check-should-build-container.outputs.container-path }}-ubuntu:latest
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - id: output
-        run: echo "image=${{ steps.meta.outputs.tags }}" >> "${GITHUB_OUTPUT}"
 
-  build:
-    needs: ubuntu-build
+  check-format:
+    needs: [ubuntu-build, check-should-build-container]
+    if: ${{ needs.ubuntu-build.result == 'success' || needs.ubuntu-build.result == 'skipped' }}
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ needs.ubuntu-build.outputs.image }}
+      image: ${{ needs.check-should-build-container.outputs.container-path }}-ubuntu:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -58,9 +64,32 @@ jobs:
     - uses: actions/checkout@v4
     - name: Format
       run: cargo fmt --check
+
+  build-and-test:
+    needs: [ubuntu-build, check-should-build-container]
+    if: ${{ needs.ubuntu-build.result == 'success' || needs.ubuntu-build.result == 'skipped' }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.check-should-build-container.outputs.container-path }}-ubuntu:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
     - name: Build
-      run: cargo xbuild --release --verbose
+      run: cargo build --release --verbose
     - name: Run tests
       run: cargo test --verbose
+
+  miri:
+    needs: [ubuntu-build, check-should-build-container]
+    if: ${{ needs.ubuntu-build.result == 'success' || needs.ubuntu-build.result == 'skipped' }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.check-should-build-container.outputs.container-path }}-ubuntu:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v4
     - name: Run tests with miri
       run: cargo +nightly miri test
