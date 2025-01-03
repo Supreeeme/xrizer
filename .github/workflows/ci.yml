@@ -43,7 +43,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: output
+      - id: output
         run: echo "image='${{ steps.meta.outputs.tags }}'" >> "${GITHUB_OUTPUT}"
 
   build:
