@@ -17,7 +17,24 @@
 		{
 			"name": "/actions/set1/in/Mixed, Action",
 			"type": "boolean"
+		},
+		{
+			"name": "/actions/set1/in/ThisActionHasAReallyLongNameThatIsMostCertainlyLongerThanTheOpenXRLimit,However,ItWillBeGivenASimpleLocalizedName",
+			"type": "boolean"
+		},
+		{
+			"name": "/actions/set1/in/ThisActionWillAlsoHaveAReallyLongNameAndAShortLocalizedName,MuchLikeThePreviousAction",
+			"type": "boolean"
 		}
 	],
-	"default_bindings": []
+	"default_bindings": [],
+	"localization": [
+		{
+			"language_tag": "en_US",
+			"/actions/set1/in/Action With Spaces": "action",
+			"/actions/set1/in/Action,With,Commas": "action",
+			"/actions/set1/in/ThisActionHasAReallyLongNameThatIsMostCertainlyLongerThanTheOpenXRLimit,However,ItWillBeGivenASimpleLocalizedName": "action",
+			"/actions/set1/in/ThisActionWillAlsoHaveAReallyLongNameAndAShortLocalizedName,MuchLikeThePreviousAction": "action"
+		}
+	]
 }

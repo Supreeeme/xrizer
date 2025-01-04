@@ -313,9 +313,11 @@ fn load_actions(
 
             set.create_action(&xr_friendly_name, localized, paths)
                 .or_else(|err| {
-                    // If we get a duplicated localized name, just unduplicate it and try again
+                    // If we get a duplicated localized name, just deduplicate it and try again
                     if err == xr::sys::Result::ERROR_LOCALIZED_NAME_DUPLICATED {
-                        let localized = format!("{localized} (copy)");
+                        // Action names are inherently unique, so just throw it at the end of the
+                        // localized name to make it a unique
+                        let localized = format!("{localized} ({xr_friendly_name})");
                         set.create_action(&xr_friendly_name, &localized, paths)
                     } else {
                         Err(err)

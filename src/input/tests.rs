@@ -581,6 +581,8 @@ fn actions_with_bad_paths() {
     let spaces = f.get_action_handle(c"/actions/set1/in/action with spaces");
     let commas = f.get_action_handle(c"/actions/set1/in/action,with,commas");
     let mixed = f.get_action_handle(c"/actions/set1/in/mixed, action");
+    let long_bad1 = f.get_action_handle(c"/actions/set1/in/ThisActionHasAReallyLongNameThatIsMostCertainlyLongerThanTheOpenXRLimit,However,ItWillBeGivenASimpleLocalizedName");
+    let long_bad2 = f.get_action_handle(c"/actions/set1/in/ThisActionWillAlsoHaveAReallyLongNameAndAShortLocalizedName,MuchLikeThePreviousAction");
     let set1 = f.get_action_set_handle(c"/actions/set1");
     f.load_actions(c"actions_malformed_paths.json");
 
@@ -599,6 +601,16 @@ fn actions_with_bad_paths() {
         fakexr::ActionState::Bool(true),
         LeftHand,
     );
+    fakexr::set_action_state(
+        f.get_action::<bool>(long_bad1),
+        fakexr::ActionState::Bool(false),
+        LeftHand,
+    );
+    fakexr::set_action_state(
+        f.get_action::<bool>(long_bad2),
+        fakexr::ActionState::Bool(false),
+        LeftHand,
+    );
     f.sync(vr::VRActiveActionSet_t {
         ulActionSet: set1,
         ..Default::default()
@@ -613,6 +625,16 @@ fn actions_with_bad_paths() {
     assert!(s.bActive);
     assert!(s.bState);
     assert!(s.bChanged);
+
+    let s = f.get_bool_state(long_bad1).unwrap();
+    assert!(s.bActive);
+    assert!(!s.bState);
+    assert!(!s.bChanged);
+
+    let s = f.get_bool_state(long_bad2).unwrap();
+    assert!(s.bActive);
+    assert!(!s.bState);
+    assert!(!s.bChanged);
 
     let mut s = vr::InputAnalogActionData_t::default();
     let ret = f
