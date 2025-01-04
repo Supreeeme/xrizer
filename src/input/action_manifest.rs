@@ -306,21 +306,21 @@ fn load_actions(
                 );
                 *long_name_idx += 1;
             }
-            let localized = localized.unwrap_or(&xr_friendly_name);
+            let mut localized = localized.unwrap_or(&xr_friendly_name).to_string();
             trace!(
                 "Creating action {xr_friendly_name} (localized: {localized}) in set {set_name:?}"
             );
 
-            set.create_action(&xr_friendly_name, localized, paths)
-                .or_else(|err| {
-                    // If we get a duplicated localized name, just unduplicate it and try again
-                    if err == xr::sys::Result::ERROR_LOCALIZED_NAME_DUPLICATED {
-                        let localized = format!("{localized} (copy)");
-                        set.create_action(&xr_friendly_name, &localized, paths)
-                    } else {
-                        Err(err)
+            loop {
+                // If we get a duplicate localized name, keep adding "(Copy)" until conflict resolved
+                match set.create_action(&xr_friendly_name, localized.as_str(), paths) {
+                    Err(err) if err == xr::sys::Result::ERROR_LOCALIZED_NAME_DUPLICATED => {
+                        localized = format!("{localized} (Copy)");
+                        continue;
                     }
-                })
+                    result => return result,
+                };
+            }
         }
 
         let paths = &[left_hand, right_hand];
