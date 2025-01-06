@@ -1,5 +1,6 @@
 use super::{InteractionProfile, PathTranslation, StringToPath};
 use crate::input::legacy::LegacyBindings;
+use crate::openxr_data::Hand;
 use std::ffi::CStr;
 
 pub struct ViveWands;
@@ -10,6 +11,9 @@ impl InteractionProfile for ViveWands {
     }
     fn model(&self) -> &'static CStr {
         c"Vive. Controller MV"
+    }
+    fn render_model_name(&self, _: Hand) -> &'static CStr {
+        c"vr_controller_vive_1_5"
     }
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/htc/vive_controller"

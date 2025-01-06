@@ -1,5 +1,6 @@
 use super::{InteractionProfile, PathTranslation, StringToPath};
 use crate::input::legacy::LegacyBindings;
+use crate::openxr_data::Hand;
 use std::ffi::CStr;
 
 pub struct SimpleController;
@@ -10,6 +11,9 @@ impl InteractionProfile for SimpleController {
     }
     fn model(&self) -> &'static CStr {
         c"<unknown>"
+    }
+    fn render_model_name(&self, _: Hand) -> &'static CStr {
+        c"generic_controller"
     }
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/khr/simple_controller"

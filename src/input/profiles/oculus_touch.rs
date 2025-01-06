@@ -1,5 +1,6 @@
 use super::{InteractionProfile, PathTranslation, StringToPath};
 use crate::input::legacy::LegacyBindings;
+use crate::openxr_data::Hand;
 use std::ffi::CStr;
 
 pub struct Touch;
@@ -10,6 +11,12 @@ impl InteractionProfile for Touch {
     }
     fn model(&self) -> &'static CStr {
         c"Miramar"
+    }
+    fn render_model_name(&self, hand: Hand) -> &'static CStr {
+        match hand {
+            Hand::Left => c"oculus_quest_controller_left",
+            Hand::Right => c"oculus_quest_controller_right",
+        }
     }
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/oculus/touch_controller"

@@ -1103,6 +1103,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         struct ProfileData {
             controller_type: &'static CStr,
             model_number: &'static CStr,
+            render_model_name: &'static CStr,
         }
         static PROFILE_MAP: OnceLock<HashMap<xr::Path, ProfileData>> = OnceLock::new();
         let get_profile_data = || {
@@ -1116,6 +1117,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                             ProfileData {
                                 controller_type: profile.openvr_controller_type(),
                                 model_number: profile.model(),
+                                render_model_name: profile.render_model_name(hand),
                             },
                         )
                     })
@@ -1138,6 +1140,10 @@ impl<C: openxr_data::Compositor> Input<C> {
             // why it couldn't just use ControllerType instead is beyond me...
             vr::ETrackedDeviceProperty::ModelNumber_String => {
                 get_profile_data().map(|data| data.model_number)
+            }
+            // Resonite won't recognize controllers without this
+            vr::ETrackedDeviceProperty::RenderModelName_String => {
+                get_profile_data().map(|data| data.render_model_name)
             }
             // Required for controllers to be acknowledged in I Expect You To Die 3
             vr::ETrackedDeviceProperty::SerialNumber_String
