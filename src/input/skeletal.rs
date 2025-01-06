@@ -24,12 +24,6 @@ impl<C: openxr_data::Compositor> Input<C> {
     ) {
         use HandSkeletonBone::*;
 
-        // TODO: this stuff does not work correctly for model space right now (Alyx)
-        if space == vr::EVRSkeletalTransformSpace::Model {
-            self.get_estimated_bones(session_data, space, hand, transforms);
-            return;
-        }
-
         let legacy = session_data.input_data.legacy_actions.get().unwrap();
         let display_time = self.openxr.display_time.get();
         let Some(raw) = match hand {
@@ -99,32 +93,32 @@ impl<C: openxr_data::Compositor> Input<C> {
             0.0,
         ));
 
-        if space == vr::EVRSkeletalTransformSpace::Parent {
-            // OpenXR reports all our bones in "model" space (basically), so we need to
-            // convert everything into parent space.
-            // For each finger, the metacarpal is a child of the wrist, and then each consecutive
-            // joint in that finger is a parent->child relationship.
-            // https://github.com/ValveSoftware/openvr/wiki/Hand-Skeleton#bone-structure
-            let parent_id = RefCell::new(xr::HandJoint::WRIST);
-            let mut parented_joints = joints.clone();
-            let mut localize = |joint: xr::HandJoint| {
-                let mut parent_id = parent_id.borrow_mut();
-                parented_joints[joint] = joints[*parent_id].inverse() * parented_joints[joint];
-                *parent_id = joint;
-            };
+        // OpenXR reports all our bones in "model" space (basically), so we need to
+        // convert everything into parent space.
+        // For each finger, the metacarpal is a child of the wrist, and then each consecutive
+        // joint in that finger is a parent->child relationship.
+        // https://github.com/ValveSoftware/openvr/wiki/Hand-Skeleton#bone-structure
+        let parent_id = RefCell::new(xr::HandJoint::WRIST);
+        let mut parented_joints = joints.clone();
+        let mut localize = |joint: xr::HandJoint| {
+            let mut parent_id = parent_id.borrow_mut();
+            parented_joints[joint] = joints[*parent_id].inverse() * parented_joints[joint];
+            *parent_id = joint;
+        };
 
-            for joint_list in JOINTS_TO_BONES.iter().copied().skip(1) {
-                for (joint, _) in joint_list.iter().copied() {
-                    localize(joint);
-                }
-                *parent_id.borrow_mut() = xr::HandJoint::WRIST;
+        for joint_list in JOINTS_TO_BONES.iter().copied().skip(1) {
+            for (joint, _) in joint_list.iter().copied() {
+                localize(joint);
             }
-
-            joints = parented_joints;
+            *parent_id.borrow_mut() = xr::HandJoint::WRIST;
         }
 
-        // The root bone is supposed to not transform, allegedly
-        // Changing the root bone seems to change the offset of the hand
+        joints = parented_joints;
+
+        // The root bone is supposed to not transform
+        // Changing the root bone appears to change the offset of the hand, but causes issues in
+        // games such as The Lab, it also won't work in model space because the transform won't get
+        // applied to the wrist in the conversion method.
         transforms[Root as usize] = Affine3A::IDENTITY.into();
 
         // Currently as is, the hands will point down
@@ -144,6 +138,20 @@ impl<C: openxr_data::Compositor> Input<C> {
             .copied()
         {
             xr_joint_to_vr_bone(&joints[joint], &mut transforms[bone as usize])
+        }
+
+        // Convert back to model space if needed
+        // it is unnecessary to convert back and forth, but it works and it's easy
+        if space == vr::EVRSkeletalTransformSpace::Model {
+            let bone_data: Vec<(Vec3, Quat)> = parent_to_model_space_bone_data(
+                transforms.iter().map(|t| bone_transform_to_glam(*t)),
+            )
+            .collect();
+
+            for (transform, (pos, rot)) in transforms.iter_mut().zip(bone_data) {
+                transform.position = pos.into();
+                transform.orientation = rot.into();
+            }
         }
 
         *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Full;
