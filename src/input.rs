@@ -47,6 +47,7 @@ pub struct Input<C: openxr_data::Compositor> {
     loaded_actions_path: OnceLock<PathBuf>,
     cached_poses: Mutex<CachedSpaces>,
     legacy_packet_num: AtomicU32,
+    skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
 }
 
 impl<C: openxr_data::Compositor> Input<C> {
@@ -65,6 +66,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             right_hand_key,
             cached_poses: Mutex::default(),
             legacy_packet_num: 0.into(),
+            skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
         }
     }
 
@@ -372,6 +374,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let ActionData::Skeleton { hand, hand_tracker } = action else {
             return vr::EVRInputError::WrongType;
         };
+
         if let Some(hand_tracker) = hand_tracker.as_ref() {
             self.get_bones_from_hand_tracking(
                 &self.openxr,
@@ -389,11 +392,27 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
     }
     fn GetSkeletalTrackingLevel(
         &self,
-        _: vr::VRActionHandle_t,
+        action: vr::VRActionHandle_t,
         level: *mut vr::EVRSkeletalTrackingLevel,
     ) -> vr::EVRInputError {
+        get_action_from_handle!(self, action, data, action);
+        let ActionData::Skeleton { hand, .. } = action else {
+            return vr::EVRInputError::WrongType;
+        };
+
+        let controller_type = self.get_controller_string_tracked_property(
+            *hand,
+            vr::ETrackedDeviceProperty::ControllerType_String,
+        );
+
         unsafe {
-            *level = vr::EVRSkeletalTrackingLevel::Partial;
+            // Make sure knuckles are always Partial
+            // TODO: Remove in favor of using XR_EXT_hand_tracking_data_source
+            if controller_type == Some(c"knuckles") {
+                *level = vr::EVRSkeletalTrackingLevel::Partial;
+            } else {
+                *level = *self.skeletal_tracking_level.read().unwrap();
+            }
         }
         vr::EVRInputError::None
     }

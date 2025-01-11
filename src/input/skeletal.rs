@@ -145,6 +145,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         {
             xr_joint_to_vr_bone(&joints[joint], &mut transforms[bone as usize])
         }
+
+        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Full;
     }
 
     pub(super) fn get_estimated_bones(
@@ -239,6 +241,8 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         // TODO: This is an arbitrary transform, and only appears to work as expected in parent space.
         transforms[Root as usize].position = Vec3::new(0.0, 0.0, -0.15).into();
+
+        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
     }
 }
 
