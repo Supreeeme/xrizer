@@ -175,12 +175,12 @@ impl<C: openxr_data::Compositor> Input<C> {
         let (bind, squeeze, open) = match hand {
             Hand::Left => (
                 &gen::left_hand::BINDPOSE,
-                &gen::left_hand::SQUEEZE,
+                &gen::left_hand::FIST,
                 &gen::left_hand::OPENHAND,
             ),
             Hand::Right => (
                 &gen::right_hand::BINDPOSE,
-                &gen::right_hand::SQUEEZE,
+                &gen::right_hand::FIST,
                 &gen::right_hand::OPENHAND,
             ),
         };
