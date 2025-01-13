@@ -1060,7 +1060,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
                 let legacy = LegacyActionData::new(
                     &self.openxr.instance,
-                    &data.session,
                     self.openxr.left_hand.subaction_path,
                     self.openxr.right_hand.subaction_path,
                 );
@@ -1186,7 +1185,7 @@ impl CachedSpaces {
             };
 
             if let Some(raw) =
-                spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions, display_time)
+                spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions)
             {
                 raw.relate(session_data.get_space_for_origin(origin), display_time)
                     .unwrap()
