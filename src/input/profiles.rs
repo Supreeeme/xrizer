@@ -5,6 +5,7 @@ pub mod vive_controller;
 
 use super::{action_manifest::ControllerType, legacy::LegacyBindings};
 use crate::openxr_data::Hand;
+use glam::Mat4;
 use knuckles::Knuckles;
 use oculus_touch::Touch;
 use openxr as xr;
@@ -20,9 +21,8 @@ pub trait InteractionProfile: Sync + Send {
 
     fn legal_paths(&self) -> Box<[String]>;
     fn legacy_bindings(&self, string_to_path: &dyn StringToPath) -> LegacyBindings;
-    fn offset_grip_pose(&self, pose: xr::Posef) -> xr::Posef {
-        pose
-    }
+    /// Can be extracted from SteamVR rendermodel files, it is the inverse of the "grip" or "openxr_grip" value
+    fn offset_grip_pose(&self, _: Hand) -> Mat4;
 }
 
 pub enum Property<T> {

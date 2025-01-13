@@ -1,5 +1,8 @@
+use glam::Mat4;
+
 use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, StringToPath};
 use crate::input::legacy::LegacyBindings;
+use crate::openxr_data::Hand;
 
 pub struct SimpleController;
 
@@ -58,5 +61,9 @@ impl InteractionProfile for SimpleController {
             ]
         })
         .collect()
+    }
+
+    fn offset_grip_pose(&self, _: Hand) -> Mat4 {
+        Mat4::IDENTITY
     }
 }
