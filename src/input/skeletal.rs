@@ -218,36 +218,38 @@ impl<C: openxr_data::Compositor> Input<C> {
         let pre_it = (Root as usize..=Thumb3 as usize).map(rest_map);
         let rest_it = (MiddleFinger0 as usize..Count as usize).map(rest_map);
 
-        // If we need to convert our iterator to model space, it will become a different type -
-        // this is the only reason for this enum existing
-        enum TransformedIt<T: PoseIterator, U: PoseIterator> {
-            Parent(T),
-            Model(U),
-        }
-        let mut full_it = TransformedIt::Parent(pre_it.chain(index_it).chain(rest_it));
+        let bone_it = pre_it.chain(index_it).chain(rest_it);
 
-        if space == vr::EVRSkeletalTransformSpace::Model {
-            let TransformedIt::Parent(it) = full_it else {
-                unreachable!();
-            };
-            full_it = TransformedIt::Model(parent_to_model_space_bone_data(it));
-        }
-
-        fn convert(it: impl PoseIterator, transforms: &mut [vr::VRBoneTransform_t]) {
-            for ((pos, rot), transform) in it.zip(transforms) {
-                *transform = vr::VRBoneTransform_t {
-                    position: pos.into(),
-                    orientation: rot.into(),
-                };
-            }
-        }
-
-        match full_it {
-            TransformedIt::Parent(it) => convert(it, transforms),
-            TransformedIt::Model(it) => convert(it, transforms),
-        }
-
+        finalize_transforms(bone_it, space, transforms);
         *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
+    }
+
+    pub(super) fn get_reference_transforms(
+        &self,
+        hand: Hand,
+        space: vr::EVRSkeletalTransformSpace,
+        pose: vr::EVRSkeletalReferencePose,
+        transforms: &mut [vr::VRBoneTransform_t],
+    ) {
+        let skeleton = match hand {
+            Hand::Left => match pose {
+                vr::EVRSkeletalReferencePose::BindPose => &gen::left_hand::BINDPOSE,
+                vr::EVRSkeletalReferencePose::OpenHand => &gen::left_hand::OPENHAND,
+                vr::EVRSkeletalReferencePose::Fist => &gen::left_hand::FIST,
+                vr::EVRSkeletalReferencePose::GripLimit => &gen::left_hand::GRIPLIMIT,
+            },
+            Hand::Right => match pose {
+                vr::EVRSkeletalReferencePose::BindPose => &gen::right_hand::BINDPOSE,
+                vr::EVRSkeletalReferencePose::OpenHand => &gen::right_hand::OPENHAND,
+                vr::EVRSkeletalReferencePose::Fist => &gen::right_hand::FIST,
+                vr::EVRSkeletalReferencePose::GripLimit => &gen::right_hand::GRIPLIMIT,
+            },
+        };
+
+        let bone_it =
+            (0..HandSkeletonBone::Count as usize).map(|idx| bone_transform_to_glam(skeleton[idx]));
+
+        finalize_transforms(bone_it, space, transforms);
     }
 }
 
@@ -304,6 +306,41 @@ fn bone_transform_to_glam(transform: vr::VRBoneTransform_t) -> (Vec3, Quat) {
         Vec3::from_slice(&transform.position.v[..3]),
         Quat::from_xyzw(rot.x, rot.y, rot.z, rot.w),
     )
+}
+
+fn finalize_transforms(
+    bone_iterator: impl PoseIterator,
+    space: vr::EVRSkeletalTransformSpace,
+    transforms: &mut [vr::VRBoneTransform_t],
+) {
+    // If we need to convert our iterator to model space, it will become a different type -
+    // this is the only reason for this enum existing
+    enum TransformedIt<T: PoseIterator, U: PoseIterator> {
+        Parent(T),
+        Model(U),
+    }
+    let mut full_it = TransformedIt::Parent(bone_iterator);
+
+    if space == vr::EVRSkeletalTransformSpace::Model {
+        let TransformedIt::Parent(it) = full_it else {
+            unreachable!();
+        };
+        full_it = TransformedIt::Model(parent_to_model_space_bone_data(it));
+    }
+
+    fn convert(it: impl PoseIterator, transforms: &mut [vr::VRBoneTransform_t]) {
+        for ((pos, rot), transform) in it.zip(transforms) {
+            *transform = vr::VRBoneTransform_t {
+                position: pos.into(),
+                orientation: rot.into(),
+            };
+        }
+    }
+
+    match full_it {
+        TransformedIt::Parent(it) => convert(it, transforms),
+        TransformedIt::Model(it) => convert(it, transforms),
+    }
 }
 
 macro_rules! joints_for_finger {

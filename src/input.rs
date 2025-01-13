@@ -456,13 +456,29 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
     }
     fn GetSkeletalReferenceTransforms(
         &self,
-        _: vr::VRActionHandle_t,
-        _: vr::EVRSkeletalTransformSpace,
-        _: vr::EVRSkeletalReferencePose,
-        _: *mut vr::VRBoneTransform_t,
-        _: u32,
+        handle: vr::VRActionHandle_t,
+        space: vr::EVRSkeletalTransformSpace,
+        pose: vr::EVRSkeletalReferencePose,
+        transform_array: *mut vr::VRBoneTransform_t,
+        transform_array_count: u32,
     ) -> vr::EVRInputError {
-        crate::warn_unimplemented!("GetSkeletalReferenceTransforms");
+        // As far as I'm aware this is only/mainly used by HL:A
+        // For some reason it is required to position the wrist bone at all times, at least when it comes to Quest controllers
+
+        assert_eq!(
+            transform_array_count,
+            skeletal::HandSkeletonBone::Count as u32
+        );
+        let transforms = unsafe {
+            std::slice::from_raw_parts_mut(transform_array, transform_array_count as usize)
+        };
+
+        get_action_from_handle!(self, handle, session_data, action);
+        let ActionData::Skeleton { hand, .. } = action else {
+            return vr::EVRInputError::WrongType;
+        };
+
+        self.get_reference_transforms(*hand, space, pose, transforms);
         vr::EVRInputError::None
     }
     fn GetBoneName(
