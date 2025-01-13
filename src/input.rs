@@ -1125,7 +1125,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
                 let legacy = LegacyActionData::new(
                     &self.openxr.instance,
-                    &data.session,
                     self.openxr.left_hand.subaction_path,
                     self.openxr.right_hand.subaction_path,
                 );
@@ -1247,15 +1246,14 @@ impl CachedSpaces {
             Hand::Right => &legacy.right_spaces,
         };
 
-        let (loc, velo) = if let Some(raw) =
-            spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions, display_time)
-        {
-            raw.relate(session_data.get_space_for_origin(origin), display_time)
-                .unwrap()
-        } else {
-            trace!("failed to get raw space, making empty pose");
-            (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
-        };
+        let (loc, velo) =
+            if let Some(raw) = spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions) {
+                raw.relate(session_data.get_space_for_origin(origin), display_time)
+                    .unwrap()
+            } else {
+                trace!("failed to get raw space, making empty pose");
+                (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
+            };
 
         let ret = space_relation_to_openvr_pose(loc, velo);
         Some(*pose.insert(ret))

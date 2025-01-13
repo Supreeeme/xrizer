@@ -28,8 +28,9 @@ pub trait InteractionProfile: Sync + Send {
 
     fn legal_paths(&self) -> Box<[String]>;
     fn legacy_bindings(&self, string_to_path: &dyn StringToPath) -> LegacyBindings;
-    fn offset_grip_pose(&self, pose: xr::Posef) -> xr::Posef {
-        pose
+    /// Can be extracted from SteamVR rendermodel files, it is the inverse of the "grip" value
+    fn offset_grip_pose(&self, _: Hand) -> xr::Posef {
+        xr::Posef::IDENTITY
     }
 }
 
