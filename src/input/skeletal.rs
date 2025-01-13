@@ -30,7 +30,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             Hand::Left => &legacy.left_spaces,
             Hand::Right => &legacy.right_spaces,
         }
-        .try_get_or_init_raw(xr_data, session_data, &legacy.actions, display_time) else {
+        .try_get_or_init_raw(xr_data, session_data, &legacy.actions) else {
             self.get_estimated_bones(session_data, space, hand, transforms);
             return;
         };
@@ -246,9 +246,6 @@ impl<C: openxr_data::Compositor> Input<C> {
             TransformedIt::Parent(it) => convert(it, transforms),
             TransformedIt::Model(it) => convert(it, transforms),
         }
-
-        // TODO: This is an arbitrary transform, and only appears to work as expected in parent space.
-        transforms[Root as usize].position = Vec3::new(0.0, 0.0, -0.15).into();
 
         *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
     }

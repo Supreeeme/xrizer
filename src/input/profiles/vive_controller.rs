@@ -1,6 +1,7 @@
 use super::{InteractionProfile, PathTranslation, StringToPath};
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
+use openxr as xr;
 use std::ffi::CStr;
 
 pub struct ViveWands;
@@ -76,6 +77,22 @@ impl InteractionProfile for ViveWands {
             trigger_click: stp.leftright("input/trigger/click"),
             app_menu: stp.leftright("input/menu/click"),
             squeeze: stp.leftright("input/squeeze/click"),
+        }
+    }
+
+    fn offset_grip_pose(&self, _: Hand) -> openxr::Posef {
+        xr::Posef {
+            orientation: xr::Quaternionf {
+                x: -0.043942,
+                y: 0.000000,
+                z: 0.000000,
+                w: 0.999034,
+            },
+            position: xr::Vector3f {
+                x: 0.000000,
+                y: 0.006426,
+                z: -0.097942,
+            },
         }
     }
 }

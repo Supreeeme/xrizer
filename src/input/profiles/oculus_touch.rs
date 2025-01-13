@@ -1,6 +1,7 @@
 use super::{InteractionProfile, PathTranslation, StringToPath};
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
+use openxr as xr;
 use std::ffi::CStr;
 
 pub struct Touch;
@@ -109,6 +110,37 @@ impl InteractionProfile for Touch {
         });
 
         left_only.chain(right_only).chain(both).collect()
+    }
+
+    fn offset_grip_pose(&self, hand: Hand) -> openxr::Posef {
+        match hand {
+            Hand::Left => xr::Posef {
+                orientation: xr::Quaternionf {
+                    x: -0.178802,
+                    y: 0.000000,
+                    z: 0.000000,
+                    w: 0.983885,
+                },
+                position: xr::Vector3f {
+                    x: -0.007000,
+                    y: -0.034157,
+                    z: -0.096073,
+                },
+            },
+            Hand::Right => xr::Posef {
+                orientation: xr::Quaternionf {
+                    x: -0.178802,
+                    y: 0.000000,
+                    z: 0.000000,
+                    w: 0.983885,
+                },
+                position: xr::Vector3f {
+                    x: 0.007000,
+                    y: -0.034157,
+                    z: -0.096073,
+                },
+            },
+        }
     }
 }
 
