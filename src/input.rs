@@ -8,6 +8,8 @@ mod skeletal;
 mod tests;
 
 pub use profiles::{InteractionProfile, Profiles};
+use skeletal::FingerState;
+use skeletal::SkeletalInputActionData;
 
 use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
@@ -50,6 +52,7 @@ pub struct Input<C: openxr_data::Compositor> {
     legacy_packet_num: AtomicU32,
     skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
     profile_map: HashMap<xr::Path, &'static profiles::ProfileProperties>,
+    estimated_finger_state: [Mutex<FingerState>; 2],
 }
 
 #[derive(Debug)]
@@ -111,6 +114,10 @@ impl<C: openxr_data::Compositor> Input<C> {
             legacy_packet_num: 0.into(),
             skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
             profile_map,
+            estimated_finger_state: [
+                Mutex::new(FingerState::new()),
+                Mutex::new(FingerState::new()),
+            ],
         }
     }
 
@@ -131,6 +138,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 pub struct InputSessionData {
     loaded_actions: OnceLock<RwLock<LoadedActions>>,
     legacy_actions: OnceLock<LegacyActionData>,
+    estimated_skeleton_actions: OnceLock<SkeletalInputActionData>,
 }
 
 impl InputSessionData {
@@ -837,7 +845,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             }
 
             let legacy = data.input_data.legacy_actions.get().unwrap();
+            let skeletal_input = data.input_data.estimated_skeleton_actions.get().unwrap();
             sync_sets.push(xr::ActiveActionSet::new(&legacy.set));
+            sync_sets.push(xr::ActiveActionSet::new(&skeletal_input.set));
             self.legacy_packet_num.fetch_add(1, Ordering::Relaxed);
         }
 

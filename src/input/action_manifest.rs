@@ -6,7 +6,10 @@ use super::{
     profiles::{InteractionProfile, PathTranslation, Profiles},
     BoundPoseType, Input,
 };
-use crate::openxr_data::{self, Hand, SessionData};
+use crate::{
+    input::skeletal::SkeletalInputActionData,
+    openxr_data::{self, Hand, SessionData},
+};
 use log::{debug, error, info, trace, warn};
 use openvr as vr;
 use openxr as xr;
@@ -83,6 +86,17 @@ impl<C: openxr_data::Compositor> Input<C> {
             )
         });
 
+        let skeletal_input = session_data
+            .input_data
+            .estimated_skeleton_actions
+            .get_or_init(|| {
+                SkeletalInputActionData::new(
+                    &self.openxr.instance,
+                    self.openxr.left_hand.subaction_path,
+                    self.openxr.right_hand.subaction_path,
+                )
+            });
+
         // See Input::frame_start_update for the explanation of this.
         let info_set = self
             .openxr
@@ -100,12 +114,12 @@ impl<C: openxr_data::Compositor> Input<C> {
             manifest.default_bindings,
             &legacy.actions,
             &info_action,
+            &skeletal_input,
         );
 
         let xr_sets: Vec<_> = sets
             .values()
-            .chain(std::iter::once(&legacy.set))
-            .chain(std::iter::once(&info_set))
+            .chain([&legacy.set, &info_set, &skeletal_input.set].into_iter())
             .collect();
         session_data.session.attach_action_sets(&xr_sets).unwrap();
 
@@ -753,6 +767,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         bindings: Vec<DefaultBindings>,
         legacy_actions: &LegacyActions,
         info_action: &xr::Action<bool>,
+        skeletal_input: &SkeletalInputActionData,
     ) {
         let mut it: Box<dyn Iterator<Item = DefaultBindings>> = Box::new(bindings.into_iter());
         while let Some(DefaultBindings {
@@ -807,6 +822,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                                 actions,
                                 legacy_actions,
                                 info_action,
+                                skeletal_input,
                                 bindings,
                             );
                         }
@@ -832,6 +848,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         actions: &mut LoadedActionDataMap,
         legacy_actions: &LegacyActions,
         info_action: &xr::Action<bool>,
+        skeletal_input: &SkeletalInputActionData,
         bindings: &HashMap<String, ActionSetBinding>,
     ) {
         info!("loading bindings for {}", profile.profile_path());
@@ -845,6 +862,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
         let stp = constrain(|s| self.openxr.instance.string_to_path(s).unwrap());
         let legacy_bindings = profile.legacy_bindings(&stp);
+        let skeletal_bindings = profile.skeletal_input_bindings(&stp);
         let profile_path = stp(profile.profile_path());
         let legal_paths = profile.legal_paths();
         let translate_map = profile.translate_map();
@@ -932,6 +950,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 info_action,
                 info_action_binding,
             )))
+            .chain(skeletal_bindings.binding_iter(&skeletal_input.actions))
             .collect();
 
         self.openxr

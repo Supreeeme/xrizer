@@ -1,6 +1,9 @@
 use glam::Mat4;
 
-use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, StringToPath};
+use super::{
+    InteractionProfile, PathTranslation, ProfileProperties, Property, SkeletalInputBindings,
+    StringToPath,
+};
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
 
@@ -42,6 +45,15 @@ impl InteractionProfile for SimpleController {
             trigger_click: stp.leftright("input/select/click"),
             app_menu: stp.leftright("input/menu/click"),
             squeeze: stp.leftright("input/menu/click"),
+        }
+    }
+
+    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+        SkeletalInputBindings {
+            thumb_touch: Vec::new(),
+            index_touch: stp.leftright("input/select/click"),
+            index_curl: stp.leftright("input/select/click"),
+            rest_curl: stp.leftright("input/menu/click"),
         }
     }
 
