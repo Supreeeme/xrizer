@@ -6,7 +6,11 @@ resolver = "2"
 rust-version = "1.83"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "xrizer_skeletal_input"
+path = "src/input/skeletal_input/bin.rs"
 
 [features]
 tracing = ["dep:tracy-client", "openvr/tracing"]
@@ -49,7 +53,7 @@ glutin_glx_sys = "0.6.0"
 libc = "0.2.169"
 derive_more = { version = "1.0.0", features = ["deref", "from", "try_into"] }
 gl = "0.14.0"
-
+ipc-channel = "0.19.0"
 [build-dependencies]
 shaders = { path = "shaders" }
 

@@ -2,7 +2,6 @@ use super::{
     custom_bindings::DpadDirection,
     legacy::LegacyActionData,
     profiles::{PathTranslation, Profiles},
-    skeletal::SkeletalInputActionData,
     ActionData, ActionKey, BoundPoseType, Input,
 };
 use crate::openxr_data::{self, Hand, SessionData};
@@ -98,17 +97,6 @@ impl<C: openxr_data::Compositor> Input<C> {
             )
         });
 
-        let skeletal_input = session_data
-            .input_data
-            .estimated_skeleton_actions
-            .get_or_init(|| {
-                SkeletalInputActionData::new(
-                    &self.openxr.instance,
-                    self.openxr.left_hand.subaction_path,
-                    self.openxr.right_hand.subaction_path,
-                )
-            });
-
         // See Input::frame_start_update for the explanation of this.
         let info_set = self
             .openxr
@@ -119,13 +107,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             .create_action::<bool>("xrizer-info-action", "XRizer info action", &[])
             .unwrap();
 
-        let mut binding_context = BindingsLoadContext::new(
-            &sets,
-            actions,
-            &legacy.actions,
-            &info_action,
-            skeletal_input,
-        );
+        let mut binding_context =
+            BindingsLoadContext::new(&sets, actions, &legacy.actions, &info_action);
 
         self.load_bindings(
             manifest_path.parent().unwrap(),
@@ -141,10 +124,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             ..
         } = binding_context;
 
-        let xr_sets: Vec<_> = sets
-            .values()
-            .chain([&legacy.set, &info_set, &skeletal_input.set])
-            .collect();
+        let xr_sets: Vec<_> = sets.values().chain([&legacy.set, &info_set]).collect();
         session_data.session.attach_action_sets(&xr_sets).unwrap();
 
         // Try forcing an interaction profile now
@@ -872,7 +852,6 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
         let stp = constrain(|s| self.openxr.instance.string_to_path(s).unwrap());
         let legacy_bindings = profile.legacy_bindings(&stp);
-        let skeletal_bindings = profile.skeletal_input_bindings(&stp);
         let profile_path = stp(profile.profile_path());
         let legal_paths = profile.legal_paths();
         let translate_map = profile.translate_map();
@@ -954,7 +933,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                 context.info_action,
                 info_action_binding,
             )))
-            .chain(skeletal_bindings.binding_iter(&context.skeletal_input.actions))
             .collect();
 
         self.openxr

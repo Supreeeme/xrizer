@@ -4,7 +4,7 @@ pub mod simple_controller;
 pub mod vive_controller;
 
 use super::{
-    action_manifest::ControllerType, legacy::LegacyBindings, skeletal::SkeletalInputBindings,
+    action_manifest::ControllerType, legacy::LegacyBindings, skeletal_input::SkeletalInputBindings,
 };
 use crate::openxr_data::Hand;
 use glam::Mat4;
