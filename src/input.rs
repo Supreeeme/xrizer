@@ -3,14 +3,14 @@ mod custom_bindings;
 mod legacy;
 mod profiles;
 mod skeletal;
-mod skeletal_input;
+pub mod skeletal_input;
 
 #[cfg(test)]
 mod tests;
 
 pub use profiles::{InteractionProfile, Profiles};
 use skeletal::FingerState;
-use skeletal_input::SkeletalInputActionData;
+use skeletal_input::ipc::SkeletalInputIPC;
 
 use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
@@ -52,6 +52,7 @@ pub struct Input<C: openxr_data::Compositor> {
     cached_poses: Mutex<CachedSpaces>,
     legacy_packet_num: AtomicU32,
     skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
+    skeletal_input_ipc: Mutex<SkeletalInputIPC>,
     estimated_finger_state: [Mutex<FingerState>; 2],
 }
 
@@ -100,6 +101,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             cached_poses: Mutex::default(),
             legacy_packet_num: 0.into(),
             skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
+            skeletal_input_ipc: Mutex::new(SkeletalInputIPC::new()),
             estimated_finger_state: [
                 Mutex::new(FingerState::new()),
                 Mutex::new(FingerState::new()),
@@ -124,7 +126,6 @@ impl<C: openxr_data::Compositor> Input<C> {
 pub struct InputSessionData {
     loaded_actions: OnceLock<RwLock<LoadedActions>>,
     legacy_actions: OnceLock<LegacyActionData>,
-    estimated_skeleton_actions: OnceLock<SkeletalInputActionData>,
 }
 
 impl InputSessionData {
@@ -418,7 +419,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 transforms,
             )
         } else {
-            self.get_estimated_bones(&session_data, transform_space, *hand, transforms);
+            self.get_estimated_bones(transform_space, *hand, transforms);
         }
 
         vr::EVRInputError::None
@@ -832,15 +833,20 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             }
 
             let legacy = data.input_data.legacy_actions.get().unwrap();
-            let skeletal_input = data.input_data.estimated_skeleton_actions.get().unwrap();
             sync_sets.push(xr::ActiveActionSet::new(&legacy.set));
-            sync_sets.push(xr::ActiveActionSet::new(&skeletal_input.set));
             self.legacy_packet_num.fetch_add(1, Ordering::Relaxed);
         }
 
         {
             tracy_span!("xrSyncActions");
             data.session.sync_actions(&sync_sets).unwrap();
+            // The IPC client won't be running during tests
+            #[cfg(not(test))]
+            self.skeletal_input_ipc
+                .lock()
+                .unwrap()
+                .sync_actions()
+                .unwrap();
         }
 
         vr::EVRInputError::None
