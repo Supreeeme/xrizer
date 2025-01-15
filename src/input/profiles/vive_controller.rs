@@ -1,4 +1,4 @@
-use super::{InteractionProfile, PathTranslation, StringToPath};
+use super::{InteractionProfile, PathTranslation, SkeletalInputBindings, StringToPath};
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
 use openxr as xr;
@@ -77,6 +77,19 @@ impl InteractionProfile for ViveWands {
             trigger_click: stp.leftright("input/trigger/click"),
             app_menu: stp.leftright("input/menu/click"),
             squeeze: stp.leftright("input/squeeze/click"),
+        }
+    }
+
+    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+        SkeletalInputBindings {
+            thumb_touch: stp
+                .leftright("input/trigger/click")
+                .into_iter()
+                .chain(stp.leftright("input/trackpad/touch"))
+                .collect(),
+            index_touch: stp.leftright("input/trigger/click"),
+            index_curl: stp.leftright("input/trigger/value"),
+            rest_curl: stp.leftright("input/squeeze/click"),
         }
     }
 
