@@ -1,3 +1,5 @@
+pub mod ipc;
+
 use log::debug;
 use openxr as xr;
 use serde::{Deserialize, Serialize};

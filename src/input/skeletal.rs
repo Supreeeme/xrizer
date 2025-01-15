@@ -1,7 +1,6 @@
 #[path = "skeletal_generated.rs"]
 mod gen;
 
-use super::skeletal_input::SkeletalInputActionStates;
 use super::Input;
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use glam::{Affine3A, Quat, Vec3};
@@ -33,12 +32,12 @@ impl<C: openxr_data::Compositor> Input<C> {
             Hand::Right => &legacy.right_spaces,
         }
         .try_get_or_init_raw(xr_data, session_data, &legacy.actions) else {
-            self.get_estimated_bones(session_data, space, hand, transforms);
+            self.get_estimated_bones(space, hand, transforms);
             return;
         };
 
         let Some(joints) = raw.locate_hand_joints(hand_tracker, display_time).unwrap() else {
-            self.get_estimated_bones(session_data, space, hand, transforms);
+            self.get_estimated_bones(space, hand, transforms);
             return;
         };
 
@@ -161,12 +160,11 @@ impl<C: openxr_data::Compositor> Input<C> {
 
     pub(super) fn get_estimated_bones(
         &self,
-        session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
         hand: Hand,
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
-        let finger_state = self.get_finger_state(session_data, hand);
+        let finger_state = self.get_finger_state(hand);
         let (open, fist) = match hand {
             Hand::Left => (&gen::left_hand::OPENHAND, &gen::left_hand::FIST),
             Hand::Right => (&gen::right_hand::OPENHAND, &gen::right_hand::FIST),
@@ -231,40 +229,13 @@ impl<C: openxr_data::Compositor> Input<C> {
         *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
     }
 
-    fn get_finger_state(&self, session_data: &SessionData, hand: Hand) -> FingerState {
-        let data = self.openxr.session_data.get();
-        let actions = &data
-            .input_data
-            .estimated_skeleton_actions
-            .get()
+    fn get_finger_state(&self, hand: Hand) -> FingerState {
+        let input = &self
+            .skeletal_input_ipc
+            .lock()
             .unwrap()
-            .actions;
-        let subaction = match hand {
-            Hand::Left => self.openxr.left_hand.subaction_path,
-            Hand::Right => self.openxr.right_hand.subaction_path,
-        };
-        let input = SkeletalInputActionStates {
-            thumb_touch: actions
-                .thumb_touch
-                .state(&session_data.session, subaction)
-                .unwrap()
-                .current_state,
-            index_touch: actions
-                .index_touch
-                .state(&session_data.session, subaction)
-                .unwrap()
-                .current_state,
-            index_curl: actions
-                .index_curl
-                .state(&session_data.session, subaction)
-                .unwrap()
-                .current_state,
-            rest_curl: actions
-                .rest_curl
-                .state(&session_data.session, subaction)
-                .unwrap()
-                .current_state,
-        };
+            .get_action_states(hand)
+            .expect("Failed to get skeletal input from IPC!");
 
         let index = input
             .index_curl
