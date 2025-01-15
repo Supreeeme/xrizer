@@ -1,4 +1,7 @@
-use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, StringToPath};
+use super::{
+    InteractionProfile, PathTranslation, ProfileProperties, Property, SkeletalInputBindings,
+    StringToPath,
+};
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
@@ -64,6 +67,23 @@ impl InteractionProfile for Touch {
             trigger_click: stp.leftright("input/trigger/value"),
             app_menu: vec![], // TODO
             squeeze: stp.leftright("input/squeeze/value"),
+        }
+    }
+
+    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+        SkeletalInputBindings {
+            thumb_touch: stp
+                .leftright("input/thumbstick/touch")
+                .into_iter()
+                .chain(stp.left("input/x/touch"))
+                .chain(stp.left("input/y/touch"))
+                .chain(stp.right("input/a/touch"))
+                .chain(stp.right("input/b/touch"))
+                .chain(stp.leftright("input/thumbrest/touch"))
+                .collect(),
+            index_touch: stp.leftright("input/trigger/touch"),
+            index_curl: stp.leftright("input/trigger/value"),
+            rest_curl: stp.leftright("input/squeeze/value"),
         }
     }
 

@@ -4,11 +4,13 @@ mod gen;
 use super::Input;
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use glam::{Affine3A, Quat, Vec3};
+use log::debug;
 use openvr as vr;
-use openxr as xr;
+use openxr::{self as xr};
 use paste::paste;
 use std::cell::RefCell;
 use std::f32::consts::{FRAC_PI_2, PI};
+use std::time::Instant;
 use HandSkeletonBone::*;
 
 impl<C: openxr_data::Compositor> Input<C> {
@@ -164,25 +166,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         hand: Hand,
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
-        let path = match hand {
-            Hand::Left => self.openxr.left_hand.subaction_path,
-            Hand::Right => self.openxr.right_hand.subaction_path,
-        };
-        let legacy = session_data.input_data.legacy_actions.get().unwrap();
-        let actions = &legacy.actions;
-        let trigger_state = actions.trigger.state(&session_data.session, path).unwrap();
-        let squeeze_state = actions.squeeze.state(&session_data.session, path).unwrap();
-        let (bind, squeeze, open) = match hand {
-            Hand::Left => (
-                &gen::left_hand::BINDPOSE,
-                &gen::left_hand::FIST,
-                &gen::left_hand::OPENHAND,
-            ),
-            Hand::Right => (
-                &gen::right_hand::BINDPOSE,
-                &gen::right_hand::FIST,
-                &gen::right_hand::OPENHAND,
-            ),
+        let finger_state = self.get_finger_state(session_data, hand);
+        let (open, fist) = match hand {
+            Hand::Left => (&gen::left_hand::OPENHAND, &gen::left_hand::FIST),
+            Hand::Right => (&gen::right_hand::OPENHAND, &gen::right_hand::FIST),
         };
 
         const fn constrain<'a, F, G>(f: F) -> F
@@ -195,7 +182,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let bone_transform_map = constrain(|start_data: &[vr::VRBoneTransform_t], state| {
             move |idx| {
                 let (start_pos, start_rot) = bone_transform_to_glam(start_data[idx]);
-                let (closed_pos, closed_rot) = bone_transform_to_glam(squeeze[idx]);
+                let (closed_pos, closed_rot) = bone_transform_to_glam(fist[idx]);
 
                 let pos = start_pos.lerp(closed_pos, state);
                 let rot = start_rot.slerp(closed_rot, state);
@@ -204,24 +191,86 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
         });
 
-        // If squeezing and not pressing the trigger, index finger should be pointed straight
-        let index_start = if squeeze_state.current_state > 0.0 && trigger_state.current_state == 0.0
-        {
-            open
-        } else {
-            bind
-        };
-        let index_it = (IndexFinger0 as usize..=IndexFinger4 as usize)
-            .map(bone_transform_map(index_start, trigger_state.current_state));
+        let bone_it = (0..HandSkeletonBone::Count as usize).map(|idx| {
+            let bone = unsafe { std::mem::transmute::<usize, HandSkeletonBone>(idx) };
+            let curl_state = finger_state.get_bone_state(bone);
 
-        let rest_map = bone_transform_map(bind, squeeze_state.current_state);
-        let pre_it = (Root as usize..=Thumb3 as usize).map(rest_map);
-        let rest_it = (MiddleFinger0 as usize..Count as usize).map(rest_map);
-
-        let bone_it = pre_it.chain(index_it).chain(rest_it);
+            let map_fn = bone_transform_map(open, curl_state);
+            map_fn(idx)
+        });
 
         finalize_transforms(bone_it, space, transforms);
         *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
+    }
+
+    fn get_finger_state(&self, session_data: &SessionData, hand: Hand) -> FingerState {
+        // Determines the speed at which fingers follow the input states
+        // This value seems to feel right for both analog inputs and binary ones (like vive wands)
+        const FINGER_SMOOTHING_SPEED: f32 = 24.0;
+
+        let actions = &session_data
+            .input_data
+            .estimated_skeleton_actions
+            .get()
+            .unwrap()
+            .actions;
+        let subaction = match hand {
+            Hand::Left => self.openxr.left_hand.subaction_path,
+            Hand::Right => self.openxr.right_hand.subaction_path,
+        };
+
+        let thumb_touch = actions
+            .thumb_touch
+            .state(&session_data.session, subaction)
+            .unwrap()
+            .current_state;
+        let index_touch = actions
+            .index_touch
+            .state(&session_data.session, subaction)
+            .unwrap()
+            .current_state;
+        let index_curl = actions
+            .index_curl
+            .state(&session_data.session, subaction)
+            .unwrap()
+            .current_state;
+        let rest_curl = actions
+            .rest_curl
+            .state(&session_data.session, subaction)
+            .unwrap()
+            .current_state;
+
+        let index = index_curl.max(
+            // Curl the index finger slightly on touch input
+            if index_touch || index_curl > 0.0 {
+                0.3
+            } else {
+                0.0
+            },
+        );
+
+        let mut state = self.estimated_finger_state[hand as usize - 1]
+            .lock()
+            .unwrap();
+
+        let current_time = std::time::Instant::now();
+
+        let target = FingerState {
+            index,
+            // Make other fingers curl with the index slightly to mimic how real human hands work
+            middle: rest_curl.max(index / 2.0),
+            ring: rest_curl.max(index / 4.0),
+            pinky: rest_curl.max(index / 6.0),
+            thumb: if thumb_touch { 1.0 } else { 0.0 },
+            time: current_time,
+        };
+
+        let elapsed_time = current_time.duration_since(state.time).as_secs_f32();
+        let t = (elapsed_time * FINGER_SMOOTHING_SPEED).min(1.0);
+
+        *state = state.lerp(&target, t);
+
+        *state
     }
 
     pub(super) fn get_reference_transforms(
@@ -377,6 +426,75 @@ static AUX_BONES: &[(HandSkeletonBone, xr::HandJoint)] = &[
     (AuxPinkyFinger, xr::HandJoint::LITTLE_DISTAL),
 ];
 
+#[derive(Copy, Clone)]
+pub(super) struct FingerState {
+    index: f32,
+    middle: f32,
+    ring: f32,
+    pinky: f32,
+    thumb: f32,
+    time: Instant,
+}
+
+impl FingerState {
+    pub fn new() -> FingerState {
+        FingerState {
+            index: 0.0,
+            middle: 0.0,
+            ring: 0.0,
+            pinky: 0.0,
+            thumb: 0.0,
+            time: Instant::now(),
+        }
+    }
+
+    fn lerp(&self, target: &Self, amount: f32) -> Self {
+        Self {
+            index: self.index + (target.index - self.index) * amount,
+            middle: self.middle + (target.middle - self.middle) * amount,
+            ring: self.ring + (target.ring - self.ring) * amount,
+            pinky: self.pinky + (target.pinky - self.pinky) * amount,
+            thumb: self.thumb + (target.thumb - self.thumb) * amount,
+            time: target.time,
+        }
+    }
+
+    fn get_bone_state(&self, bone: HandSkeletonBone) -> f32 {
+        match bone {
+            HandSkeletonBone::IndexFinger0
+            | HandSkeletonBone::IndexFinger1
+            | HandSkeletonBone::IndexFinger2
+            | HandSkeletonBone::IndexFinger3
+            | HandSkeletonBone::IndexFinger4
+            | HandSkeletonBone::AuxIndexFinger => self.index,
+            HandSkeletonBone::MiddleFinger0
+            | HandSkeletonBone::MiddleFinger1
+            | HandSkeletonBone::MiddleFinger2
+            | HandSkeletonBone::MiddleFinger3
+            | HandSkeletonBone::MiddleFinger4
+            | HandSkeletonBone::AuxMiddleFinger => self.middle,
+            HandSkeletonBone::RingFinger0
+            | HandSkeletonBone::RingFinger1
+            | HandSkeletonBone::RingFinger2
+            | HandSkeletonBone::RingFinger3
+            | HandSkeletonBone::RingFinger4
+            | HandSkeletonBone::AuxRingFinger => self.ring,
+            HandSkeletonBone::PinkyFinger0
+            | HandSkeletonBone::PinkyFinger1
+            | HandSkeletonBone::PinkyFinger2
+            | HandSkeletonBone::PinkyFinger3
+            | HandSkeletonBone::PinkyFinger4
+            | HandSkeletonBone::AuxPinkyFinger => self.pinky,
+            HandSkeletonBone::Thumb0
+            | HandSkeletonBone::Thumb1
+            | HandSkeletonBone::Thumb2
+            | HandSkeletonBone::Thumb3
+            | HandSkeletonBone::AuxThumb => self.thumb,
+            _ => 0.0,
+        }
+    }
+}
+
 #[repr(usize)]
 #[derive(Copy, Clone)]
 pub(super) enum HandSkeletonBone {
@@ -412,4 +530,69 @@ pub(super) enum HandSkeletonBone {
     AuxRingFinger,
     AuxPinkyFinger,
     Count,
+}
+
+macro_rules! skeletal_input_actions {
+    ($($field:ident: $ty:ty),+$(,)?) => {
+        pub struct SkeletalInputActions {
+            $(pub $field: xr::Action<$ty>),+
+        }
+        pub struct SkeletalInputBindings {
+            $(pub $field: Vec<xr::Path>),+
+        }
+        impl SkeletalInputBindings {
+            pub fn binding_iter(self, actions: &SkeletalInputActions) -> impl Iterator<Item = xr::Binding<'_>> {
+                std::iter::empty()
+                $(
+                    .chain(
+                        self.$field.into_iter().map(|binding| xr::Binding::new(&actions.$field, binding))
+                    )
+                )+
+            }
+        }
+    }
+}
+
+skeletal_input_actions! {
+    thumb_touch: bool,
+    index_touch: bool,
+    index_curl: f32,
+    rest_curl: f32,
+}
+
+pub struct SkeletalInputActionData {
+    pub set: xr::ActionSet,
+    pub actions: SkeletalInputActions,
+}
+
+impl SkeletalInputActionData {
+    pub fn new<'a>(instance: &'a xr::Instance, left_hand: xr::Path, right_hand: xr::Path) -> Self {
+        debug!("creating skeletal input actions");
+        let leftright = [left_hand, right_hand];
+        let set = instance
+            .create_action_set("xrizer-skeletal-input", "XRizer Skeletal Input", 0)
+            .unwrap();
+        let thumb_touch = set
+            .create_action("thumb-touch", "Thumb Touch", &leftright)
+            .unwrap();
+        let index_touch = set
+            .create_action("index-touch", "Index Touch", &leftright)
+            .unwrap();
+        let index_curl = set
+            .create_action("index-curl", "Index Curl", &leftright)
+            .unwrap();
+        let rest_curl = set
+            .create_action("rest-curl", "Rest Curl", &leftright)
+            .unwrap();
+
+        Self {
+            set,
+            actions: SkeletalInputActions {
+                thumb_touch,
+                index_touch,
+                index_curl,
+                rest_curl,
+            },
+        }
+    }
 }
