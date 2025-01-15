@@ -3,11 +3,14 @@ mod custom_bindings;
 mod legacy;
 mod profiles;
 mod skeletal;
+mod skeletal_input;
 
 #[cfg(test)]
 mod tests;
 
 pub use profiles::{InteractionProfile, Profiles};
+use skeletal::FingerState;
+use skeletal_input::SkeletalInputActionData;
 
 use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
@@ -49,6 +52,7 @@ pub struct Input<C: openxr_data::Compositor> {
     cached_poses: Mutex<CachedSpaces>,
     legacy_packet_num: AtomicU32,
     skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
+    estimated_finger_state: [Mutex<FingerState>; 2],
 }
 
 #[derive(Debug)]
@@ -96,6 +100,10 @@ impl<C: openxr_data::Compositor> Input<C> {
             cached_poses: Mutex::default(),
             legacy_packet_num: 0.into(),
             skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
+            estimated_finger_state: [
+                Mutex::new(FingerState::new()),
+                Mutex::new(FingerState::new()),
+            ],
         }
     }
 
@@ -116,6 +124,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 pub struct InputSessionData {
     loaded_actions: OnceLock<RwLock<LoadedActions>>,
     legacy_actions: OnceLock<LegacyActionData>,
+    estimated_skeleton_actions: OnceLock<SkeletalInputActionData>,
 }
 
 impl InputSessionData {
@@ -822,7 +831,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             }
 
             let legacy = data.input_data.legacy_actions.get().unwrap();
+            let skeletal_input = data.input_data.estimated_skeleton_actions.get().unwrap();
             sync_sets.push(xr::ActiveActionSet::new(&legacy.set));
+            sync_sets.push(xr::ActiveActionSet::new(&skeletal_input.set));
             self.legacy_packet_num.fetch_add(1, Ordering::Relaxed);
         }
 
@@ -1200,9 +1211,7 @@ impl CachedSpaces {
                 Hand::Right => &legacy.right_spaces,
             };
 
-            if let Some(raw) =
-                spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions)
-            {
+            if let Some(raw) = spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions) {
                 raw.relate(session_data.get_space_for_origin(origin), display_time)
                     .unwrap()
             } else {

@@ -3,7 +3,9 @@ pub mod oculus_touch;
 pub mod simple_controller;
 pub mod vive_controller;
 
-use super::{action_manifest::ControllerType, legacy::LegacyBindings};
+use super::{
+    action_manifest::ControllerType, legacy::LegacyBindings, skeletal_input::SkeletalInputBindings,
+};
 use crate::openxr_data::Hand;
 use knuckles::Knuckles;
 use oculus_touch::Touch;
@@ -28,6 +30,7 @@ pub trait InteractionProfile: Sync + Send {
 
     fn legal_paths(&self) -> Box<[String]>;
     fn legacy_bindings(&self, string_to_path: &dyn StringToPath) -> LegacyBindings;
+    fn skeletal_input_bindings(&self, string_to_path: &dyn StringToPath) -> SkeletalInputBindings;
     /// Can be extracted from SteamVR rendermodel files, it is the inverse of the "grip" value
     fn offset_grip_pose(&self, _: Hand) -> xr::Posef {
         xr::Posef::IDENTITY
@@ -40,13 +43,21 @@ pub(super) struct PathTranslation {
     pub stop: bool,
 }
 
-pub(super) trait StringToPath: for<'a> Fn(&'a str) -> xr::Path {
+pub trait StringToPath: for<'a> Fn(&'a str) -> xr::Path {
     #[inline]
     fn leftright(&self, path: &'static str) -> Vec<xr::Path> {
         vec![
             self(&format!("/user/hand/left/{path}")),
             self(&format!("/user/hand/right/{path}")),
         ]
+    }
+    #[inline]
+    fn left(&self, path: &'static str) -> Vec<xr::Path> {
+        vec![self(&format!("/user/hand/left/{path}"))]
+    }
+    #[inline]
+    fn right(&self, path: &'static str) -> Vec<xr::Path> {
+        vec![self(&format!("/user/hand/right/{path}"))]
     }
 }
 impl<F> StringToPath for F where F: for<'a> Fn(&'a str) -> xr::Path {}

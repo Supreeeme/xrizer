@@ -1,4 +1,4 @@
-use super::{InteractionProfile, PathTranslation, StringToPath};
+use super::{InteractionProfile, PathTranslation, SkeletalInputBindings, StringToPath};
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
 use openxr as xr;
@@ -92,6 +92,19 @@ impl InteractionProfile for Knuckles {
             trigger: stp.leftright("input/trigger/value"),
             trigger_click: stp.leftright("input/trigger/click"),
             squeeze: stp.leftright("input/squeeze/value"),
+        }
+    }
+
+    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+        SkeletalInputBindings {
+            thumb_touch: stp
+                .leftright("input/thumbstick/touch")
+                .into_iter()
+                .chain(stp.leftright("input/trackpad/touch"))
+                .collect(),
+            index_touch: stp.leftright("input/trigger/touch"),
+            index_curl: stp.leftright("input/trigger/value"),
+            rest_curl: stp.leftright("input/squeeze/value"),
         }
     }
 
