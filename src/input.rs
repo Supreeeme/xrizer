@@ -21,13 +21,17 @@ use custom_bindings::{BindingData, GrabActions};
 use legacy::{setup_legacy_bindings, LegacyActionData};
 use log::{debug, info, trace, warn};
 use openvr::{self as vr, space_relation_to_openvr_pose};
-use openxr as xr;
+use openxr::{
+    self as xr,
+    sys::{self, ActiveActionSetPrioritiesEXT, ActiveActionSetPriorityEXT},
+};
 use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::ffi::{c_char, CStr, CString};
 use std::mem::ManuallyDrop;
 use std::path::PathBuf;
+use std::ptr;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 new_key_type! {
@@ -964,23 +968,64 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let active_sets =
             unsafe { std::slice::from_raw_parts(active_sets, active_set_count as usize) };
 
-        if active_sets
-            .iter()
-            .any(|set| set.ulRestrictedToDevice != vr::k_ulInvalidInputValueHandle)
-        {
-            crate::warn_once!("Per device action set restriction is not implemented yet.");
-        }
-
         let data = self.openxr.session_data.get();
         let Some(actions) = data.input_data.get_loaded_actions() else {
             return vr::EVRInputError::InvalidParam;
         };
 
         let set_map = self.set_map.read().unwrap();
+
+        // SteamVR uses an int32, OpenXR a uint32
+        // Not sure what the correct behavior is here, does SteamVR allow negative values there? Does -1 mean it doesn't override legacy input?
+        let min_priority = active_sets.iter().map(|set| set.nPriority).min().unwrap();
+
+        // +1 to make everything override legacy input
+        let priority_offset = if min_priority < 0 {
+            -min_priority + 1
+        } else {
+            1
+        };
+
         let mut sync_sets = Vec::with_capacity(active_sets.len() + 1);
+        let mut priorities = Vec::with_capacity(active_sets.len() + 1);
         {
             tracy_span!("UpdateActionState generate active sets");
             for set in active_sets {
+                let priority = (set.nPriority + priority_offset) as u32;
+                let mut path = xr::Path::NULL;
+
+                // Restrict to device
+                match self.subaction_path_from_handle(set.ulRestrictedToDevice) {
+                    Some(new_path) => {
+                        path = new_path;
+                        // Handle secondary action set
+                        if set.ulSecondaryActionSet != vr::k_ulInvalidInputValueHandle {
+                            let path = if path == self.openxr.left_hand.subaction_path {
+                                self.openxr.right_hand.subaction_path
+                            } else {
+                                self.openxr.left_hand.subaction_path
+                            };
+                            let key =
+                                ActionSetKey::from(KeyData::from_ffi(set.ulSecondaryActionSet));
+                            let name = set_map.get(key);
+                            let Some(set) = actions.sets.get(key) else {
+                                debug!(
+                                    "Application passed invalid secondary action set key: {key:?} ({name:?})"
+                                );
+                                return vr::EVRInputError::InvalidHandle;
+                            };
+                            debug!("Activating secondary set {}", name.unwrap());
+                            sync_sets.push(xr::ActiveActionSet::with_subaction(set, path));
+                            // I assume the secondary action set must have the same priority as the set that activates it
+                            priorities.push(ActiveActionSetPriorityEXT {
+                                action_set: set.as_raw(),
+                                priority_override: priority,
+                            });
+                        }
+                    }
+                    None => (),
+                };
+
                 let key = ActionSetKey::from(KeyData::from_ffi(set.ulActionSet));
                 let name = set_map.get(key);
                 let Some(set) = actions.sets.get(key) else {
@@ -988,17 +1033,46 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                     return vr::EVRInputError::InvalidHandle;
                 };
                 debug!("Activating set {}", name.unwrap());
-                sync_sets.push(set.into());
+                sync_sets.push(xr::ActiveActionSet::with_subaction(set, path));
+                priorities.push(ActiveActionSetPriorityEXT {
+                    action_set: set.as_raw(),
+                    priority_override: priority,
+                });
             }
 
             let legacy = data.input_data.legacy_actions.get().unwrap();
             sync_sets.push(xr::ActiveActionSet::new(&legacy.set));
             self.legacy_state.on_action_sync();
+            priorities.push(ActiveActionSetPriorityEXT {
+                action_set: legacy.set.as_raw(),
+                priority_override: 0,
+            });
         }
 
         {
             tracy_span!("xrSyncActions");
-            data.session.sync_actions(&sync_sets).unwrap();
+            let info = sys::ActionsSyncInfo {
+                ty: sys::ActionsSyncInfo::TYPE,
+                next: &ActiveActionSetPrioritiesEXT {
+                    ty: sys::ActiveActionSetPrioritiesEXT::TYPE,
+                    next: ptr::null(),
+                    action_set_priority_count: priorities.len() as u32,
+                    action_set_priorities: priorities.as_ptr(),
+                } as *const _ as *const _,
+                count_active_action_sets: sync_sets.len() as u32,
+                active_action_sets: sync_sets.as_ptr() as _,
+            };
+            unsafe {
+                let result =
+                    (&self.openxr.instance.fp().sync_actions)(data.session.as_raw(), &info);
+                if result.into_raw() >= 0 {
+                    Ok(result)
+                } else {
+                    Err(result)
+                }
+            }
+            .unwrap();
+
             // The IPC client won't be running during tests
             #[cfg(not(test))]
             self.skeletal_input_ipc
