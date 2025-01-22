@@ -48,7 +48,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         _: *const vr::RenderModel_ControllerMode_State_t,
         _: *mut vr::RenderModel_ComponentState_t,
     ) -> bool {
-        todo!()
+        false
     }
     fn GetComponentStateForDevicePath(
         &self,
@@ -58,7 +58,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         _: *const vr::RenderModel_ControllerMode_State_t,
         _: *mut vr::RenderModel_ComponentState_t,
     ) -> bool {
-        todo!()
+        false
     }
     fn GetComponentRenderModelName(
         &self,
@@ -74,7 +74,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         _: *const std::os::raw::c_char,
         _: *const std::os::raw::c_char,
     ) -> u64 {
-        todo!()
+        0
     }
     fn GetComponentName(
         &self,
@@ -89,7 +89,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         todo!()
     }
     fn GetRenderModelCount(&self) -> u32 {
-        todo!()
+        0
     }
     fn GetRenderModelName(&self, _: u32, _: *mut std::os::raw::c_char, _: u32) -> u32 {
         todo!()
