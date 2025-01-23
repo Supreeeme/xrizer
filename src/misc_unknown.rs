@@ -112,8 +112,16 @@ gen_vtable! {
             a: *const c_char,
             b: *const c_char,
         ) -> c_int {
-            let a = unsafe { CStr::from_ptr(a) };
-            let b = unsafe { CStr::from_ptr(b) };
+            let a = if a.is_null() {
+                None
+            } else {
+                Some(unsafe { CStr::from_ptr(a) })
+            };
+            let b = if b.is_null() {
+                None
+            } else {
+                Some(unsafe { CStr::from_ptr(b) })
+            };
             debug!(target: UNKNOWN_TAG, "Entered IVRMailbox::undoc3 with arguments handle: {handle:?}, a: {a:?}, b: {b:?}");
             0
         }
