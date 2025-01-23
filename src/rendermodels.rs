@@ -76,6 +76,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         _: *const std::os::raw::c_char,
         _: *const std::os::raw::c_char,
     ) -> u64 {
+        crate::warn_unimplemented!("GetComponentButtonMask");
         0
     }
     fn GetComponentName(
@@ -88,9 +89,11 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         todo!()
     }
     fn GetComponentCount(&self, _: *const std::os::raw::c_char) -> u32 {
-        todo!()
+        crate::warn_unimplemented!("GetComponentCount");
+        0
     }
     fn GetRenderModelCount(&self) -> u32 {
+        crate::warn_unimplemented!("GetRenderModelCount");
         0
     }
     fn GetRenderModelName(&self, _: u32, _: *mut std::os::raw::c_char, _: u32) -> u32 {
