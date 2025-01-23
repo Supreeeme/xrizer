@@ -1,4 +1,3 @@
-use log::warn;
 use openvr as vr;
 use std::ffi::c_char;
 
@@ -94,7 +93,7 @@ impl vr::IVRApplications007_Interface for Applications {
         todo!()
     }
     fn IdentifyApplication(&self, _: u32, _: *const c_char) -> vr::EVRApplicationError {
-        warn!("Ignoring attempt to identify application");
+        crate::warn_unimplemented!("IdentifyApplication");
         vr::EVRApplicationError::None
     }
     fn CancelApplicationLaunch(&self, _: *const c_char) -> bool {
@@ -140,11 +139,11 @@ impl vr::IVRApplications007_Interface for Applications {
         false
     }
     fn RemoveApplicationManifest(&self, _: *const c_char) -> vr::EVRApplicationError {
-        warn!("Ignoring attempt to remove application manifest");
+        crate::warn_unimplemented!("RemoveApplicationManifest");
         vr::EVRApplicationError::None
     }
     fn AddApplicationManifest(&self, _: *const c_char, _: bool) -> vr::EVRApplicationError {
-        warn!("Ignoring attempt to add application manifest");
+        crate::warn_unimplemented!("AddApplicationManifest");
         vr::EVRApplicationError::None
     }
 }

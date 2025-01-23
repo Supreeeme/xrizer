@@ -48,6 +48,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         _: *const vr::RenderModel_ControllerMode_State_t,
         _: *mut vr::RenderModel_ComponentState_t,
     ) -> bool {
+        crate::warn_unimplemented!("GetComponentState");
         false
     }
     fn GetComponentStateForDevicePath(
@@ -58,6 +59,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         _: *const vr::RenderModel_ControllerMode_State_t,
         _: *mut vr::RenderModel_ComponentState_t,
     ) -> bool {
+        crate::warn_unimplemented!("GetComponentStateForDevicePath");
         false
     }
     fn GetComponentRenderModelName(
