@@ -1,6 +1,6 @@
 use super::{InteractionProfile, PathTranslation, StringToPath};
+use crate::input::devices::tracked_device::TrackedDeviceType;
 use crate::input::legacy::LegacyBindings;
-use crate::openxr_data::Hand;
 use openxr as xr;
 use std::f32::consts::FRAC_PI_6;
 use std::ffi::CStr;
@@ -17,10 +17,11 @@ impl InteractionProfile for Knuckles {
     fn openvr_controller_type(&self) -> &'static CStr {
         c"knuckles"
     }
-    fn render_model_name(&self, hand: Hand) -> &'static CStr {
+    fn render_model_name(&self, hand: TrackedDeviceType) -> &'static CStr {
         match hand {
-            Hand::Left => c"valve_controller_knu_1_0_left",
-            Hand::Right => c"valve_controller_knu_1_0_right",
+            TrackedDeviceType::LeftHand => c"valve_controller_knu_1_0_left",
+            TrackedDeviceType::RightHand => c"valve_controller_knu_1_0_right",
+            _ => unreachable!(),
         }
     }
     fn translate_map(&self) -> &'static [PathTranslation] {

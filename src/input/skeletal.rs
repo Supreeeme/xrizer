@@ -2,7 +2,8 @@
 mod gen;
 
 use super::Input;
-use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
+use crate::input::devices::tracked_device::TrackedDeviceType;
+use crate::openxr_data::{self, OpenXrData, SessionData};
 use glam::{Affine3A, Quat, Vec3};
 use openvr as vr;
 use openxr as xr;
@@ -19,7 +20,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
         hand_tracker: &xr::HandTracker,
-        hand: Hand,
+        hand: TrackedDeviceType,
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
         use HandSkeletonBone::*;
@@ -27,8 +28,9 @@ impl<C: openxr_data::Compositor> Input<C> {
         let legacy = session_data.input_data.legacy_actions.get().unwrap();
         let display_time = self.openxr.display_time.get();
         let Some(raw) = match hand {
-            Hand::Left => &legacy.left_spaces,
-            Hand::Right => &legacy.right_spaces,
+            TrackedDeviceType::LeftHand => &legacy.left_spaces,
+            TrackedDeviceType::RightHand => &legacy.right_spaces,
+            _ => unreachable!(),
         }
         .try_get_or_init_raw(xr_data, session_data, &legacy.actions, display_time) else {
             self.get_estimated_bones(session_data, space, hand, transforms);
@@ -67,7 +69,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             std::mem::swap(&mut r.x, &mut r.z);
             rot.z = -rot.z;
 
-            if hand == Hand::Left {
+            if hand == TrackedDeviceType::LeftHand {
                 pos.x = -pos.x;
                 pos.y = -pos.y;
                 rot.x = -rot.x;
@@ -125,10 +127,11 @@ impl<C: openxr_data::Compositor> Input<C> {
         // This rotation corrects them so they are pointing the correct direction
         // Note that it is hand specific.
         joints[xr::HandJoint::WRIST] *= match hand {
-            Hand::Left => {
+            TrackedDeviceType::LeftHand => {
                 Affine3A::from_quat(Quat::from_euler(glam::EulerRot::YZXEx, FRAC_PI_2, PI, 0.0))
             }
-            Hand::Right => Affine3A::from_rotation_y(-FRAC_PI_2),
+            TrackedDeviceType::RightHand => Affine3A::from_rotation_y(-FRAC_PI_2),
+            _ => unreachable!(),
         };
         transforms[Wrist as usize] = joints[xr::HandJoint::WRIST].into();
 
@@ -161,28 +164,30 @@ impl<C: openxr_data::Compositor> Input<C> {
         &self,
         session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
-        hand: Hand,
+        hand: TrackedDeviceType,
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
         let path = match hand {
-            Hand::Left => self.openxr.left_hand.subaction_path,
-            Hand::Right => self.openxr.right_hand.subaction_path,
+            TrackedDeviceType::LeftHand => self.openxr.devices.get_controller(TrackedDeviceType::LeftHand).unwrap().subaction_path,
+            TrackedDeviceType::RightHand => self.openxr.devices.get_controller(TrackedDeviceType::RightHand).unwrap().subaction_path,
+            _ => unreachable!(),
         };
         let legacy = session_data.input_data.legacy_actions.get().unwrap();
         let actions = &legacy.actions;
         let trigger_state = actions.trigger.state(&session_data.session, path).unwrap();
         let squeeze_state = actions.squeeze.state(&session_data.session, path).unwrap();
         let (bind, squeeze, open) = match hand {
-            Hand::Left => (
+            TrackedDeviceType::LeftHand => (
                 &gen::left_hand::BINDPOSE,
                 &gen::left_hand::SQUEEZE,
                 &gen::left_hand::OPENHAND,
             ),
-            Hand::Right => (
+            TrackedDeviceType::RightHand => (
                 &gen::right_hand::BINDPOSE,
                 &gen::right_hand::SQUEEZE,
                 &gen::right_hand::OPENHAND,
             ),
+            _ => unreachable!(),
         };
 
         const fn constrain<'a, F, G>(f: F) -> F

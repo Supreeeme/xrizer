@@ -1,7 +1,9 @@
-use crate::openxr_data::{Hand, OpenXrData, SessionData};
+use crate::openxr_data::{OpenXrData, SessionData};
 use log::{debug, trace};
 use openxr as xr;
 use std::sync::OnceLock;
+
+use super::devices::tracked_device::TrackedDeviceType;
 
 macro_rules! legacy_actions_and_bindings {
     ($($field:ident: $ty:ty),+$(,)?) => {
@@ -69,8 +71,9 @@ impl LegacyActionData {
 
         let create_spaces = |hand| {
             let hand_path = match hand {
-                Hand::Left => left_hand,
-                Hand::Right => right_hand,
+                TrackedDeviceType::LeftHand => left_hand,
+                TrackedDeviceType::RightHand => right_hand,
+                _ => unreachable!(),
             };
             HandSpaces {
                 hand,
@@ -85,8 +88,8 @@ impl LegacyActionData {
             }
         };
 
-        let left_spaces = create_spaces(Hand::Left);
-        let right_spaces = create_spaces(Hand::Right);
+        let left_spaces = create_spaces(TrackedDeviceType::LeftHand);
+        let right_spaces = create_spaces(TrackedDeviceType::RightHand);
 
         Self {
             set,
@@ -105,7 +108,7 @@ impl LegacyActionData {
 }
 
 pub(super) struct HandSpaces {
-    hand: Hand,
+    hand: TrackedDeviceType,
     hand_path: xr::Path,
     grip: xr::Space,
     aim: xr::Space,
@@ -141,12 +144,8 @@ impl HandSpaces {
             return None;
         }
 
-        let hand_profile = match self.hand {
-            Hand::Right => &xr_data.right_hand.profile,
-            Hand::Left => &xr_data.left_hand.profile,
-        };
+        let hand_profile = &xr_data.devices.get_controller(self.hand).unwrap().get_device().get_interaction_profile();
 
-        let hand_profile = hand_profile.lock().unwrap();
         let Some(profile) = hand_profile.as_ref() else {
             trace!("no hand profile, no raw space will be created");
             return None;

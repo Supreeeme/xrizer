@@ -3,8 +3,7 @@ pub mod oculus_touch;
 pub mod simple_controller;
 pub mod vive_controller;
 
-use super::{action_manifest::ControllerType, legacy::LegacyBindings};
-use crate::openxr_data::Hand;
+use super::{action_manifest::ControllerType, devices::tracked_device::TrackedDeviceType, legacy::LegacyBindings};
 use knuckles::Knuckles;
 use oculus_touch::Touch;
 use openxr as xr;
@@ -23,7 +22,7 @@ pub trait InteractionProfile: Sync + Send {
     fn openvr_controller_type(&self) -> &'static CStr;
     /// Corresponds to RenderModelName_String
     /// Can be found in SteamVR under resources/rendermodels (some are in driver subdirs)
-    fn render_model_name(&self, _: Hand) -> &'static CStr;
+    fn render_model_name(&self, _: TrackedDeviceType) -> &'static CStr;
     fn translate_map(&self) -> &'static [PathTranslation];
 
     fn legal_paths(&self) -> Box<[String]>;

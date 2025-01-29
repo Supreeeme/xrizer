@@ -537,7 +537,7 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     let seated_origin = vr::ETrackingUniverseOrigin::Seated;
     let waitgetposes_pose = f
         .input
-        .get_controller_pose(super::Hand::Left, Some(seated_origin))
+        .get_controller_pose(super::TrackedDeviceType::LeftHand, Some(seated_origin))
         .expect("WaitGetPoses should succeed");
 
     let mut raw_pose = vr::InputPoseActionData_t {
