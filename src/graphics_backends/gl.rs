@@ -53,14 +53,11 @@ impl GlData {
             let glx_context = glx.GetCurrentContext();
             let glx_drawable = glx.GetCurrentDrawable();
             let mut config_id = 0;
-            assert_eq!(
-                glx.QueryContext(
-                    x_display,
-                    glx_context,
-                    glx::FBCONFIG_ID as _,
-                    &mut config_id
-                ),
-                Success as i32
+            glx.QueryDrawable(
+                x_display,
+                glx_drawable,
+                glx::FBCONFIG_ID as _,
+                &mut config_id
             );
 
             let mut screen = 0;
