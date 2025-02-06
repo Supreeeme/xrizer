@@ -1,7 +1,10 @@
 use crate::{
     clientcore::{Injected, Injector},
     graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData},
-    input::{devices::{tracked_device::TrackedDeviceType, XrTrackedDevices}, InteractionProfile, Profiles},
+    input::{
+        devices::{tracked_device::TrackedDeviceType, XrTrackedDeviceManager},
+        Profiles,
+    },
 };
 use derive_more::{Deref, From, TryInto};
 use glam::f32::{Quat, Vec3};
@@ -10,8 +13,8 @@ use openvr as vr;
 use openxr as xr;
 use std::mem::ManuallyDrop;
 use std::sync::{
-    atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
-    Mutex, RwLock,
+    atomic::{AtomicI64, AtomicU64, Ordering},
+    RwLock,
 };
 
 pub trait Compositor: vr::InterfaceImpl {
@@ -37,7 +40,7 @@ pub struct OpenXrData<C: Compositor> {
     pub display_time: AtomicXrTime,
     // pub left_hand: HandInfo,
     // pub right_hand: HandInfo,
-    pub devices: XrTrackedDevices<C>,
+    pub devices: XrTrackedDeviceManager<C>,
     pub enabled_extensions: xr::ExtensionSet,
 
     /// should only be externally accessed for testing
@@ -115,7 +118,7 @@ impl<C: Compositor> OpenXrData<C> {
         // let left_hand = HandInfo::new(&instance, "/user/hand/left");
         // let right_hand = HandInfo::new(&instance, "/user/hand/right");
 
-        let devices = XrTrackedDevices::new(&instance);
+        let devices = XrTrackedDeviceManager::new(&instance);
 
         Ok(Self {
             _entry: entry,
@@ -138,35 +141,8 @@ impl<C: Compositor> OpenXrData<C> {
                     self.session_data.0.write().unwrap().state = event.state();
                     info!("OpenXR session state changed: {:?}", event.state());
                 }
-                // xr::Event::InteractionProfileChanged(_) => {
-                //     let session = self.session_data.get();
-                //     for info in [&self.left_hand, &self.right_hand] {
-                //         let profile_path = session
-                //             .session
-                //             .current_interaction_profile(info.subaction_path)
-                //             .unwrap();
 
-                //         info.profile_path.store(profile_path);
-                //         let profile = match profile_path {
-                //             xr::Path::NULL => {
-                //                 info.connected.store(false, Ordering::Relaxed);
-                //                 "<null>".to_owned()
-                //             }
-                //             path => {
-                //                 info.connected.store(true, Ordering::Relaxed);
-                //                 self.instance.path_to_string(path).unwrap()
-                //             }
-                //         };
-
-                //         *info.profile.lock().unwrap() = Profiles::get().profile_from_name(&profile);
-
-                //         info!(
-                //             "{} interaction profile changed: {}",
-                //             info.path_name, profile
-                //         );
-                //     }
-                // }
-                xr::Event::InteractionProfileChanged(event) => {
+                xr::Event::InteractionProfileChanged(_) => {
                     let session = self.session_data.get();
 
                     for hand in [TrackedDeviceType::LeftHand, TrackedDeviceType::RightHand] {
@@ -194,9 +170,14 @@ impl<C: Compositor> OpenXrData<C> {
 
                         assert!(profile.is_some(), "Unknown profile: {}", profile_name);
 
-                        controller.get_device().set_interaction_profile(profile.unwrap());
+                        controller
+                            .get_device()
+                            .set_interaction_profile(profile.unwrap());
 
-                        info!("{} interaction profile changed: {}", controller.hand_path, profile_name)
+                        info!(
+                            "{} interaction profile changed: {}",
+                            controller.hand_path, profile_name
+                        )
                     }
                 }
                 _ => {

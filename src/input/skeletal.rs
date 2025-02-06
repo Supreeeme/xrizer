@@ -168,8 +168,20 @@ impl<C: openxr_data::Compositor> Input<C> {
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
         let path = match hand {
-            TrackedDeviceType::LeftHand => self.openxr.devices.get_controller(TrackedDeviceType::LeftHand).unwrap().subaction_path,
-            TrackedDeviceType::RightHand => self.openxr.devices.get_controller(TrackedDeviceType::RightHand).unwrap().subaction_path,
+            TrackedDeviceType::LeftHand => {
+                self.openxr
+                    .devices
+                    .get_controller(TrackedDeviceType::LeftHand)
+                    .unwrap()
+                    .subaction_path
+            }
+            TrackedDeviceType::RightHand => {
+                self.openxr
+                    .devices
+                    .get_controller(TrackedDeviceType::RightHand)
+                    .unwrap()
+                    .subaction_path
+            }
             _ => unreachable!(),
         };
         let legacy = session_data.input_data.legacy_actions.get().unwrap();

@@ -6,7 +6,10 @@ use super::{
     profiles::{InteractionProfile, PathTranslation, Profiles},
     BoundPoseType, Input,
 };
-use crate::{input::devices::tracked_device::TrackedDeviceType, openxr_data::{self, SessionData}};
+use crate::{
+    input::devices::tracked_device::TrackedDeviceType,
+    openxr_data::{self, SessionData},
+};
 use log::{debug, error, info, trace, warn};
 use openvr as vr;
 use openxr as xr;
@@ -65,8 +68,16 @@ impl<C: openxr_data::Compositor> Input<C> {
             english.as_ref(),
             &mut sets,
             manifest.actions,
-            self.openxr.devices.get_controller(TrackedDeviceType::LeftHand).unwrap().subaction_path,
-            self.openxr.devices.get_controller(TrackedDeviceType::RightHand).unwrap().subaction_path,
+            self.openxr
+                .devices
+                .get_controller(TrackedDeviceType::LeftHand)
+                .unwrap()
+                .subaction_path,
+            self.openxr
+                .devices
+                .get_controller(TrackedDeviceType::RightHand)
+                .unwrap()
+                .subaction_path,
         )?;
         debug!("Loaded {} actions.", actions.len());
 
@@ -76,8 +87,16 @@ impl<C: openxr_data::Compositor> Input<C> {
             LegacyActionData::new(
                 &self.openxr.instance,
                 &session_data.session,
-                self.openxr.devices.get_controller(TrackedDeviceType::LeftHand).unwrap().subaction_path,
-                self.openxr.devices.get_controller(TrackedDeviceType::RightHand).unwrap().subaction_path,
+                self.openxr
+                    .devices
+                    .get_controller(TrackedDeviceType::LeftHand)
+                    .unwrap()
+                    .subaction_path,
+                self.openxr
+                    .devices
+                    .get_controller(TrackedDeviceType::RightHand)
+                    .unwrap()
+                    .subaction_path,
             )
         });
 
@@ -860,8 +879,16 @@ impl<C: openxr_data::Compositor> Input<C> {
                 set,
                 &bindings.sources,
                 [
-                    self.openxr.devices.get_controller(TrackedDeviceType::LeftHand).unwrap().subaction_path,
-                    self.openxr.devices.get_controller(TrackedDeviceType::RightHand).unwrap().subaction_path,
+                    self.openxr
+                        .devices
+                        .get_controller(TrackedDeviceType::LeftHand)
+                        .unwrap()
+                        .subaction_path,
+                    self.openxr
+                        .devices
+                        .get_controller(TrackedDeviceType::RightHand)
+                        .unwrap()
+                        .subaction_path,
                 ],
             ));
         }

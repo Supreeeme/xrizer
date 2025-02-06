@@ -536,12 +536,13 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
 
     let seated_origin = vr::ETrackingUniverseOrigin::Seated;
 
-    let waitgetposes_pose = f.input.openxr
-            .devices
-            .get_device(1)
-            .unwrap()
-            .get_pose(seated_origin, &f.input)
-            .expect("wtf");
+    let waitgetposes_pose = f
+        .input
+        .get_device_pose(
+            crate::input::devices::tracked_device::TrackedDeviceType::LeftHand as usize,
+            Some(seated_origin),
+        )
+        .expect("wtf");
 
     let mut raw_pose = vr::InputPoseActionData_t {
         pose: vr::TrackedDevicePose_t {

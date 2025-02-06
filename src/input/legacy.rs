@@ -144,7 +144,12 @@ impl HandSpaces {
             return None;
         }
 
-        let hand_profile = &xr_data.devices.get_controller(self.hand).unwrap().get_device().get_interaction_profile();
+        let hand_profile = &xr_data
+            .devices
+            .get_controller(self.hand)
+            .unwrap()
+            .get_device()
+            .get_interaction_profile();
 
         let Some(profile) = hand_profile.as_ref() else {
             trace!("no hand profile, no raw space will be created");

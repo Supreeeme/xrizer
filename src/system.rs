@@ -1,6 +1,9 @@
 use crate::{
     clientcore::{Injected, Injector},
-    input::{devices::tracked_device::{TrackedDevice, TrackedDeviceType}, Input},
+    input::{
+        devices::tracked_device::{TrackedDevice, TrackedDeviceType},
+        Input,
+    },
     openxr_data::{RealOpenXrData, SessionData},
     tracy_span,
 };
@@ -243,14 +246,14 @@ impl vr::IVRSystem022_Interface for System {
         pose: *mut vr::TrackedDevicePose_t,
     ) -> bool {
         if self.GetControllerState(device_index, state, state_size) {
-            // unsafe {
-            //     *pose.as_mut().unwrap() = self
-            //         .input
-            //         .get()
-            //         .unwrap()
-            //         .get_controller_pose(TrackedDeviceType::try_from(device_index).unwrap(), Some(origin))
-            //         .unwrap_or_default();
-            // }
+            unsafe {
+                *pose.as_mut().unwrap() = self
+                    .input
+                    .get()
+                    .unwrap()
+                    .get_device_pose(device_index as usize, Some(origin))
+                    .unwrap_or_default();
+            }
             true
         } else {
             false
@@ -346,8 +349,16 @@ impl vr::IVRSystem022_Interface for System {
     fn PollNextEvent(&self, event: *mut vr::VREvent_t, _size: u32) -> bool {
         use std::ptr::addr_of_mut as ptr;
         let (left_hand_connected, right_hand_connected) = (
-            self.openxr.devices.get_controller(TrackedDeviceType::LeftHand).unwrap().connected(),
-            self.openxr.devices.get_controller(TrackedDeviceType::RightHand).unwrap().connected(),
+            self.openxr
+                .devices
+                .get_controller(TrackedDeviceType::LeftHand)
+                .unwrap()
+                .connected(),
+            self.openxr
+                .devices
+                .get_controller(TrackedDeviceType::RightHand)
+                .unwrap()
+                .connected(),
         );
 
         let device_state_event = |current_state, last_state: &AtomicBool, tracked_device| {
@@ -439,7 +450,10 @@ impl vr::IVRSystem022_Interface for System {
                 _ => None,
             },
             x if TrackedDeviceType::try_from(x).is_ok() => self.input.get().and_then(|i| {
-                i.get_controller_string_tracked_property(TrackedDeviceType::try_from(x).unwrap(), prop)
+                i.get_controller_string_tracked_property(
+                    TrackedDeviceType::try_from(x).unwrap(),
+                    prop,
+                )
             }),
             _ => None,
         };
@@ -605,11 +619,13 @@ impl vr::IVRSystem022_Interface for System {
         index: vr::TrackedDeviceIndex_t,
     ) -> vr::ETrackedControllerRole {
         match index {
-            x if TrackedDeviceType::try_from(x).is_ok() => match TrackedDeviceType::try_from(x).unwrap() {
-                TrackedDeviceType::LeftHand => vr::ETrackedControllerRole::LeftHand,
-                TrackedDeviceType::RightHand => vr::ETrackedControllerRole::RightHand,
-                _ => vr::ETrackedControllerRole::Invalid,
-            },
+            x if TrackedDeviceType::try_from(x).is_ok() => {
+                match TrackedDeviceType::try_from(x).unwrap() {
+                    TrackedDeviceType::LeftHand => vr::ETrackedControllerRole::LeftHand,
+                    TrackedDeviceType::RightHand => vr::ETrackedControllerRole::RightHand,
+                    _ => vr::ETrackedControllerRole::Invalid,
+                }
+            }
             _ => vr::ETrackedControllerRole::Invalid,
         }
     }
@@ -619,14 +635,26 @@ impl vr::IVRSystem022_Interface for System {
     ) -> vr::TrackedDeviceIndex_t {
         match role {
             vr::ETrackedControllerRole::LeftHand => {
-                if self.openxr.devices.get_controller(TrackedDeviceType::LeftHand).unwrap().connected() {
+                if self
+                    .openxr
+                    .devices
+                    .get_controller(TrackedDeviceType::LeftHand)
+                    .unwrap()
+                    .connected()
+                {
                     TrackedDeviceType::LeftHand as u32
                 } else {
                     vr::k_unTrackedDeviceIndexInvalid
                 }
             }
             vr::ETrackedControllerRole::RightHand => {
-                if self.openxr.devices.get_controller(TrackedDeviceType::RightHand).unwrap().connected() {
+                if self
+                    .openxr
+                    .devices
+                    .get_controller(TrackedDeviceType::RightHand)
+                    .unwrap()
+                    .connected()
+                {
                     TrackedDeviceType::RightHand as u32
                 } else {
                     vr::k_unTrackedDeviceIndexInvalid

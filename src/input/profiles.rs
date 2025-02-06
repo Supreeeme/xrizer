@@ -3,7 +3,10 @@ pub mod oculus_touch;
 pub mod simple_controller;
 pub mod vive_controller;
 
-use super::{action_manifest::ControllerType, devices::tracked_device::TrackedDeviceType, legacy::LegacyBindings};
+use super::{
+    action_manifest::ControllerType, devices::tracked_device::TrackedDeviceType,
+    legacy::LegacyBindings,
+};
 use knuckles::Knuckles;
 use oculus_touch::Touch;
 use openxr as xr;

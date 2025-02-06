@@ -1,14 +1,11 @@
-use std::sync::Mutex;
-
-use openvr::{space_relation_to_openvr_pose, ETrackingUniverseOrigin, TrackedDevicePose_t};
+use openvr::{space_relation_to_openvr_pose, TrackedDevicePose_t};
 use openxr::{SpaceLocation, SpaceVelocity};
 
 use crate::{
-    input::{Input, InteractionProfile},
     openxr_data::{Compositor, OpenXrData, SessionData},
     tracy_span,
 };
-use log::{debug, info, trace, warn};
+use log::trace;
 
 use super::tracked_device::{TrackedDevice, TrackedDeviceType, XrTrackedDevice};
 
@@ -48,12 +45,11 @@ impl<C: Compositor> TrackedDevice<C> for XrController<C> {
     fn get_pose(
         &self,
         origin: openvr::ETrackingUniverseOrigin,
-        input: &Input<C>
+        xr_data: &OpenXrData<C>,
+        session_data: &SessionData,
+        display_time: openxr::Time,
     ) -> Option<TrackedDevicePose_t> {
         tracy_span!();
-        let session_data = input.openxr.session_data.get();
-        let display_time = input.openxr.display_time.get();
-
         let legacy = session_data.input_data.legacy_actions.get()?;
 
         let spaces = match self.get_type() {
@@ -62,8 +58,11 @@ impl<C: Compositor> TrackedDevice<C> for XrController<C> {
             _ => return None,
         };
 
-        let (location, velocity) = if let Some(raw) = spaces.try_get_or_init_raw(&input.openxr, &session_data, &legacy.actions, display_time) {
-            raw.relate(session_data.get_space_for_origin(origin), display_time).unwrap()
+        let (location, velocity) = if let Some(raw) =
+            spaces.try_get_or_init_raw(xr_data, &session_data, &legacy.actions, display_time)
+        {
+            raw.relate(session_data.get_space_for_origin(origin), display_time)
+                .unwrap()
         } else {
             trace!("failed to get raw space, making empty pose");
             (SpaceLocation::default(), SpaceVelocity::default())
@@ -73,11 +72,11 @@ impl<C: Compositor> TrackedDevice<C> for XrController<C> {
     }
 
     fn get_type(&self) -> TrackedDeviceType {
-        self.device.get_type()
+        self.device.device_type
     }
 
     fn connected(&self) -> bool {
-        self.device.connected()
+        self.device.is_connected()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

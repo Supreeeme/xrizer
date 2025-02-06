@@ -18,7 +18,7 @@ use crate::{
 use custom_bindings::{BoolActionData, FloatActionData};
 use legacy::LegacyActionData;
 use log::{debug, info, trace, warn};
-use openvr::{self as vr, space_relation_to_openvr_pose};
+use openvr::{self as vr};
 use openxr as xr;
 use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ use std::mem::ManuallyDrop;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU32, Ordering},
-    Arc, Mutex, OnceLock, RwLock,
+    Arc, OnceLock, RwLock,
 };
 
 new_key_type! {
@@ -708,11 +708,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         };
 
         let pose = self
-            .openxr
-            .devices
-            .get_device(hand as usize)
-            .unwrap()
-            .get_pose(origin, self)
+            .get_device_pose(hand as usize, Some(origin))
             .expect("wtf");
 
         drop(loaded);
@@ -1042,14 +1038,39 @@ impl<C: openxr_data::Compositor> Input<C> {
     ) {
         tracy_span!();
         let data = self.openxr.session_data.get();
+        let display_time = self.openxr.display_time.get();
 
         for i in 0..poses.len() {
             let device = self.openxr.devices.get_device(i);
 
             if let Some(device) = device {
-                poses[i] = device.get_pose(origin.unwrap_or(data.current_origin), self).unwrap_or_default();
+                poses[i] = device
+                    .get_pose(
+                        origin.unwrap_or(data.current_origin),
+                        &self.openxr,
+                        &data,
+                        display_time,
+                    )
+                    .unwrap_or_default();
             }
         }
+    }
+
+    pub fn get_device_pose(
+        &self,
+        index: usize,
+        origin: Option<vr::ETrackingUniverseOrigin>,
+    ) -> Option<vr::TrackedDevicePose_t> {
+        tracy_span!();
+        let device = self.openxr.devices.get_device(index)?;
+        let data = self.openxr.session_data.get();
+
+        device.get_pose(
+            origin.unwrap_or(data.current_origin),
+            &self.openxr,
+            &data,
+            self.openxr.display_time.get(),
+        )
     }
 
     pub fn get_legacy_controller_state(
