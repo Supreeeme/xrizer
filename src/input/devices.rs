@@ -1,19 +1,22 @@
 use controller::XrController;
 use hmd::XrHMD;
+use openvr::k_unMaxTrackedDeviceCount;
 use tracked_device::{TrackedDevice, TrackedDeviceType};
+
+use crate::openxr_data::Compositor;
 
 pub mod controller;
 pub mod hmd;
 pub mod tracked_device;
 
-pub struct XrTrackedDevices {
-    devices: Vec<Box<dyn TrackedDevice>>,
+pub struct XrTrackedDevices<C: Compositor> {
+    devices: Vec<Box<dyn TrackedDevice<C>>>,
 }
 
-impl XrTrackedDevices {
+impl<C: Compositor> XrTrackedDevices<C> {
     pub fn new(instance: &openxr::Instance) -> Self {
         let mut devices = Self {
-            devices: Vec::new(),
+            devices: Vec::with_capacity(k_unMaxTrackedDeviceCount as usize),
         };
 
         devices.add_device(Box::new(XrHMD::new()));
@@ -26,30 +29,33 @@ impl XrTrackedDevices {
         devices
     }
 
-    pub fn add_device(&mut self, device: Box<dyn TrackedDevice>) {
+    pub fn add_device(&mut self, device: Box<dyn TrackedDevice<C>>) {
+        if self.devices.len() as u32 == k_unMaxTrackedDeviceCount {
+            panic!("Cannot add more than {} devices", k_unMaxTrackedDeviceCount);
+        }
         self.devices.push(device);
     }
 
-    pub fn get_devices(&self) -> &[Box<dyn TrackedDevice>] {
+    pub fn get_devices(&self) -> &[Box<dyn TrackedDevice<C>>] {
         &self.devices
     }
 
-    pub fn get_devices_mut(&mut self) -> &mut [Box<dyn TrackedDevice>] {
+    pub fn get_devices_mut(&mut self) -> &mut [Box<dyn TrackedDevice<C>>] {
         &mut self.devices
     }
 
-    pub fn get_device(&self, index: usize) -> Option<&Box<dyn TrackedDevice>> {
+    pub fn get_device(&self, index: usize) -> Option<&Box<dyn TrackedDevice<C>>> {
         self.devices.get(index)
     }
 
-    pub fn get_device_mut(&mut self, index: usize) -> Option<&mut Box<dyn TrackedDevice>> {
+    pub fn get_device_mut(&mut self, index: usize) -> Option<&mut Box<dyn TrackedDevice<C>>> {
         self.devices.get_mut(index)
     }
 
     pub fn get_device_by_type(
         &self,
         device_type: tracked_device::TrackedDeviceType,
-    ) -> Option<&Box<dyn TrackedDevice>> {
+    ) -> Option<&Box<dyn TrackedDevice<C>>> {
         self.devices
             .iter()
             .find(|device| device.get_type() == device_type)
@@ -58,27 +64,27 @@ impl XrTrackedDevices {
     pub fn get_device_mut_by_type(
         &mut self,
         device_type: tracked_device::TrackedDeviceType,
-    ) -> Option<&mut Box<dyn TrackedDevice>> {
+    ) -> Option<&mut Box<dyn TrackedDevice<C>>> {
         self.devices
             .iter_mut()
             .find(|device| device.get_type() == device_type)
     }
 
-    pub fn get_hmd(&self) -> Option<&XrHMD> {
+    pub fn get_hmd(&self) -> Option<&XrHMD<C>> {
         self.get_device_by_type(tracked_device::TrackedDeviceType::HMD)
-            .and_then(|dev| dev.as_any().downcast_ref::<XrHMD>())
+            .and_then(|dev| dev.as_any().downcast_ref::<XrHMD<C>>())
     }
 
     pub fn get_controller(
         &self,
         hand: tracked_device::TrackedDeviceType,
-    ) -> Option<&controller::XrController> {
+    ) -> Option<&controller::XrController<C>> {
         assert!(
             hand == tracked_device::TrackedDeviceType::LeftHand || hand == tracked_device::TrackedDeviceType::RightHand, 
             "XrController can only be created for TrackedDeviceType::LeftHand or TrackedDeviceType::RightHand"
         );
 
         self.get_device_by_type(hand)
-            .and_then(|dev| dev.as_any().downcast_ref::<controller::XrController>())
+            .and_then(|dev| dev.as_any().downcast_ref::<controller::XrController<C>>())
     }
 }

@@ -1,18 +1,24 @@
 use std::sync::Mutex;
 
-use openvr::TrackedDevicePose_t;
+use openvr::{space_relation_to_openvr_pose, ETrackingUniverseOrigin, TrackedDevicePose_t};
+use openxr::{SpaceLocation, SpaceVelocity};
 
-use crate::input::InteractionProfile;
+use crate::{
+    input::{Input, InteractionProfile},
+    openxr_data::{Compositor, OpenXrData, SessionData},
+    tracy_span,
+};
+use log::{debug, info, trace, warn};
 
 use super::tracked_device::{TrackedDevice, TrackedDeviceType, XrTrackedDevice};
 
-pub struct XrController {
-    device: XrTrackedDevice,
+pub struct XrController<C: Compositor> {
+    device: XrTrackedDevice<C>,
     pub subaction_path: openxr::Path,
-    hand_path: &'static str,
+    pub hand_path: &'static str,
 }
 
-impl XrController {
+impl<C: Compositor> XrController<C> {
     pub fn new(instance: &openxr::Instance, device_type: TrackedDeviceType) -> Self {
         assert!(device_type == TrackedDeviceType::LeftHand || device_type == TrackedDeviceType::RightHand, "XrController can only be created for TrackedDeviceType::LeftHand or TrackedDeviceType::RightHand");
 
@@ -33,14 +39,37 @@ impl XrController {
         controller
     }
 
-    pub fn get_device(&self) -> &XrTrackedDevice {
+    pub fn get_device(&self) -> &XrTrackedDevice<C> {
         &self.device
     }
 }
 
-impl TrackedDevice for XrController {
-    fn get_pose(&self, origin: openvr::ETrackingUniverseOrigin) -> Option<TrackedDevicePose_t> {
-        todo!()
+impl<C: Compositor> TrackedDevice<C> for XrController<C> {
+    fn get_pose(
+        &self,
+        origin: openvr::ETrackingUniverseOrigin,
+        input: &Input<C>
+    ) -> Option<TrackedDevicePose_t> {
+        tracy_span!();
+        let session_data = input.openxr.session_data.get();
+        let display_time = input.openxr.display_time.get();
+
+        let legacy = session_data.input_data.legacy_actions.get()?;
+
+        let spaces = match self.get_type() {
+            TrackedDeviceType::LeftHand => &legacy.left_spaces,
+            TrackedDeviceType::RightHand => &legacy.right_spaces,
+            _ => return None,
+        };
+
+        let (location, velocity) = if let Some(raw) = spaces.try_get_or_init_raw(&input.openxr, &session_data, &legacy.actions, display_time) {
+            raw.relate(session_data.get_space_for_origin(origin), display_time).unwrap()
+        } else {
+            trace!("failed to get raw space, making empty pose");
+            (SpaceLocation::default(), SpaceVelocity::default())
+        };
+
+        Some(space_relation_to_openvr_pose(location, velocity))
     }
 
     fn get_type(&self) -> TrackedDeviceType {

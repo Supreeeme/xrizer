@@ -37,7 +37,7 @@ pub struct OpenXrData<C: Compositor> {
     pub display_time: AtomicXrTime,
     // pub left_hand: HandInfo,
     // pub right_hand: HandInfo,
-    pub devices: XrTrackedDevices,
+    pub devices: XrTrackedDevices<C>,
     pub enabled_extensions: xr::ExtensionSet,
 
     /// should only be externally accessed for testing
@@ -195,6 +195,8 @@ impl<C: Compositor> OpenXrData<C> {
                         assert!(profile.is_some(), "Unknown profile: {}", profile_name);
 
                         controller.get_device().set_interaction_profile(profile.unwrap());
+
+                        info!("{} interaction profile changed: {}", controller.hand_path, profile_name)
                     }
                 }
                 _ => {

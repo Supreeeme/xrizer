@@ -1,8 +1,8 @@
-use std::{any::Any, sync::{atomic::{AtomicBool, Ordering}, Mutex}};
+use std::{any::Any, marker::PhantomData, sync::{atomic::{AtomicBool, Ordering}, Mutex}};
 
 use openvr::{k_unTrackedDeviceIndexInvalid, ETrackingUniverseOrigin, TrackedDeviceIndex_t, TrackedDevicePose_t};
 
-use crate::{input::InteractionProfile, openxr_data::AtomicPath};
+use crate::{input::{Input, InteractionProfile}, openxr_data::{AtomicPath, Compositor, OpenXrData, SessionData}};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TrackedDeviceType {
@@ -38,8 +38,8 @@ impl TryFrom<&str> for TrackedDeviceType {
     }
 }
 
-pub trait TrackedDevice: Sync + Send {
-    fn get_pose(&self, origin: ETrackingUniverseOrigin) -> Option<TrackedDevicePose_t>;
+pub trait TrackedDevice<C: Compositor>: Sync + Send {
+    fn get_pose(&self, origin: ETrackingUniverseOrigin, input: &Input<C>) -> Option<TrackedDevicePose_t>;
     fn get_type(&self) -> TrackedDeviceType;
     fn connected(&self) -> bool;
 
@@ -47,29 +47,31 @@ pub trait TrackedDevice: Sync + Send {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
-pub struct XrTrackedDevice {
+pub struct XrTrackedDevice<C: Compositor> {
     device_index: TrackedDeviceIndex_t,
     device_type: TrackedDeviceType,
     pub interaction_profile: Mutex<Option<&'static dyn InteractionProfile>>,
     pub profile_path: AtomicPath,
-    connected: AtomicBool
+    connected: AtomicBool,
+    phantom: PhantomData<C>
 }
 
-impl Default for XrTrackedDevice {
+impl<C: Compositor> Default for XrTrackedDevice<C> {
     fn default() -> Self {
         Self {
             device_index: k_unTrackedDeviceIndexInvalid,
             device_type: TrackedDeviceType::Unknown,
             interaction_profile: Mutex::new(None),
             profile_path: AtomicPath::new(),
-            connected: false.into()
+            connected: false.into(),
+            phantom: PhantomData::default()
         }
     }
 }
 
-impl XrTrackedDevice {
+impl<C: Compositor> XrTrackedDevice<C> {
     pub fn init(&mut self, device_index: TrackedDeviceIndex_t, device_type: TrackedDeviceType) {
-        assert!(self.device_index != k_unTrackedDeviceIndexInvalid, "Cannot initialize tracked device twice - first with ID {}, then with ID {}", self.device_index, device_index);
+        assert!(self.device_index == k_unTrackedDeviceIndexInvalid, "Cannot initialize tracked device twice - first with ID {}, then with ID {}", self.device_index, device_index);
         assert!(device_index != k_unTrackedDeviceIndexInvalid, "Cannot initialize tracked device with invalid ID k_unTrackedDeviceIndexInvalid");
         assert!(device_type != TrackedDeviceType::Unknown, "Cannot initialize tracked device with unknown type TrackedDeviceType::Unknown");
 
@@ -94,8 +96,8 @@ impl XrTrackedDevice {
     }
 }
 
-impl TrackedDevice for XrTrackedDevice {
-    fn get_pose(&self, _origin: ETrackingUniverseOrigin) -> Option<TrackedDevicePose_t> {
+impl<C: Compositor> TrackedDevice<C> for XrTrackedDevice<C> {
+    fn get_pose(&self, _origin: ETrackingUniverseOrigin, input: &Input<C>) -> Option<TrackedDevicePose_t> {
         unimplemented!("STUB")
     }
 
