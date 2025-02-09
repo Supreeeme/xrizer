@@ -87,6 +87,7 @@ impl<C: Compositor> OpenXrData<C> {
         exts.khr_opengl_enable = supported_exts.khr_opengl_enable;
         exts.ext_hand_tracking = supported_exts.ext_hand_tracking;
         exts.khr_visibility_mask = supported_exts.khr_visibility_mask;
+        exts.ext_active_action_set_priority = supported_exts.ext_active_action_set_priority;
 
         let instance = entry
             .create_instance(
