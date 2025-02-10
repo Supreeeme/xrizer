@@ -12,8 +12,7 @@ use devices::tracked_device::{TrackedDevice, TrackedDeviceType};
 pub use profiles::{InteractionProfile, Profiles};
 
 use crate::{
-    openxr_data::{self, OpenXrData, SessionData},
-    tracy_span, AtomicF32,
+    misc_unknown::button_mask_from_id, openxr_data::{self, OpenXrData, SessionData}, tracy_span, AtomicF32
 };
 use custom_bindings::{BoolActionData, FloatActionData};
 use legacy::LegacyActionData;
@@ -1094,10 +1093,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         };
         let actions = &legacy.actions;
 
-        let Ok(hand) = TrackedDeviceType::try_from(device_index) else {
-            debug!("requested controller state for invalid device index: {device_index}");
-            return false;
-        };
+        let hand = TrackedDeviceType::from(device_index);
 
         let hand_path = match hand {
             TrackedDeviceType::LeftHand => {
@@ -1118,11 +1114,6 @@ impl<C: openxr_data::Compositor> Input<C> {
         };
 
         let data = self.openxr.session_data.get();
-
-        // Adapted from openvr.h
-        fn button_mask_from_id(id: vr::EVRButtonId) -> u64 {
-            1_u64 << (id as u32)
-        }
 
         let state = unsafe { state.as_mut() }.unwrap();
         *state = Default::default();

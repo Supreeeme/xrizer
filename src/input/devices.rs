@@ -1,9 +1,11 @@
 use controller::XrController;
 use hmd::XrHMD;
-use openvr::k_unMaxTrackedDeviceCount;
-use tracked_device::{TrackedDevice, TrackedDeviceType};
+use openvr::{k_unMaxTrackedDeviceCount, ETrackedDeviceProperty, ETrackedPropertyError};
+use tracked_device::{TrackedDevice, TrackedDeviceType, XrTrackedDevice};
 
 use crate::openxr_data::{Compositor, OpenXrData, SessionData};
+
+use super::InteractionProfile;
 
 pub mod controller;
 pub mod hmd;
@@ -44,6 +46,38 @@ impl<C: Compositor> TrackedDevice<C> for DeviceContainer<C> {
         handle_variants!(self, |device| { return device.connected() })
     }
 
+    fn get_bool_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> bool {
+        handle_variants!(self, |device| {return device.get_bool_property(prop, err) })
+    }
+
+    fn get_float_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError, system: &crate::system::System) -> f32 {
+        handle_variants!(&self, |device| { return device.get_float_property(prop, err, system) })
+    }
+
+    fn get_int32_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> i32 {
+        handle_variants!(&self, |device| { return device.get_int32_property(prop, err) })
+    }
+
+    fn get_uint64_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> u64 {
+        handle_variants!(&self, |device| { return device.get_uint64_property(prop, err) })
+    }
+
+    fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
+        handle_variants!(self, |device| { device.set_interaction_profile(profile) })
+    }
+
+    fn get_interaction_profile(&self) -> Option<&'static dyn InteractionProfile> {
+        handle_variants!(self, |device| { return device.get_interaction_profile() })
+    }
+
+    fn get_device(&self) -> &XrTrackedDevice<C> {
+        handle_variants!(self, |device| { return device.get_device() })
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         handle_variants!(self, |device| { return device.as_any() })
     }
@@ -51,12 +85,14 @@ impl<C: Compositor> TrackedDevice<C> for DeviceContainer<C> {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         handle_variants!(self, |device| { return device.as_any_mut() })
     }
+    
 }
 
 pub struct XrTrackedDeviceManager<C: Compositor> {
     devices: Vec<DeviceContainer<C>>,
 }
 
+#[allow(dead_code)]
 impl<C: Compositor> XrTrackedDeviceManager<C> {
     pub fn new(instance: &openxr::Instance) -> Self {
         let mut devices = Self {
@@ -99,6 +135,7 @@ impl<C: Compositor> XrTrackedDeviceManager<C> {
         self.devices.get_mut(index)
     }
 
+    /// mainly intended to be used to get controllers or HMD, otherwise it'll just return the first device that matches, i.e. only the first generic tracker would ever be returned.
     pub fn get_device_by_type(
         &self,
         device_type: tracked_device::TrackedDeviceType,

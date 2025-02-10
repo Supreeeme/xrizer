@@ -2,7 +2,7 @@ use crate::{
     clientcore::{Injected, Injector},
     graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData},
     input::{
-        devices::{tracked_device::TrackedDeviceType, XrTrackedDeviceManager},
+        devices::{tracked_device::{TrackedDevice, TrackedDeviceType}, XrTrackedDeviceManager},
         Profiles,
     },
 };
@@ -147,6 +147,7 @@ impl<C: Compositor> OpenXrData<C> {
 
                     for hand in [TrackedDeviceType::LeftHand, TrackedDeviceType::RightHand] {
                         let controller = self.devices.get_controller(hand).unwrap();
+                        let hmd = self.devices.get_hmd().unwrap();
 
                         let profile_path = session
                             .session
@@ -173,6 +174,8 @@ impl<C: Compositor> OpenXrData<C> {
                         controller
                             .get_device()
                             .set_interaction_profile(profile.unwrap());
+
+                        hmd.set_interaction_profile(profile.unwrap());
 
                         info!(
                             "{} interaction profile changed: {}",

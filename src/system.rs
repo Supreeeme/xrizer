@@ -1,11 +1,8 @@
 use crate::{
-    clientcore::{Injected, Injector},
-    input::{
+    clientcore::{Injected, Injector}, input::{
         devices::tracked_device::{TrackedDevice, TrackedDeviceType},
         Input,
-    },
-    openxr_data::{RealOpenXrData, SessionData},
-    tracy_span,
+    }, openxr_data::{RealOpenXrData, SessionData}, set_property_error, tracy_span
 };
 use glam::{Mat3, Quat, Vec3};
 use log::{debug, trace, warn};
@@ -72,7 +69,7 @@ pub struct System {
     views: Mutex<ViewCache>,
 }
 
-mod log_tags {
+pub mod log_tags {
     pub const TRACKED_PROP: &str = "tracked_property";
 }
 
@@ -91,7 +88,7 @@ impl System {
         std::mem::take(&mut *self.views.lock().unwrap());
     }
 
-    fn get_views(&self, ty: xr::ReferenceSpaceType) -> [xr::View; 2] {
+    pub fn get_views(&self, ty: xr::ReferenceSpaceType) -> [xr::View; 2] {
         tracy_span!();
         let session = self.openxr.session_data.get();
         self.views
@@ -521,56 +518,41 @@ impl vr::IVRSystem022_Interface for System {
         err: *mut vr::ETrackedPropertyError,
     ) -> i32 {
         debug!(target: log_tags::TRACKED_PROP, "requesting int32 property: {prop:?} ({device_index})");
-        if !self.IsTrackedDeviceConnected(device_index) {
-            if let Some(err) = unsafe { err.as_mut() } {
-                *err = vr::ETrackedPropertyError::InvalidDevice;
+        let device = self.openxr.devices.get_device(device_index as usize);
+
+        if let Some(device) = device {
+            if !device.connected() {
+                set_property_error!(err, vr::ETrackedPropertyError::InvalidDevice);
+                return 0;
             }
+
+            return device.get_int32_property(prop, err);
         }
 
-        match device_index {
-            x if TrackedDeviceType::try_from(x).is_ok() => match prop {
-                vr::ETrackedDeviceProperty::Axis1Type_Int32 => {
-                    Some(vr::EVRControllerAxisType::Trigger as _)
-                }
-                _ => None,
-            },
-            _ => None,
-        }
-        .unwrap_or_else(|| {
-            if let Some(err) = unsafe { err.as_mut() } {
-                *err = vr::ETrackedPropertyError::UnknownProperty;
-            }
-            0
-        })
+        0
     }
     fn GetFloatTrackedDeviceProperty(
         &self,
         device_index: vr::TrackedDeviceIndex_t,
         prop: vr::ETrackedDeviceProperty,
-        error: *mut vr::ETrackedPropertyError,
+        err: *mut vr::ETrackedPropertyError,
     ) -> f32 {
         debug!(target: log_tags::TRACKED_PROP, "requesting float property: {prop:?} ({device_index})");
-        if device_index != vr::k_unTrackedDeviceIndex_Hmd {
-            if let Some(error) = unsafe { error.as_mut() } {
-                *error = vr::ETrackedPropertyError::UnknownProperty;
+        let device = self.openxr.devices.get_device(device_index as usize);
+        if let Some(device) = device {
+            if !device.connected() {
+                set_property_error!(err, vr::ETrackedPropertyError::InvalidDevice);
+                return 0.0;
             }
-            return 0.0;
+
+            return device.get_float_property(prop, err, self);
         }
 
-        match prop {
-            vr::ETrackedDeviceProperty::UserIpdMeters_Float => {
-                let views = self.get_views(xr::ReferenceSpaceType::VIEW);
-                views[1].pose.position.x - views[0].pose.position.x
-            }
-            vr::ETrackedDeviceProperty::DisplayFrequency_Float => 90.0,
-            _ => {
-                if let Some(error) = unsafe { error.as_mut() } {
-                    *error = vr::ETrackedPropertyError::UnknownProperty;
-                }
-                0.0
-            }
-        }
+        0.0
     }
+
+    
+
     fn GetBoolTrackedDeviceProperty(
         &self,
         device_index: vr::TrackedDeviceIndex_t,
@@ -578,22 +560,20 @@ impl vr::IVRSystem022_Interface for System {
         err: *mut vr::ETrackedPropertyError,
     ) -> bool {
         debug!(target: log_tags::TRACKED_PROP, "requesting bool property: {prop:?} ({device_index})");
-        if let Some(err) = unsafe { err.as_mut() } {
-            *err = vr::ETrackedPropertyError::UnknownProperty;
+        let device = self.openxr.devices.get_device(device_index as usize);
+        if let Some(device) = device {
+            if !device.connected() {
+                set_property_error!(err, vr::ETrackedPropertyError::InvalidDevice);
+                return false;
+            }
+
+            return device.get_bool_property(prop, err)
         }
+
         false
     }
 
     fn IsTrackedDeviceConnected(&self, device_index: vr::TrackedDeviceIndex_t) -> bool {
-        // match device_index {
-        //     vr::k_unTrackedDeviceIndex_Hmd => true,
-        //     x if TrackedDeviceType::try_from(x).is_ok() => match TrackedDeviceType::try_from(x).unwrap() {
-        //         TrackedDeviceType::LeftHand => self.openxr.devices.get_controller(TrackedDeviceType::LeftHand).unwrap().connected(),
-        //         TrackedDeviceType::RightHand => self.openxr.devices.get_controller(TrackedDeviceType::RightHand).unwrap().connected(),
-        //     },
-        //     _ => false,
-        // }
-
         if let Some(dev) = self.openxr.devices.get_device(device_index as usize) {
             dev.connected()
         } else {
@@ -602,16 +582,10 @@ impl vr::IVRSystem022_Interface for System {
     }
 
     fn GetTrackedDeviceClass(&self, index: vr::TrackedDeviceIndex_t) -> vr::ETrackedDeviceClass {
-        match index {
-            vr::k_unTrackedDeviceIndex_Hmd => vr::ETrackedDeviceClass::HMD,
-            x if TrackedDeviceType::try_from(x).is_ok() => {
-                if self.IsTrackedDeviceConnected(x) {
-                    vr::ETrackedDeviceClass::Controller
-                } else {
-                    vr::ETrackedDeviceClass::Invalid
-                }
-            }
-            _ => vr::ETrackedDeviceClass::Invalid,
+        if !self.IsTrackedDeviceConnected(index) {
+            vr::ETrackedDeviceClass::Invalid
+        } else {
+            TrackedDeviceType::from(index).into()
         }
     }
     fn GetControllerRoleForTrackedDeviceIndex(

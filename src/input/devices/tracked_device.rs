@@ -8,8 +8,8 @@ use std::{
 };
 
 use openvr::{
-    k_unTrackedDeviceIndexInvalid, ETrackingUniverseOrigin, TrackedDeviceIndex_t,
-    TrackedDevicePose_t,
+    k_unTrackedDeviceIndexInvalid, ETrackedDeviceClass, ETrackedDeviceProperty,
+    ETrackedPropertyError, ETrackingUniverseOrigin, TrackedDeviceIndex_t, TrackedDevicePose_t,
 };
 
 use crate::{
@@ -26,27 +26,36 @@ pub enum TrackedDeviceType {
     Unknown,
 }
 
-impl TryFrom<TrackedDeviceIndex_t> for TrackedDeviceType {
-    type Error = ();
-
-    fn try_from(index: TrackedDeviceIndex_t) -> Result<Self, Self::Error> {
+impl From<TrackedDeviceIndex_t> for TrackedDeviceType {
+    fn from(index: TrackedDeviceIndex_t) -> Self {
         match index {
-            0 => Ok(TrackedDeviceType::HMD),
-            1 => Ok(TrackedDeviceType::LeftHand),
-            2 => Ok(TrackedDeviceType::RightHand),
-            _ => Ok(TrackedDeviceType::GenericTracker),
+            0 => TrackedDeviceType::HMD,
+            1 => TrackedDeviceType::LeftHand,
+            2 => TrackedDeviceType::RightHand,
+            _ => TrackedDeviceType::GenericTracker,
         }
     }
 }
 
-impl TryFrom<&str> for TrackedDeviceType {
-    type Error = ();
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+impl From<&str> for TrackedDeviceType {
+    fn from(value: &str) -> Self {
         match value {
-            "/user/hand/left" => Ok(TrackedDeviceType::LeftHand),
-            "/user/hand/right" => Ok(TrackedDeviceType::RightHand),
-            _ => Ok(TrackedDeviceType::Unknown),
+            "/user/hand/left" => TrackedDeviceType::LeftHand,
+            "/user/hand/right" => TrackedDeviceType::RightHand,
+            _ => TrackedDeviceType::Unknown,
+        }
+    }
+}
+
+impl Into<ETrackedDeviceClass> for TrackedDeviceType {
+    fn into(self) -> ETrackedDeviceClass {
+        match self {
+            TrackedDeviceType::HMD => ETrackedDeviceClass::HMD,
+            TrackedDeviceType::LeftHand | TrackedDeviceType::RightHand => {
+                ETrackedDeviceClass::Controller
+            }
+            TrackedDeviceType::GenericTracker => ETrackedDeviceClass::GenericTracker,
+            _ => ETrackedDeviceClass::Invalid,
         }
     }
 }
@@ -61,6 +70,32 @@ pub trait TrackedDevice<C: Compositor>: Sync + Send {
     ) -> Option<TrackedDevicePose_t>;
     fn get_type(&self) -> TrackedDeviceType;
     fn connected(&self) -> bool;
+    fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile);
+    fn get_interaction_profile(&self) -> Option<&'static dyn InteractionProfile>;
+
+    fn get_bool_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> bool;
+    fn get_float_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+        system: &crate::system::System,
+    ) -> f32;
+    fn get_int32_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> i32;
+    fn get_uint64_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> u64;
+
+    fn get_device(&self) -> &XrTrackedDevice<C>;
 
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -87,6 +122,28 @@ impl<C: Compositor> Default for XrTrackedDevice<C> {
         }
     }
 }
+#[macro_export]
+macro_rules! string_prop {
+    () => {
+        if prop == $in {}
+    };
+}
+#[macro_export]
+macro_rules! prop {
+    ($match:expr, $prop:ident, $in:expr) => {
+        if $prop == $match {
+            return $in;
+        }
+    };
+}
+#[macro_export]
+macro_rules! set_property_error {
+    ($err:ident, $error:expr) => {
+        if let Some(err) = unsafe { $err.as_mut() } {
+            *err = $error;
+        }
+    };
+}
 
 impl<C: Compositor> XrTrackedDevice<C> {
     pub fn init(&mut self, device_index: TrackedDeviceIndex_t, device_type: TrackedDeviceType) {
@@ -112,16 +169,83 @@ impl<C: Compositor> XrTrackedDevice<C> {
     pub fn set_connected(&self, connected: bool) {
         self.connected.store(connected, Ordering::Relaxed);
     }
+}
 
-    pub fn is_connected(&self) -> bool {
+// Implementation for default behavior for devices to fall back on.
+impl<C: Compositor> TrackedDevice<C> for XrTrackedDevice<C> {
+    fn get_pose(
+        &self,
+        _origin: ETrackingUniverseOrigin,
+        _xr_data: &OpenXrData<C>,
+        _session_data: &SessionData,
+        _display_time: openxr::Time,
+    ) -> Option<TrackedDevicePose_t> {
+        todo!()
+    }
+
+    fn get_type(&self) -> TrackedDeviceType {
+        todo!()
+    }
+
+    fn connected(&self) -> bool {
         self.connected.load(Ordering::Relaxed)
     }
 
-    pub fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
+    fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
         *self.interaction_profile.lock().unwrap() = Some(profile);
     }
 
-    pub fn get_interaction_profile(&self) -> Option<&'static dyn InteractionProfile> {
+    fn get_interaction_profile(&self) -> Option<&'static dyn InteractionProfile> {
         self.interaction_profile.lock().unwrap().as_ref().copied()
+    }
+
+    fn get_bool_property(
+        &self,
+        _prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> bool {
+        set_property_error!(err, ETrackedPropertyError::UnknownProperty);
+
+        false
+    }
+
+    fn get_float_property(
+        &self,
+        _prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+        _system: &crate::system::System,
+    ) -> f32 {
+        set_property_error!(err, ETrackedPropertyError::UnknownProperty);
+        0.0
+    }
+
+    fn get_int32_property(
+        &self,
+        _prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> i32 {
+        set_property_error!(err, ETrackedPropertyError::UnknownProperty);
+        0
+    }
+
+    fn get_uint64_property(
+        &self,
+        _prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> u64 {
+        set_property_error!(err, ETrackedPropertyError::UnknownProperty);
+        0
+    }
+
+    fn get_device(&self) -> &XrTrackedDevice<C> {
+        self
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        todo!()
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        todo!()
     }
 }

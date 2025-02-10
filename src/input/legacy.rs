@@ -3,7 +3,7 @@ use log::{debug, trace};
 use openxr as xr;
 use std::sync::OnceLock;
 
-use super::devices::tracked_device::TrackedDeviceType;
+use super::devices::tracked_device::{TrackedDevice, TrackedDeviceType};
 
 macro_rules! legacy_actions_and_bindings {
     ($($field:ident: $ty:ty),+$(,)?) => {

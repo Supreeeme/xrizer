@@ -2,13 +2,18 @@
 // but are used by games (typically Half Life Alyx.)
 
 use log::debug;
-use openvr::InterfaceImpl;
+use openvr::{EVRButtonId, InterfaceImpl};
 use seq_macro::seq;
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+
+// Adapted from openvr.h
+pub fn button_mask_from_id(id: EVRButtonId) -> u64 {
+    1_u64 << (id as u32)
+}
 
 #[derive(Default)]
 pub struct UnknownInterfaces {

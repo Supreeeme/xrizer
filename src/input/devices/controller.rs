@@ -1,9 +1,14 @@
-use openvr::{space_relation_to_openvr_pose, TrackedDevicePose_t};
+use openvr::{
+    space_relation_to_openvr_pose, ETrackedDeviceProperty, ETrackedPropertyError, EVRButtonId,
+    EVRControllerAxisType, TrackedDevicePose_t,
+};
 use openxr::{SpaceLocation, SpaceVelocity};
 
 use crate::{
+    input::InteractionProfile,
+    misc_unknown::button_mask_from_id,
     openxr_data::{Compositor, OpenXrData, SessionData},
-    tracy_span,
+    prop, tracy_span,
 };
 use log::trace;
 
@@ -34,10 +39,6 @@ impl<C: Compositor> XrController<C> {
         controller.device.init(device_type as u32, device_type);
 
         controller
-    }
-
-    pub fn get_device(&self) -> &XrTrackedDevice<C> {
-        &self.device
     }
 }
 
@@ -76,7 +77,99 @@ impl<C: Compositor> TrackedDevice<C> for XrController<C> {
     }
 
     fn connected(&self) -> bool {
-        self.device.is_connected()
+        self.device.connected()
+    }
+
+    fn get_bool_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> bool {
+        prop!(
+            ETrackedDeviceProperty::DeviceProvidesBatteryStatus_Bool,
+            prop,
+            true
+        );
+
+        self.device.get_bool_property(prop, err)
+    }
+
+    fn get_float_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+        system: &crate::system::System,
+    ) -> f32 {
+        self.device.get_float_property(prop, err, system)
+    }
+
+    fn get_int32_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> i32 {
+        //Apparently this is pretending to be a CV1
+        prop!(
+            ETrackedDeviceProperty::Axis0Type_Int32,
+            prop,
+            EVRControllerAxisType::Joystick as i32
+        );
+        prop!(
+            ETrackedDeviceProperty::Axis1Type_Int32,
+            prop,
+            EVRControllerAxisType::Trigger as i32
+        );
+        prop!(
+            ETrackedDeviceProperty::Axis2Type_Int32,
+            prop,
+            EVRControllerAxisType::Trigger as i32
+        );
+        prop!(
+            ETrackedDeviceProperty::Axis3Type_Int32,
+            prop,
+            EVRControllerAxisType::None as i32
+        );
+        prop!(
+            ETrackedDeviceProperty::Axis4Type_Int32,
+            prop,
+            EVRControllerAxisType::None as i32
+        );
+
+        self.device.get_int32_property(prop, err)
+    }
+
+    fn get_uint64_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> u64 {
+        if prop == ETrackedDeviceProperty::SupportedButtons_Uint64 {
+            return button_mask_from_id(EVRButtonId::System)
+                | button_mask_from_id(EVRButtonId::ApplicationMenu)
+                | button_mask_from_id(EVRButtonId::Grip)
+                | button_mask_from_id(EVRButtonId::Axis2)
+                | button_mask_from_id(EVRButtonId::DPad_Left)
+                | button_mask_from_id(EVRButtonId::DPad_Up)
+                | button_mask_from_id(EVRButtonId::DPad_Down)
+                | button_mask_from_id(EVRButtonId::DPad_Right)
+                | button_mask_from_id(EVRButtonId::A)
+                | button_mask_from_id(EVRButtonId::SteamVR_Touchpad)
+                | button_mask_from_id(EVRButtonId::SteamVR_Trigger);
+        }
+
+        self.device.get_uint64_property(prop, err)
+    }
+
+    fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
+        self.device.set_interaction_profile(profile);
+    }
+
+    fn get_interaction_profile(&self) -> Option<&'static dyn InteractionProfile> {
+        self.device.get_interaction_profile()
+    }
+
+    fn get_device(&self) -> &XrTrackedDevice<C> {
+        &self.device
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
