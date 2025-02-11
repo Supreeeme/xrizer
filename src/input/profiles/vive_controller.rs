@@ -1,22 +1,106 @@
-use super::{InteractionProfile, PathTranslation, StringToPath};
+use openvr::ETrackedDeviceProperty;
+
+use super::{
+    DevicePropertyTypes, HandValueType, InteractionProfile, PathTranslation, StringToPath,
+};
 use crate::input::{devices::tracked_device::TrackedDeviceType, legacy::LegacyBindings};
-use std::ffi::CStr;
 
 pub struct ViveWands;
 
 impl InteractionProfile for ViveWands {
-    fn openvr_controller_type(&self) -> &'static CStr {
-        c"vive_controller"
-    }
-    fn model(&self) -> &'static CStr {
-        c"Vive. Controller MV"
-    }
-    fn render_model_name(&self, _: TrackedDeviceType) -> &'static CStr {
-        c"vr_controller_vive_1_5"
-    }
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/htc/vive_controller"
     }
+
+    fn model(&self, hand: TrackedDeviceType) -> &'static str {
+        match hand {
+            TrackedDeviceType::LeftHand => self
+                .get_property(ETrackedDeviceProperty::ModelNumber_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+
+            TrackedDeviceType::RightHand => self
+                .get_property(ETrackedDeviceProperty::ModelNumber_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+            _ => unreachable!(),
+        }
+    }
+
+    fn hmd_properties(&self) -> &'static [(ETrackedDeviceProperty, DevicePropertyTypes)] {
+        &[
+            (
+                ETrackedDeviceProperty::ManufacturerName_String,
+                DevicePropertyTypes::String("HTC"),
+            ),
+            (
+                ETrackedDeviceProperty::ModelNumber_String,
+                DevicePropertyTypes::String("Vive. MV"),
+            ),
+            (
+                ETrackedDeviceProperty::ControllerType_String,
+                DevicePropertyTypes::String("vive"),
+            ),
+        ]
+    }
+
+    fn controller_properties(
+        &self,
+    ) -> &'static [(ETrackedDeviceProperty, HandValueType<DevicePropertyTypes>)] {
+        &[
+            (
+                ETrackedDeviceProperty::ModelNumber_String,
+                HandValueType {
+                    left: DevicePropertyTypes::String("Vive. Controller MV"),
+                    right: None,
+                },
+            ),
+            (
+                ETrackedDeviceProperty::RenderModelName_String,
+                HandValueType {
+                    left: DevicePropertyTypes::String("vr_controller_vive_1_5"),
+                    right: None,
+                },
+            ),
+            (
+                ETrackedDeviceProperty::ControllerType_String,
+                HandValueType {
+                    left: DevicePropertyTypes::String("vive_controller"),
+                    right: None,
+                },
+            ),
+        ]
+    }
+
+    fn openvr_controller_type(&self) -> &'static str {
+        self.get_property(
+            ETrackedDeviceProperty::ControllerType_String,
+            TrackedDeviceType::LeftHand,
+        )
+        .unwrap()
+        .as_string()
+        .unwrap()
+    }
+
+    fn render_model_name(&self, hand: TrackedDeviceType) -> &'static str {
+        match hand {
+            TrackedDeviceType::LeftHand => self
+                .get_property(ETrackedDeviceProperty::RenderModelName_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+
+            TrackedDeviceType::RightHand => self
+                .get_property(ETrackedDeviceProperty::RenderModelName_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+            _ => unreachable!(),
+        }
+    }
+
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {

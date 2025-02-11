@@ -1,9 +1,11 @@
-use super::{InteractionProfile, PathTranslation, StringToPath};
+use super::{
+    DevicePropertyTypes, HandValueType, InteractionProfile, PathTranslation, StringToPath,
+};
 use crate::input::devices::tracked_device::TrackedDeviceType;
 use crate::input::legacy::LegacyBindings;
+use openvr::ETrackedDeviceProperty;
 use openxr as xr;
 use std::f32::consts::FRAC_PI_6;
-use std::ffi::CStr;
 
 pub struct Knuckles;
 
@@ -11,19 +13,88 @@ impl InteractionProfile for Knuckles {
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/valve/index_controller"
     }
-    fn model(&self) -> &'static CStr {
-        c"Knuckles"
-    }
-    fn openvr_controller_type(&self) -> &'static CStr {
-        c"knuckles"
-    }
-    fn render_model_name(&self, hand: TrackedDeviceType) -> &'static CStr {
+
+    fn model(&self, hand: TrackedDeviceType) -> &'static str {
         match hand {
-            TrackedDeviceType::LeftHand => c"valve_controller_knu_1_0_left",
-            TrackedDeviceType::RightHand => c"valve_controller_knu_1_0_right",
+            TrackedDeviceType::LeftHand => self
+                .get_property(ETrackedDeviceProperty::ModelNumber_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+
+            TrackedDeviceType::RightHand => self
+                .get_property(ETrackedDeviceProperty::ModelNumber_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
             _ => unreachable!(),
         }
     }
+
+    fn hmd_properties(&self) -> &'static [(ETrackedDeviceProperty, DevicePropertyTypes)] {
+        &[(
+            ETrackedDeviceProperty::ManufacturerName_String,
+            DevicePropertyTypes::String("Valve"),
+        )]
+    }
+
+    fn controller_properties(
+        &self,
+    ) -> &'static [(ETrackedDeviceProperty, HandValueType<DevicePropertyTypes>)] {
+        &[
+            (
+                ETrackedDeviceProperty::ModelNumber_String,
+                HandValueType {
+                    left: DevicePropertyTypes::String("Knuckles Left"),
+                    right: Some(DevicePropertyTypes::String("Knuckles Right")),
+                },
+            ),
+            (
+                ETrackedDeviceProperty::RenderModelName_String,
+                HandValueType {
+                    left: DevicePropertyTypes::String("valve_controller_knu_1_0_left"),
+                    right: Some(DevicePropertyTypes::String(
+                        "valve_controller_knu_1_0_right",
+                    )),
+                },
+            ),
+            (
+                ETrackedDeviceProperty::ControllerType_String,
+                HandValueType {
+                    left: DevicePropertyTypes::String("knuckles"),
+                    right: None,
+                },
+            ),
+        ]
+    }
+
+    fn openvr_controller_type(&self) -> &'static str {
+        self.get_property(
+            ETrackedDeviceProperty::ControllerType_String,
+            TrackedDeviceType::LeftHand,
+        )
+        .unwrap()
+        .as_string()
+        .unwrap()
+    }
+
+    fn render_model_name(&self, hand: TrackedDeviceType) -> &'static str {
+        match hand {
+            TrackedDeviceType::LeftHand => self
+                .get_property(ETrackedDeviceProperty::RenderModelName_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+
+            TrackedDeviceType::RightHand => self
+                .get_property(ETrackedDeviceProperty::RenderModelName_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+            _ => unreachable!(),
+        }
+    }
+    
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {

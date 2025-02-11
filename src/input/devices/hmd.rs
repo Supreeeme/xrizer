@@ -153,6 +153,15 @@ impl<C: Compositor> TrackedDevice<C> for XrHMD<C> {
         self.device.get_uint64_property(prop, err)
     }
 
+    fn get_string_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> &str {
+        prop!(ETrackedDeviceProperty::RegisteredDeviceType_String, prop, "oculus/F00BAAF00F");
+        prop!(ETrackedDeviceProperty::RenderModelName_String, prop, "oculusHmdRenderModel");
+
+        prop!(ETrackedDeviceProperty::ControllerType_String, prop, "oculus"); // VRChat ignores the HMD if this isn't set..
+
+        self.device.get_string_property(prop, err)
+    }
+
     fn get_device(&self) -> &XrTrackedDevice<C> {
         &self.device
     }

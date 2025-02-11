@@ -95,6 +95,12 @@ pub trait TrackedDevice<C: Compositor>: Sync + Send {
         err: *mut ETrackedPropertyError,
     ) -> u64;
 
+    fn get_string_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> &str;
+
     fn get_device(&self) -> &XrTrackedDevice<C>;
 
     fn as_any(&self) -> &dyn Any;
@@ -235,6 +241,49 @@ impl<C: Compositor> TrackedDevice<C> for XrTrackedDevice<C> {
     ) -> u64 {
         set_property_error!(err, ETrackedPropertyError::UnknownProperty);
         0
+    }
+
+    fn get_string_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> &str {
+        prop!(
+            ETrackedDeviceProperty::TrackingSystemName_String,
+            prop,
+            "oculus"
+        );
+        prop!(
+            ETrackedDeviceProperty::ManufacturerName_String,
+            prop,
+            "Oculus"
+        );
+        prop!(
+            ETrackedDeviceProperty::SerialNumber_String,
+            prop,
+            "<unknown>"
+        );
+        prop!(
+            ETrackedDeviceProperty::RenderModelName_String,
+            prop,
+            "<unknown>"
+        );
+
+        // used by Firebird The Unfinished - see https://gitlab.com/znixian/OpenOVR/-/issues/58
+        // Copied from SteamVR
+        prop!(ETrackedDeviceProperty::DriverVersion_String, prop, "1.32.0");
+
+        // From docs:
+        // input profile to use for this device in the input system. Will default to tracking system
+        // name if this isn't provided
+        prop!(
+            ETrackedDeviceProperty::InputProfilePath_String,
+            prop,
+            self.get_string_property(ETrackedDeviceProperty::TrackingSystemName_String, err)
+        );
+
+        set_property_error!(err, ETrackedPropertyError::UnknownProperty);
+        ""
     }
 
     fn get_device(&self) -> &XrTrackedDevice<C> {

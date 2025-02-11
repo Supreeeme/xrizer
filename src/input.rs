@@ -434,16 +434,18 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let ActionData::Skeleton { hand, .. } = action else {
             return vr::EVRInputError::WrongType;
         };
+        
+        let controller = self.openxr.devices.get_controller(*hand).unwrap();
+        let mut err = vr::ETrackedPropertyError::Success;
 
-        let controller_type = self.get_controller_string_tracked_property(
-            *hand,
-            vr::ETrackedDeviceProperty::ControllerType_String,
-        );
+        let controller_type = controller
+            .get_device()
+            .get_string_property(vr::ETrackedDeviceProperty::ControllerType_String, &mut err);
 
         unsafe {
             // Make sure knuckles are always Partial
             // TODO: Remove in favor of using XR_EXT_hand_tracking_data_source
-            if controller_type == Some(c"knuckles") {
+            if controller_type == "knuckles" {
                 *level = vr::EVRSkeletalTrackingLevel::Partial;
             } else {
                 *level = *self.skeletal_tracking_level.read().unwrap();
@@ -1199,72 +1201,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                     .set(legacy)
                     .unwrap_or_else(|_| unreachable!());
             }
-        }
-    }
-
-    pub fn get_controller_string_tracked_property(
-        &self,
-        hand: TrackedDeviceType,
-        property: vr::ETrackedDeviceProperty,
-    ) -> Option<&'static CStr> {
-        struct ProfileData {
-            controller_type: &'static CStr,
-            model_number: &'static CStr,
-            render_model_name: &'static CStr,
-        }
-        static PROFILE_MAP: OnceLock<HashMap<xr::Path, ProfileData>> = OnceLock::new();
-        let get_profile_data = || {
-            let map = PROFILE_MAP.get_or_init(|| {
-                let instance = &self.openxr.instance;
-                Profiles::get()
-                    .profiles_iter()
-                    .map(|profile| {
-                        (
-                            instance.string_to_path(profile.profile_path()).unwrap(),
-                            ProfileData {
-                                controller_type: profile.openvr_controller_type(),
-                                model_number: profile.model(),
-                                render_model_name: profile.render_model_name(hand),
-                            },
-                        )
-                    })
-                    .collect()
-            });
-            let hand = match hand {
-                TrackedDeviceType::LeftHand => self
-                    .openxr
-                    .devices
-                    .get_controller(TrackedDeviceType::LeftHand)
-                    .unwrap(),
-                TrackedDeviceType::RightHand => self
-                    .openxr
-                    .devices
-                    .get_controller(TrackedDeviceType::RightHand)
-                    .unwrap(),
-                _ => unreachable!(),
-            };
-            let profile = hand.get_device().profile_path.load();
-            map.get(&profile)
-        };
-
-        match property {
-            // Audica likes to apply controller specific tweaks via this property
-            vr::ETrackedDeviceProperty::ControllerType_String => {
-                get_profile_data().map(|data| data.controller_type)
-            }
-            // I Expect You To Die 3 identifies controllers with this property -
-            // why it couldn't just use ControllerType instead is beyond me...
-            vr::ETrackedDeviceProperty::ModelNumber_String => {
-                get_profile_data().map(|data| data.model_number)
-            }
-            // Resonite won't recognize controllers without this
-            vr::ETrackedDeviceProperty::RenderModelName_String => {
-                get_profile_data().map(|data| data.render_model_name)
-            }
-            // Required for controllers to be acknowledged in I Expect You To Die 3
-            vr::ETrackedDeviceProperty::SerialNumber_String
-            | vr::ETrackedDeviceProperty::ManufacturerName_String => Some(c"<unknown>"),
-            _ => None,
         }
     }
 

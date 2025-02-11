@@ -8,7 +8,7 @@ use glam::{Mat3, Quat, Vec3};
 use log::{debug, trace, warn};
 use openvr as vr;
 use openxr as xr;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -415,20 +415,31 @@ impl vr::IVRSystem022_Interface for System {
         prop: vr::ETrackedDeviceProperty,
         value: *mut std::os::raw::c_char,
         size: u32,
-        error: *mut vr::ETrackedPropertyError,
+        err: *mut vr::ETrackedPropertyError,
     ) -> u32 {
         debug!(target: log_tags::TRACKED_PROP, "requesting string property: {prop:?} ({device_index})");
 
-        if !self.IsTrackedDeviceConnected(device_index) {
-            if let Some(error) = unsafe { error.as_mut() } {
-                *error = vr::ETrackedPropertyError::InvalidDevice;
-            }
+        let device = self.openxr.devices.get_device(device_index as usize);
+
+        if device.is_none() {
+            set_property_error!(err, vr::ETrackedPropertyError::InvalidDevice);
             return 0;
         }
 
-        if let Some(error) = unsafe { error.as_mut() } {
-            *error = vr::ETrackedPropertyError::Success;
+        let device = device.unwrap();
+
+        if !device.connected() {
+            set_property_error!(err, vr::ETrackedPropertyError::InvalidDevice);
+            return 0;
         }
+
+        let ret = device.get_string_property(prop, err);
+
+        if ret.is_empty() {
+            return 0;
+        }
+
+        let data = CString::new(ret).unwrap();
 
         let buf = if !value.is_null() && size > 0 {
             unsafe { std::slice::from_raw_parts_mut(value, size as usize) }
@@ -436,38 +447,10 @@ impl vr::IVRSystem022_Interface for System {
             &mut []
         };
 
-        let data = match device_index {
-            vr::k_unTrackedDeviceIndex_Hmd => match prop {
-                // The Unity OpenVR sample appears to have a hard requirement on these first three properties returning
-                // something to even get the game to recognize the HMD's location. However, the value
-                // itself doesn't appear to be that important.
-                vr::ETrackedDeviceProperty::SerialNumber_String
-                | vr::ETrackedDeviceProperty::ManufacturerName_String
-                | vr::ETrackedDeviceProperty::ControllerType_String => Some(c"<unknown>"),
-                _ => None,
-            },
-            x if TrackedDeviceType::try_from(x).is_ok() => self.input.get().and_then(|i| {
-                i.get_controller_string_tracked_property(
-                    TrackedDeviceType::try_from(x).unwrap(),
-                    prop,
-                )
-            }),
-            _ => None,
-        };
-
-        let Some(data) = data else {
-            if let Some(error) = unsafe { error.as_mut() } {
-                *error = vr::ETrackedPropertyError::UnknownProperty;
-            }
-            return 0;
-        };
-
         let data =
             unsafe { std::slice::from_raw_parts(data.as_ptr(), data.to_bytes_with_nul().len()) };
         if buf.len() < data.len() {
-            if let Some(error) = unsafe { error.as_mut() } {
-                *error = vr::ETrackedPropertyError::BufferTooSmall;
-            }
+            set_property_error!(err, vr::ETrackedPropertyError::BufferTooSmall);
         } else {
             buf[0..data.len()].copy_from_slice(data);
         }

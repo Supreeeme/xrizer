@@ -160,6 +160,35 @@ impl<C: Compositor> TrackedDevice<C> for XrController<C> {
         self.device.get_uint64_property(prop, err)
     }
 
+    fn get_string_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> &str {
+        let profile = self.get_interaction_profile().unwrap();
+
+        let property = profile.get_property(prop, self.get_type());
+        if let Some(property) = property {
+            return property.as_string().unwrap();
+        }
+
+        match self.get_type() {
+            TrackedDeviceType::LeftHand => {
+                prop!(
+                    ETrackedDeviceProperty::RegisteredDeviceType_String,
+                    prop,
+                    "oculus/F00BAAF00F_Controller_Left"
+                );
+            }
+            TrackedDeviceType::RightHand => {
+                prop!(
+                    ETrackedDeviceProperty::RegisteredDeviceType_String,
+                    prop,
+                    "oculus/F00BAAF00F_Controller_Right"
+                );
+            }
+            _ => unreachable!()
+        }
+
+        self.device.get_string_property(prop, err)
+    }
+
     fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
         self.device.set_interaction_profile(profile);
     }

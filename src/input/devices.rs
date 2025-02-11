@@ -66,6 +66,10 @@ impl<C: Compositor> TrackedDevice<C> for DeviceContainer<C> {
         handle_variants!(&self, |device| { return device.get_uint64_property(prop, err) })
     }
 
+    fn get_string_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> &str {
+        handle_variants!(&self, |device| { return device.get_string_property(prop, err) })
+    }
+
     fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
         handle_variants!(self, |device| { device.set_interaction_profile(profile) })
     }
@@ -85,6 +89,7 @@ impl<C: Compositor> TrackedDevice<C> for DeviceContainer<C> {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         handle_variants!(self, |device| { return device.as_any_mut() })
     }
+    
     
 }
 

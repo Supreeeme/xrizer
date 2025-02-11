@@ -1,22 +1,39 @@
-use super::{InteractionProfile, PathTranslation, StringToPath};
+use openvr::ETrackedDeviceProperty;
+
+use super::{
+    DevicePropertyTypes, HandValueType, InteractionProfile, PathTranslation, StringToPath,
+};
 use crate::input::{devices::tracked_device::TrackedDeviceType, legacy::LegacyBindings};
-use std::ffi::CStr;
 
 pub struct SimpleController;
 
 impl InteractionProfile for SimpleController {
-    fn openvr_controller_type(&self) -> &'static CStr {
-        c"generic" // meaningless really
-    }
-    fn model(&self) -> &'static CStr {
-        c"<unknown>"
-    }
-    fn render_model_name(&self, _: TrackedDeviceType) -> &'static CStr {
-        c"generic_controller"
-    }
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/khr/simple_controller"
     }
+
+    fn model(&self, _: TrackedDeviceType) -> &'static str {
+        "<unknown>"
+    }
+
+    fn hmd_properties(&self) -> &'static [(ETrackedDeviceProperty, DevicePropertyTypes)] {
+        &[]
+    }
+
+    fn controller_properties(
+        &self,
+    ) -> &'static [(ETrackedDeviceProperty, HandValueType<DevicePropertyTypes>)] {
+        &[]
+    }
+
+    fn openvr_controller_type(&self) -> &'static str {
+        "generic"
+    }
+
+    fn render_model_name(&self, _: TrackedDeviceType) -> &'static str {
+        "generic_controller"
+    }
+
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {
