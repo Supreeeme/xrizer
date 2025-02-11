@@ -154,6 +154,14 @@ impl<C: Compositor> TrackedDevice<C> for XrHMD<C> {
     }
 
     fn get_string_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> &str {
+        let profile = self.get_interaction_profile();
+        if let Some(profile ) = profile {
+            let property = profile.get_property(prop, self.get_type());
+            if let Some(property) = property {
+                return property.as_string().unwrap();
+            }
+        }
+
         prop!(ETrackedDeviceProperty::RegisteredDeviceType_String, prop, "oculus/F00BAAF00F");
         prop!(ETrackedDeviceProperty::RenderModelName_String, prop, "oculusHmdRenderModel");
 

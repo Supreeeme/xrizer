@@ -161,12 +161,14 @@ impl<C: Compositor> TrackedDevice<C> for XrController<C> {
     }
 
     fn get_string_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> &str {
-        let profile = self.get_interaction_profile().unwrap();
-
-        let property = profile.get_property(prop, self.get_type());
-        if let Some(property) = property {
-            return property.as_string().unwrap();
+        let profile = self.get_interaction_profile();
+        if let Some(profile ) = profile {
+            let property = profile.get_property(prop, self.get_type());
+            if let Some(property) = property {
+                return property.as_string().unwrap();
+            }
         }
+
 
         match self.get_type() {
             TrackedDeviceType::LeftHand => {
