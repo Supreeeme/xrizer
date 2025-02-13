@@ -3,9 +3,7 @@ use super::{
     ActionData, Input, InteractionProfile,
 };
 use crate::{
-    graphics_backends::GraphicsBackend,
-    openxr_data::{FrameStream, OpenXrData, SessionCreateInfo},
-    vr::{self, IVRInput010_Interface},
+    graphics_backends::GraphicsBackend, input::devices::tracked_device::TrackedDevice, openxr_data::{FrameStream, OpenXrData, SessionCreateInfo}, vr::{self, IVRInput010_Interface}
 };
 use fakexr::UserPath::*;
 use glam::Quat;
@@ -876,14 +874,16 @@ fn detect_controller_after_manifest_load() {
         f.input.frame_start_update();
     };
 
+    let devices = f.input.openxr.devices.read().unwrap();
+
     frame();
-    assert!(!f.input.openxr.left_hand.connected());
+    assert!(!devices.get_controller(crate::input::devices::tracked_device::TrackedDeviceType::LeftHand).unwrap().connected());
 
     f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
     frame();
     // Profile won't be set for this frame - we call sync after events have already been polled
-    assert!(!f.input.openxr.left_hand.connected());
+    assert!(!devices.get_controller(crate::input::devices::tracked_device::TrackedDeviceType::LeftHand).unwrap().connected());
 
     frame();
-    assert!(f.input.openxr.left_hand.connected());
+    assert!(devices.get_controller(crate::input::devices::tracked_device::TrackedDeviceType::LeftHand).unwrap().connected());
 }

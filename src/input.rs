@@ -1150,7 +1150,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             // and interaction profiles are only updated after xrSyncActions is called. So here, we
             // do an action sync to try and get the runtime to update the interaction profile.
             let loaded = loaded.read().unwrap();
-            if !self.openxr.left_hand.connected() || !self.openxr.right_hand.connected() {
+            let devices = self.openxr.devices.read().unwrap();
+            if !devices.get_controller(TrackedDeviceType::LeftHand).unwrap().connected() || !devices.get_controller(TrackedDeviceType::RightHand).unwrap().connected() {
                 debug!("no controllers connected - syncing info set");
                 data.session
                     .sync_actions(&[xr::ActiveActionSet::new(&loaded.info_set)])

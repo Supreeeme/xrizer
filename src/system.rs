@@ -17,12 +17,6 @@ use std::sync::{
     Arc, Mutex,
 };
 
-#[derive(Default)]
-struct ConnectedHands {
-    left: AtomicBool,
-    right: AtomicBool,
-}
-
 #[derive(Copy, Clone)]
 pub struct ViewData {
     pub flags: xr::ViewStateFlags,

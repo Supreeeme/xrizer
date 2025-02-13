@@ -30,7 +30,7 @@ impl<C: Compositor> XrHMD<C> {
     pub fn get_ipd(&self, system: &crate::system::System) -> f32 {
         let views = system.get_views(ReferenceSpaceType::VIEW);
 
-        views[EVREye::Left as usize].pose.position.x - views[EVREye::Right as usize].pose.position.x
+        views.views[EVREye::Left as usize].pose.position.x - views.views[EVREye::Right as usize].pose.position.x
     }
 }
 
