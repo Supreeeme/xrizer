@@ -1,8 +1,8 @@
-use std::marker::PhantomData;
+use std::sync::atomic::AtomicBool;
 
 use openvr::{
     space_relation_to_openvr_pose, ETrackedDeviceClass, ETrackedDeviceProperty,
-    ETrackedPropertyError, EVREye, TrackedDevicePose_t,
+    ETrackedPropertyError, EVREye, TrackedDeviceIndex_t, TrackedDevicePose_t,
 };
 use openxr::ReferenceSpaceType;
 
@@ -13,14 +13,12 @@ use crate::prop;
 
 pub struct XrHMD<C: Compositor> {
     pub device: XrTrackedDevice<C>,
-    phantom: PhantomData<C>,
 }
 
 impl<C: Compositor> XrHMD<C> {
     pub fn new() -> Self {
         let mut hmd = Self {
             device: XrTrackedDevice::<C>::default(),
-            phantom: PhantomData::default(),
         };
 
         hmd.device.init(0, TrackedDeviceType::HMD);
@@ -28,9 +26,7 @@ impl<C: Compositor> XrHMD<C> {
 
         hmd
     }
-}
 
-impl<C: Compositor> XrHMD<C> {
     pub fn get_ipd(&self, system: &crate::system::System) -> f32 {
         let views = system.get_views(ReferenceSpaceType::VIEW);
 
@@ -56,12 +52,20 @@ impl<C: Compositor> TrackedDevice<C> for XrHMD<C> {
         Some(space_relation_to_openvr_pose(hmd_location, hmd_velocity))
     }
 
+    fn device_index(&self) -> TrackedDeviceIndex_t {
+        self.device.device_index()
+    }
+
     fn get_type(&self) -> TrackedDeviceType {
         self.device.device_type
     }
 
     fn connected(&self) -> bool {
         self.device.connected()
+    }
+
+    fn last_connected_state(&self) -> &AtomicBool {
+        self.device.last_connected_state()
     }
 
     fn get_bool_property(
@@ -153,19 +157,35 @@ impl<C: Compositor> TrackedDevice<C> for XrHMD<C> {
         self.device.get_uint64_property(prop, err)
     }
 
-    fn get_string_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> &str {
+    fn get_string_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> &str {
         let profile = self.get_interaction_profile();
-        if let Some(profile ) = profile {
+        if let Some(profile) = profile {
             let property = profile.get_property(prop, self.get_type());
             if let Some(property) = property {
                 return property.as_string().unwrap();
             }
         }
 
-        prop!(ETrackedDeviceProperty::RegisteredDeviceType_String, prop, "oculus/F00BAAF00F");
-        prop!(ETrackedDeviceProperty::RenderModelName_String, prop, "oculusHmdRenderModel");
+        prop!(
+            ETrackedDeviceProperty::RegisteredDeviceType_String,
+            prop,
+            "oculus/F00BAAF00F"
+        );
+        prop!(
+            ETrackedDeviceProperty::RenderModelName_String,
+            prop,
+            "oculusHmdRenderModel"
+        );
 
-        prop!(ETrackedDeviceProperty::ControllerType_String, prop, "oculus"); // VRChat ignores the HMD if this isn't set..
+        prop!(
+            ETrackedDeviceProperty::ControllerType_String,
+            prop,
+            "oculus"
+        ); // VRChat ignores the HMD if this isn't set..
 
         self.device.get_string_property(prop, err)
     }

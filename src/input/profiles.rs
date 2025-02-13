@@ -2,6 +2,7 @@ pub mod knuckles;
 pub mod oculus_touch;
 pub mod simple_controller;
 pub mod vive_controller;
+pub mod vive_tracker;
 
 use super::{
     action_manifest::ControllerType, devices::tracked_device::TrackedDeviceType,
@@ -70,7 +71,7 @@ pub trait InteractionProfile: Sync + Send {
     fn translate_map(&self) -> &'static [PathTranslation];
 
     fn legal_paths(&self) -> Box<[String]>;
-    fn legacy_bindings(&self, string_to_path: &dyn StringToPath) -> LegacyBindings;
+    fn legacy_bindings(&self, string_to_path: &dyn StringToPath) -> Option<LegacyBindings>;
     fn offset_grip_pose(&self, pose: xr::Posef) -> xr::Posef {
         pose
     }

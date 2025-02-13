@@ -17,6 +17,8 @@ use crate::{
     openxr_data::{AtomicPath, Compositor, OpenXrData, SessionData},
 };
 
+pub const RESERVED_DEVICE_INDECES: u32 = 3;
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TrackedDeviceType {
     HMD,
@@ -70,6 +72,8 @@ pub trait TrackedDevice<C: Compositor>: Sync + Send {
     ) -> Option<TrackedDevicePose_t>;
     fn get_type(&self) -> TrackedDeviceType;
     fn connected(&self) -> bool;
+    fn device_index(&self) -> TrackedDeviceIndex_t;
+    fn last_connected_state(&self) -> &AtomicBool;
     fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile);
     fn get_interaction_profile(&self) -> Option<&'static dyn InteractionProfile>;
 
@@ -113,6 +117,7 @@ pub struct XrTrackedDevice<C: Compositor> {
     pub interaction_profile: Mutex<Option<&'static dyn InteractionProfile>>,
     pub profile_path: AtomicPath,
     connected: AtomicBool,
+    last_connected_state: AtomicBool,
     phantom: PhantomData<C>,
 }
 
@@ -124,6 +129,7 @@ impl<C: Compositor> Default for XrTrackedDevice<C> {
             interaction_profile: Mutex::new(None),
             profile_path: AtomicPath::new(),
             connected: false.into(),
+            last_connected_state: false.into(),
             phantom: PhantomData::default(),
         }
     }
@@ -173,6 +179,8 @@ impl<C: Compositor> XrTrackedDevice<C> {
     }
 
     pub fn set_connected(&self, connected: bool) {
+        self.last_connected_state
+            .store(self.connected.load(Ordering::Relaxed), Ordering::Relaxed);
         self.connected.store(connected, Ordering::Relaxed);
     }
 }
@@ -189,12 +197,20 @@ impl<C: Compositor> TrackedDevice<C> for XrTrackedDevice<C> {
         todo!()
     }
 
+    fn device_index(&self) -> TrackedDeviceIndex_t {
+        self.device_index
+    }
+
     fn get_type(&self) -> TrackedDeviceType {
         todo!()
     }
 
     fn connected(&self) -> bool {
         self.connected.load(Ordering::Relaxed)
+    }
+
+    fn last_connected_state(&self) -> &AtomicBool {
+        &self.last_connected_state
     }
 
     fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {

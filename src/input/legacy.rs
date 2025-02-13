@@ -144,8 +144,9 @@ impl HandSpaces {
             return None;
         }
 
-        let hand_profile = &xr_data
-            .devices
+        let devices = xr_data.devices.read().unwrap();
+
+        let hand_profile = &devices
             .get_controller(self.hand)
             .unwrap()
             .get_device()

@@ -1,4 +1,7 @@
+use std::sync::atomic::AtomicBool;
+
 use controller::XrController;
+use generic_tracker::XrGenericTracker;
 use hmd::XrHMD;
 use openvr::{k_unMaxTrackedDeviceCount, ETrackedDeviceProperty, ETrackedPropertyError};
 use tracked_device::{TrackedDevice, TrackedDeviceType, XrTrackedDevice};
@@ -8,12 +11,14 @@ use crate::openxr_data::{Compositor, OpenXrData, SessionData};
 use super::InteractionProfile;
 
 pub mod controller;
+pub mod generic_tracker;
 pub mod hmd;
 pub mod tracked_device;
 
 pub enum DeviceContainer<C: Compositor> {
     HMD(XrHMD<C>),
     Controller(XrController<C>),
+    GenericTracker(XrGenericTracker<C>),
 }
 
 macro_rules! handle_variants {
@@ -21,6 +26,7 @@ macro_rules! handle_variants {
         match $value {
             $crate::input::devices::DeviceContainer::HMD($var) => $action,
             $crate::input::devices::DeviceContainer::Controller($var) => $action,
+            $crate::input::devices::DeviceContainer::GenericTracker($var) => $action,
         }
     };
 }
@@ -38,6 +44,10 @@ impl<C: Compositor> TrackedDevice<C> for DeviceContainer<C> {
         })
     }
 
+    fn device_index(&self) -> openvr::TrackedDeviceIndex_t {
+        handle_variants!(self, |device| { return device.device_index() })
+    }
+
     fn get_type(&self) -> TrackedDeviceType {
         handle_variants!(self, |device| { return device.get_type() })
     }
@@ -46,28 +56,59 @@ impl<C: Compositor> TrackedDevice<C> for DeviceContainer<C> {
         handle_variants!(self, |device| { return device.connected() })
     }
 
+    fn last_connected_state(&self) -> &AtomicBool {
+        handle_variants!(self, |device| { return device.last_connected_state() })
+    }
+
     fn get_bool_property(
         &self,
         prop: ETrackedDeviceProperty,
         err: *mut ETrackedPropertyError,
     ) -> bool {
-        handle_variants!(self, |device| {return device.get_bool_property(prop, err) })
+        handle_variants!(self, |device| {
+            return device.get_bool_property(prop, err);
+        })
     }
 
-    fn get_float_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError, system: &crate::system::System) -> f32 {
-        handle_variants!(&self, |device| { return device.get_float_property(prop, err, system) })
+    fn get_float_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+        system: &crate::system::System,
+    ) -> f32 {
+        handle_variants!(&self, |device| {
+            return device.get_float_property(prop, err, system);
+        })
     }
 
-    fn get_int32_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> i32 {
-        handle_variants!(&self, |device| { return device.get_int32_property(prop, err) })
+    fn get_int32_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> i32 {
+        handle_variants!(&self, |device| {
+            return device.get_int32_property(prop, err);
+        })
     }
 
-    fn get_uint64_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> u64 {
-        handle_variants!(&self, |device| { return device.get_uint64_property(prop, err) })
+    fn get_uint64_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> u64 {
+        handle_variants!(&self, |device| {
+            return device.get_uint64_property(prop, err);
+        })
     }
 
-    fn get_string_property(&self, prop: ETrackedDeviceProperty, err: *mut ETrackedPropertyError) -> &str {
-        handle_variants!(&self, |device| { return device.get_string_property(prop, err) })
+    fn get_string_property(
+        &self,
+        prop: ETrackedDeviceProperty,
+        err: *mut ETrackedPropertyError,
+    ) -> &str {
+        handle_variants!(&self, |device| {
+            return device.get_string_property(prop, err);
+        })
     }
 
     fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
@@ -89,12 +130,10 @@ impl<C: Compositor> TrackedDevice<C> for DeviceContainer<C> {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         handle_variants!(self, |device| { return device.as_any_mut() })
     }
-    
-    
 }
 
 pub struct XrTrackedDeviceManager<C: Compositor> {
-    devices: Vec<DeviceContainer<C>>,
+    pub devices: Vec<DeviceContainer<C>>,
 }
 
 #[allow(dead_code)]
@@ -175,5 +214,9 @@ impl<C: Compositor> XrTrackedDeviceManager<C> {
 
         self.get_device_by_type(hand)
             .and_then(|dev| dev.as_any().downcast_ref::<controller::XrController<C>>())
+    }
+
+    pub fn len(&self) -> usize {
+        self.devices.len()
     }
 }

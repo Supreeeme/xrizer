@@ -1,8 +1,11 @@
 use crate::{
-    clientcore::{Injected, Injector}, input::{
+    clientcore::{Injected, Injector},
+    input::{
         devices::tracked_device::{TrackedDevice, TrackedDeviceType},
         Input,
-    }, openxr_data::{RealOpenXrData, SessionData}, set_property_error, tracy_span
+    },
+    openxr_data::{RealOpenXrData, SessionData},
+    set_property_error, tracy_span,
 };
 use glam::{Mat3, Quat, Vec3};
 use log::{debug, trace, warn};
@@ -13,12 +16,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-
-#[derive(Default)]
-struct ConnectedHands {
-    left: AtomicBool,
-    right: AtomicBool,
-}
 
 #[derive(Default)]
 struct ViewCache {
@@ -65,7 +62,6 @@ pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
     input: Injected<Input<crate::compositor::Compositor>>,
     vtables: Vtables,
-    last_connected_hands: ConnectedHands,
     views: Mutex<ViewCache>,
 }
 
@@ -79,7 +75,6 @@ impl System {
             openxr,
             input: injector.inject(),
             vtables: Default::default(),
-            last_connected_hands: Default::default(),
             views: Mutex::default(),
         }
     }
@@ -345,21 +340,15 @@ impl vr::IVRSystem022_Interface for System {
     }
     fn PollNextEvent(&self, event: *mut vr::VREvent_t, _size: u32) -> bool {
         use std::ptr::addr_of_mut as ptr;
-        let (left_hand_connected, right_hand_connected) = (
-            self.openxr
-                .devices
-                .get_controller(TrackedDeviceType::LeftHand)
-                .unwrap()
-                .connected(),
-            self.openxr
-                .devices
-                .get_controller(TrackedDeviceType::RightHand)
-                .unwrap()
-                .connected(),
-        );
+        let devices = self.openxr.devices.read().unwrap();
 
         let device_state_event = |current_state, last_state: &AtomicBool, tracked_device| {
             last_state.store(current_state, Ordering::Relaxed);
+
+            debug!(
+                "sending tracked device {}connected",
+                if current_state { "" } else { "not " }
+            );
 
             // Since the VREvent_t struct can be a variable size, it seems a little dangerous to
             // create a reference to it, so we'll just operate through pointers.
@@ -376,31 +365,18 @@ impl vr::IVRSystem022_Interface for System {
             }
         };
 
-        if left_hand_connected != self.last_connected_hands.left.load(Ordering::Relaxed) {
-            debug!(
-                "sending left hand {}connected",
-                if left_hand_connected { "" } else { "not " }
-            );
-            device_state_event(
-                left_hand_connected,
-                &self.last_connected_hands.left,
-                TrackedDeviceType::LeftHand as u32,
-            );
-            true
-        } else if right_hand_connected != self.last_connected_hands.right.load(Ordering::Relaxed) {
-            debug!(
-                "sending right hand {}connected",
-                if right_hand_connected { "" } else { "not " }
-            );
-            device_state_event(
-                right_hand_connected,
-                &self.last_connected_hands.right,
-                TrackedDeviceType::RightHand as u32,
-            );
-            true
-        } else {
-            false
+        for device in devices.get_devices().iter() {
+            if device.connected() != device.last_connected_state().load(Ordering::Relaxed) {
+                device_state_event(
+                    device.connected(),
+                    device.last_connected_state(),
+                    device.device_index() as u32,
+                );
+                return true;
+            }
         }
+
+        false
     }
 
     fn GetPropErrorNameFromEnum(
@@ -418,8 +394,8 @@ impl vr::IVRSystem022_Interface for System {
         err: *mut vr::ETrackedPropertyError,
     ) -> u32 {
         debug!(target: log_tags::TRACKED_PROP, "requesting string property: {prop:?} ({device_index})");
-
-        let device = self.openxr.devices.get_device(device_index as usize);
+        let devices = self.openxr.devices.read().unwrap();
+        let device = devices.get_device(device_index as usize);
 
         if device.is_none() {
             set_property_error!(err, vr::ETrackedPropertyError::InvalidDevice);
@@ -501,7 +477,8 @@ impl vr::IVRSystem022_Interface for System {
         err: *mut vr::ETrackedPropertyError,
     ) -> i32 {
         debug!(target: log_tags::TRACKED_PROP, "requesting int32 property: {prop:?} ({device_index})");
-        let device = self.openxr.devices.get_device(device_index as usize);
+        let devices = self.openxr.devices.read().unwrap();
+        let device = devices.get_device(device_index as usize);
 
         if let Some(device) = device {
             if !device.connected() {
@@ -521,7 +498,8 @@ impl vr::IVRSystem022_Interface for System {
         err: *mut vr::ETrackedPropertyError,
     ) -> f32 {
         debug!(target: log_tags::TRACKED_PROP, "requesting float property: {prop:?} ({device_index})");
-        let device = self.openxr.devices.get_device(device_index as usize);
+        let devices = self.openxr.devices.read().unwrap();
+        let device = devices.get_device(device_index as usize);
         if let Some(device) = device {
             if !device.connected() {
                 set_property_error!(err, vr::ETrackedPropertyError::InvalidDevice);
@@ -534,8 +512,6 @@ impl vr::IVRSystem022_Interface for System {
         0.0
     }
 
-    
-
     fn GetBoolTrackedDeviceProperty(
         &self,
         device_index: vr::TrackedDeviceIndex_t,
@@ -543,21 +519,23 @@ impl vr::IVRSystem022_Interface for System {
         err: *mut vr::ETrackedPropertyError,
     ) -> bool {
         debug!(target: log_tags::TRACKED_PROP, "requesting bool property: {prop:?} ({device_index})");
-        let device = self.openxr.devices.get_device(device_index as usize);
+        let devices = self.openxr.devices.read().unwrap();
+        let device = devices.get_device(device_index as usize);
         if let Some(device) = device {
             if !device.connected() {
                 set_property_error!(err, vr::ETrackedPropertyError::InvalidDevice);
                 return false;
             }
 
-            return device.get_bool_property(prop, err)
+            return device.get_bool_property(prop, err);
         }
 
         false
     }
 
     fn IsTrackedDeviceConnected(&self, device_index: vr::TrackedDeviceIndex_t) -> bool {
-        if let Some(dev) = self.openxr.devices.get_device(device_index as usize) {
+        let devices = self.openxr.devices.read().unwrap();
+        if let Some(dev) = devices.get_device(device_index as usize) {
             dev.connected()
         } else {
             false
@@ -590,11 +568,10 @@ impl vr::IVRSystem022_Interface for System {
         &self,
         role: vr::ETrackedControllerRole,
     ) -> vr::TrackedDeviceIndex_t {
+        let devices = self.openxr.devices.read().unwrap();
         match role {
             vr::ETrackedControllerRole::LeftHand => {
-                if self
-                    .openxr
-                    .devices
+                if devices
                     .get_controller(TrackedDeviceType::LeftHand)
                     .unwrap()
                     .connected()
@@ -605,9 +582,7 @@ impl vr::IVRSystem022_Interface for System {
                 }
             }
             vr::ETrackedControllerRole::RightHand => {
-                if self
-                    .openxr
-                    .devices
+                if devices
                     .get_controller(TrackedDeviceType::RightHand)
                     .unwrap()
                     .connected()

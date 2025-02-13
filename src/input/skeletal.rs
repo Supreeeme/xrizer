@@ -167,17 +167,16 @@ impl<C: openxr_data::Compositor> Input<C> {
         hand: TrackedDeviceType,
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
+        let devices = self.openxr.devices.read().unwrap();
         let path = match hand {
             TrackedDeviceType::LeftHand => {
-                self.openxr
-                    .devices
+                devices
                     .get_controller(TrackedDeviceType::LeftHand)
                     .unwrap()
                     .subaction_path
             }
             TrackedDeviceType::RightHand => {
-                self.openxr
-                    .devices
+                devices
                     .get_controller(TrackedDeviceType::RightHand)
                     .unwrap()
                     .subaction_path

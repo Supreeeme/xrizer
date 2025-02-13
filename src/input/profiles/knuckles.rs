@@ -94,7 +94,7 @@ impl InteractionProfile for Knuckles {
             _ => unreachable!(),
         }
     }
-    
+
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {
@@ -157,15 +157,15 @@ impl InteractionProfile for Knuckles {
             .collect()
     }
 
-    fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
-        LegacyBindings {
+    fn legacy_bindings(&self, stp: &dyn StringToPath) -> Option<LegacyBindings> {
+        Some(LegacyBindings {
             grip_pose: stp.leftright("input/grip/pose"),
             aim_pose: stp.leftright("input/aim/pose"),
             app_menu: stp.leftright("input/b/click"),
             trigger: stp.leftright("input/trigger/click"),
             trigger_click: stp.leftright("input/trigger/value"),
             squeeze: stp.leftright("input/squeeze/value"),
-        }
+        })
     }
 
     fn offset_grip_pose(&self, mut pose: xr::Posef) -> xr::Posef {

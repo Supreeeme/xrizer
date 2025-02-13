@@ -12,7 +12,9 @@ use devices::tracked_device::{TrackedDevice, TrackedDeviceType};
 pub use profiles::{InteractionProfile, Profiles};
 
 use crate::{
-    misc_unknown::button_mask_from_id, openxr_data::{self, OpenXrData, SessionData}, tracy_span, AtomicF32
+    misc_unknown::button_mask_from_id,
+    openxr_data::{self, OpenXrData, SessionData},
+    tracy_span, AtomicF32,
 };
 use custom_bindings::{BoolActionData, FloatActionData};
 use legacy::LegacyActionData;
@@ -102,17 +104,16 @@ impl<C: openxr_data::Compositor> Input<C> {
         if handle == vr::k_ulInvalidInputValueHandle {
             Some(xr::Path::NULL)
         } else {
+            let devices = self.openxr.devices.read().unwrap();
             match InputSourceKey::from(KeyData::from_ffi(handle)) {
                 x if x == self.left_hand_key => Some(
-                    self.openxr
-                        .devices
+                    devices
                         .get_controller(TrackedDeviceType::LeftHand)
                         .unwrap()
                         .subaction_path,
                 ),
                 x if x == self.right_hand_key => Some(
-                    self.openxr
-                        .devices
+                    devices
                         .get_controller(TrackedDeviceType::RightHand)
                         .unwrap()
                         .subaction_path,
@@ -434,12 +435,16 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let ActionData::Skeleton { hand, .. } = action else {
             return vr::EVRInputError::WrongType;
         };
-        
-        let controller = self.openxr.devices.get_controller(*hand).unwrap();
+
+        if *hand != TrackedDeviceType::LeftHand && *hand != TrackedDeviceType::RightHand {
+            return vr::EVRInputError::InvalidHandle;
+        }
+
+        let devices = self.openxr.devices.read().unwrap();
+        let controller = devices.get_controller(*hand).unwrap();
         let mut err = vr::ETrackedPropertyError::Success;
 
         let controller_type = controller
-            .get_device()
             .get_string_property(vr::ETrackedDeviceProperty::ControllerType_String, &mut err);
 
         unsafe {
@@ -576,14 +581,14 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 return vr::EVRInputError::None;
             }};
         }
+        let devices = self.openxr.devices.read().unwrap();
+
         let subaction_path = get_subaction_path!(self, restrict_to_device, action_data);
         let (active_origin, hand) = match loaded.try_get_action(action) {
             Ok(ActionData::Pose { bindings }) => {
                 let (mut hand, interaction_profile) = match subaction_path {
                     x if x
-                        == self
-                            .openxr
-                            .devices
+                        == devices
                             .get_controller(TrackedDeviceType::LeftHand)
                             .unwrap()
                             .subaction_path =>
@@ -591,8 +596,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                         (
                             Some(TrackedDeviceType::LeftHand),
                             Some(
-                                self.openxr
-                                    .devices
+                                devices
                                     .get_controller(TrackedDeviceType::LeftHand)
                                     .unwrap()
                                     .get_device()
@@ -602,9 +606,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                         )
                     }
                     x if x
-                        == self
-                            .openxr
-                            .devices
+                        == devices
                             .get_controller(TrackedDeviceType::RightHand)
                             .unwrap()
                             .subaction_path =>
@@ -612,8 +614,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                         (
                             Some(TrackedDeviceType::RightHand),
                             Some(
-                                self.openxr
-                                    .devices
+                                devices
                                     .get_controller(TrackedDeviceType::RightHand)
                                     .unwrap()
                                     .get_device()
@@ -629,9 +630,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 let get_first_bound_hand_profile = || {
                     bindings
                         .get(
-                            &self
-                                .openxr
-                                .devices
+                            &devices
                                 .get_controller(TrackedDeviceType::LeftHand)
                                 .unwrap()
                                 .get_device()
@@ -640,9 +639,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                         )
                         .or_else(|| {
                             bindings.get(
-                                &self
-                                    .openxr
-                                    .devices
+                                &devices
                                     .get_controller(TrackedDeviceType::RightHand)
                                     .unwrap()
                                     .get_device()
@@ -1040,9 +1037,9 @@ impl<C: openxr_data::Compositor> Input<C> {
         tracy_span!();
         let data = self.openxr.session_data.get();
         let display_time = self.openxr.display_time.get();
-
+        let devices = self.openxr.devices.read().unwrap();
         for i in 0..poses.len() {
-            let device = self.openxr.devices.get_device(i);
+            let device = devices.get_device(i);
 
             if let Some(device) = device {
                 poses[i] = device
@@ -1063,7 +1060,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) -> Option<vr::TrackedDevicePose_t> {
         tracy_span!();
-        let device = self.openxr.devices.get_device(index)?;
+        let devices = self.openxr.devices.read().unwrap();
+        let device = devices.get_device(index)?;
         let data = self.openxr.session_data.get();
 
         device.get_pose(
@@ -1096,18 +1094,16 @@ impl<C: openxr_data::Compositor> Input<C> {
         let actions = &legacy.actions;
 
         let hand = TrackedDeviceType::from(device_index);
-
+        let devices = self.openxr.devices.read().unwrap();
         let hand_path = match hand {
             TrackedDeviceType::LeftHand => {
-                self.openxr
-                    .devices
+                devices
                     .get_controller(TrackedDeviceType::LeftHand)
                     .unwrap()
                     .subaction_path
             }
             TrackedDeviceType::RightHand => {
-                self.openxr
-                    .devices
+                devices
                     .get_controller(TrackedDeviceType::RightHand)
                     .unwrap()
                     .subaction_path
@@ -1181,16 +1177,15 @@ impl<C: openxr_data::Compositor> Input<C> {
                     );
                     return;
                 }
+                let devices = self.openxr.devices.read().unwrap();
                 let legacy = LegacyActionData::new(
                     &self.openxr.instance,
                     &data.session,
-                    self.openxr
-                        .devices
+                    devices
                         .get_controller(TrackedDeviceType::LeftHand)
                         .unwrap()
                         .subaction_path,
-                    self.openxr
-                        .devices
+                    devices
                         .get_controller(TrackedDeviceType::RightHand)
                         .unwrap()
                         .subaction_path,
@@ -1229,7 +1224,13 @@ fn setup_legacy_bindings(
             f
         }
         let stp = constrain(|s| instance.string_to_path(s).unwrap());
-        let bindings = profile.legacy_bindings(&stp);
+
+        // Generic trackers can not have bindings.
+        if profile.legacy_bindings(&stp).is_none() {
+            continue;
+        }
+
+        let bindings = profile.legacy_bindings(&stp).unwrap();
         let profile = stp(profile.profile_path());
         instance
             .suggest_interaction_profile_bindings(

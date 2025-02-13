@@ -49,15 +49,15 @@ impl InteractionProfile for SimpleController {
         ]
     }
 
-    fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
-        LegacyBindings {
+    fn legacy_bindings(&self, stp: &dyn StringToPath) -> Option<LegacyBindings> {
+        Some(LegacyBindings {
             grip_pose: stp.leftright("input/grip/pose"),
             aim_pose: stp.leftright("input/aim/pose"),
             trigger: stp.leftright("input/select/click"),
             trigger_click: stp.leftright("input/select/click"),
             app_menu: stp.leftright("input/menu/click"),
             squeeze: stp.leftright("input/menu/click"),
-        }
+        })
     }
 
     fn legal_paths(&self) -> Box<[String]> {

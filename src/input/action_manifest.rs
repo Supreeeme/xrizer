@@ -61,20 +61,18 @@ impl<C: openxr_data::Compositor> Input<C> {
             manifest.action_sets,
         )?;
         debug!("Loaded {} action sets.", sets.len());
-
+        let devices = self.openxr.devices.read().unwrap();
         let mut actions = load_actions(
             &self.openxr.instance,
             &session_data.session,
             english.as_ref(),
             &mut sets,
             manifest.actions,
-            self.openxr
-                .devices
+            devices
                 .get_controller(TrackedDeviceType::LeftHand)
                 .unwrap()
                 .subaction_path,
-            self.openxr
-                .devices
+            devices
                 .get_controller(TrackedDeviceType::RightHand)
                 .unwrap()
                 .subaction_path,
@@ -87,13 +85,11 @@ impl<C: openxr_data::Compositor> Input<C> {
             LegacyActionData::new(
                 &self.openxr.instance,
                 &session_data.session,
-                self.openxr
-                    .devices
+                devices
                     .get_controller(TrackedDeviceType::LeftHand)
                     .unwrap()
                     .subaction_path,
-                self.openxr
-                    .devices
+                devices
                     .get_controller(TrackedDeviceType::RightHand)
                     .unwrap()
                     .subaction_path,
@@ -824,6 +820,14 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
         let stp = constrain(|s| self.openxr.instance.string_to_path(s).unwrap());
         let legacy_bindings = profile.legacy_bindings(&stp);
+
+        if legacy_bindings.is_none() {
+            info!("Ignoring bindings for profile {}", profile.profile_path());
+            return;
+        }
+
+        let legacy_bindings = legacy_bindings.unwrap();
+
         let profile_path = stp(profile.profile_path());
         let legal_paths = profile.legal_paths();
         let translate_map = profile.translate_map();
@@ -871,6 +875,8 @@ impl<C: openxr_data::Compositor> Input<C> {
                 handle_skeleton_bindings(actions, bindings);
             }
 
+            let devices = self.openxr.devices.read().unwrap();
+
             xr_bindings.extend(handle_sources(
                 &self.openxr.instance,
                 path_translator,
@@ -879,13 +885,11 @@ impl<C: openxr_data::Compositor> Input<C> {
                 set,
                 &bindings.sources,
                 [
-                    self.openxr
-                        .devices
+                    devices
                         .get_controller(TrackedDeviceType::LeftHand)
                         .unwrap()
                         .subaction_path,
-                    self.openxr
-                        .devices
+                    devices
                         .get_controller(TrackedDeviceType::RightHand)
                         .unwrap()
                         .subaction_path,
