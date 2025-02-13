@@ -193,6 +193,7 @@ mod tests {
     fn raw_pose_is_grip_at_aim() {
         let f = Fixture::new();
 
+        let set1 = f.get_action_set_handle(c"/actions/set1");
         let pose_handle = f.get_action_handle(c"/actions/set1/in/pose");
         let left_hand = f.get_input_source_handle(c"/user/hand/left");
         f.load_actions(c"actions.json");
@@ -226,6 +227,10 @@ mod tests {
 
         fakexr::set_aim(f.raw_session(), LeftHand, aim);
 
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
         let data = f.get_pose(pose_handle, left_hand).unwrap();
 
         assert!(data.bActive);

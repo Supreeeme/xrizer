@@ -162,8 +162,8 @@ impl InteractionProfile for Knuckles {
             grip_pose: stp.leftright("input/grip/pose"),
             aim_pose: stp.leftright("input/aim/pose"),
             app_menu: stp.leftright("input/b/click"),
-            trigger: stp.leftright("input/trigger/click"),
-            trigger_click: stp.leftright("input/trigger/value"),
+            trigger: stp.leftright("input/trigger/value"),
+            trigger_click: stp.leftright("input/trigger/click"),
             squeeze: stp.leftright("input/squeeze/value"),
         })
     }

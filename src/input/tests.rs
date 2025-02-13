@@ -222,6 +222,7 @@ impl Fixture {
         handle: vr::VRActionHandle_t,
         restrict: vr::VRInputValueHandle_t,
     ) -> Result<vr::InputPoseActionData_t, vr::EVRInputError> {
+        self.input.openxr.poll_events();
         let mut state = Default::default();
         let err = self.input.GetPoseActionDataForNextFrame(
             handle,
@@ -279,7 +280,6 @@ impl Fixture {
                 .string_to_path(profile.profile_path())
                 .unwrap(),
         );
-        self.input.openxr.poll_events();
     }
 
     pub fn raw_session(&self) -> xr::sys::Session {
@@ -864,4 +864,26 @@ fn implicit_action_sets() {
 
     let res = f.get_bool_state(boolact);
     assert!(res.is_ok(), "{res:?}");
+}
+
+#[test]
+fn detect_controller_after_manifest_load() {
+    let f = Fixture::new();
+    f.load_actions(c"actions.json");
+
+    let frame = || {
+        f.input.openxr.poll_events();
+        f.input.frame_start_update();
+    };
+
+    frame();
+    assert!(!f.input.openxr.left_hand.connected());
+
+    f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
+    frame();
+    // Profile won't be set for this frame - we call sync after events have already been polled
+    assert!(!f.input.openxr.left_hand.connected());
+
+    frame();
+    assert!(f.input.openxr.left_hand.connected());
 }

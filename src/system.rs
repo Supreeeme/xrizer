@@ -18,10 +18,22 @@ use std::sync::{
 };
 
 #[derive(Default)]
+struct ConnectedHands {
+    left: AtomicBool,
+    right: AtomicBool,
+}
+
+#[derive(Copy, Clone)]
+pub struct ViewData {
+    pub flags: xr::ViewStateFlags,
+    pub views: [xr::View; 2],
+}
+
+#[derive(Default)]
 struct ViewCache {
-    view: Option<[xr::View; 2]>,
-    local: Option<[xr::View; 2]>,
-    stage: Option<[xr::View; 2]>,
+    view: Option<ViewData>,
+    local: Option<ViewData>,
+    stage: Option<ViewData>,
 }
 
 impl ViewCache {
@@ -30,7 +42,7 @@ impl ViewCache {
         session: &SessionData,
         display_time: xr::Time,
         ty: xr::ReferenceSpaceType,
-    ) -> [xr::View; 2] {
+    ) -> ViewData {
         let data = match ty {
             xr::ReferenceSpaceType::VIEW => &mut self.view,
             xr::ReferenceSpaceType::LOCAL => &mut self.local,
@@ -39,7 +51,7 @@ impl ViewCache {
         };
 
         *data.get_or_insert_with(|| {
-            let (_, views) = session
+            let (flags, views) = session
                 .session
                 .locate_views(
                     xr::ViewConfigurationType::PRIMARY_STEREO,
@@ -48,9 +60,12 @@ impl ViewCache {
                 )
                 .expect("Couldn't locate views");
 
-            views
-                .try_into()
-                .unwrap_or_else(|v: Vec<xr::View>| panic!("Expected 2 views, got {}", v.len()))
+            ViewData {
+                flags,
+                views: views
+                    .try_into()
+                    .unwrap_or_else(|v: Vec<xr::View>| panic!("Expected 2 views, got {}", v.len())),
+            }
         })
     }
 }
@@ -83,7 +98,7 @@ impl System {
         std::mem::take(&mut *self.views.lock().unwrap());
     }
 
-    pub fn get_views(&self, ty: xr::ReferenceSpaceType) -> [xr::View; 2] {
+    pub fn get_views(&self, ty: xr::ReferenceSpaceType) -> ViewData {
         tracy_span!();
         let session = self.openxr.session_data.get();
         self.views
@@ -145,7 +160,7 @@ impl vr::IVRSystem022_Interface for System {
             .session_data
             .get()
             .current_origin_as_reference_space();
-        let view = self.get_views(ty)[eye as usize];
+        let view = self.get_views(ty).views[eye as usize];
 
         // Top and bottom are flipped, for some reason
         unsafe {
@@ -166,7 +181,7 @@ impl vr::IVRSystem022_Interface for System {
         false
     }
     fn GetEyeToHeadTransform(&self, eye: vr::EVREye) -> vr::HmdMatrix34_t {
-        let views = self.get_views(xr::ReferenceSpaceType::VIEW);
+        let views = self.get_views(xr::ReferenceSpaceType::VIEW).views;
         let view = views[eye as usize];
         let view_rot = view.pose.orientation;
 

@@ -1143,9 +1143,19 @@ impl<C: openxr_data::Compositor> Input<C> {
         tracy_span!();
         //std::mem::take(&mut *self.cached_poses.lock().unwrap());
         let data = self.openxr.session_data.get();
-        // If the game has loaded actions, we don't need to sync the state because the game should
-        // be doing it itself (with UpdateActionState)
-        if data.input_data.loaded_actions.get().is_some() {
+        if let Some(loaded) = data.input_data.loaded_actions.get() {
+            // If the game has loaded actions, we shouldn't need to sync the state because the game
+            // should be doing it itself with UpdateActionState. However, some games (Tea for God)
+            // don't actually call UpdateActionState if no controllers are reported as connected,
+            // and interaction profiles are only updated after xrSyncActions is called. So here, we
+            // do an action sync to try and get the runtime to update the interaction profile.
+            let loaded = loaded.read().unwrap();
+            if !self.openxr.left_hand.connected() || !self.openxr.right_hand.connected() {
+                debug!("no controllers connected - syncing info set");
+                data.session
+                    .sync_actions(&[xr::ActiveActionSet::new(&loaded.info_set)])
+                    .unwrap();
+            }
             return;
         }
 
@@ -1249,6 +1259,8 @@ fn setup_legacy_bindings(
 struct LoadedActions {
     sets: SecondaryMap<ActionSetKey, xr::ActionSet>,
     actions: SecondaryMap<ActionKey, ActionData>,
+    info_set: xr::ActionSet,
+    _info_action: xr::Action<bool>,
 }
 
 impl LoadedActions {

@@ -84,15 +84,7 @@ fn get_hand_data(hand: UserPath, session: &Session) -> &HandData {
 
 pub fn set_interaction_profile(session: xr::Session, hand: UserPath, profile: xr::Path) {
     let s = session.to_handle().unwrap();
-    get_hand_data(hand, &s).profile.store(profile);
-    send_event(
-        &s.event_sender,
-        xr::EventDataInteractionProfileChanged {
-            ty: xr::EventDataInteractionProfileChanged::TYPE,
-            next: std::ptr::null(),
-            session,
-        },
-    );
+    get_hand_data(hand, &s).pending_profile.store(Some(profile));
 }
 
 pub fn set_grip(session: xr::Session, path: UserPath, pose: xr::Posef) {
@@ -404,6 +396,7 @@ impl Instance {
 }
 
 struct HandData {
+    pending_profile: AtomicCell<Option<xr::Path>>,
     profile: AtomicCell<xr::Path>,
     grip_pose: AtomicCell<xr::Posef>,
     aim_pose: AtomicCell<xr::Posef>,
@@ -412,6 +405,7 @@ struct HandData {
 impl Default for HandData {
     fn default() -> Self {
         Self {
+            pending_profile: Default::default(),
             profile: Default::default(),
             grip_pose: xr::Posef::IDENTITY.into(),
             aim_pose: xr::Posef::IDENTITY.into(),
@@ -1047,10 +1041,23 @@ extern "system" fn attach_session_action_sets(
 }
 
 extern "system" fn sync_actions(
-    session: xr::Session,
+    session_xr: xr::Session,
     info: *const xr::ActionsSyncInfo,
 ) -> xr::Result {
-    let session = get_handle!(session);
+    let session = get_handle!(session_xr);
+    for hand in [&session.left_hand, &session.right_hand] {
+        if let Some(profile) = hand.pending_profile.load().take() {
+            hand.profile.store(profile);
+            send_event(
+                &session.event_sender,
+                xr::EventDataInteractionProfileChanged {
+                    ty: xr::EventDataInteractionProfileChanged::TYPE,
+                    next: std::ptr::null(),
+                    session: session_xr,
+                },
+            );
+        }
+    }
     let Some(attached) = session.attached_sets.get() else {
         return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
     };
@@ -1096,6 +1103,7 @@ extern "system" fn sync_actions(
             }
         }
     }
+
     xr::Result::SUCCESS
 }
 
@@ -1435,9 +1443,9 @@ extern "system" fn locate_views(
     session: xr::Session,
     _info: *const xr::ViewLocateInfo,
     state: *mut xr::ViewState,
-    _capacity: u32,
+    capacity: u32,
     output: *mut u32,
-    _views: *mut xr::View,
+    views: *mut xr::View,
 ) -> xr::Result {
     let _session = get_handle!(session);
     if !state.is_null() {
@@ -1452,9 +1460,24 @@ extern "system" fn locate_views(
 
     if !output.is_null() {
         unsafe {
-            output.write(0);
+            output.write(2);
         }
     }
+    if capacity > 0 {
+        if capacity < 2 {
+            return xr::Result::ERROR_SIZE_INSUFFICIENT;
+        }
+        let views = unsafe { std::slice::from_raw_parts_mut(views, capacity as usize) };
+        let view = xr::View {
+            ty: xr::View::TYPE,
+            next: std::ptr::null_mut(),
+            pose: xr::Posef::default(),
+            fov: xr::Fovf::default(),
+        };
+        views[0] = view;
+        views[1] = view;
+    }
+
     xr::Result::SUCCESS
 }
 

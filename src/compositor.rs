@@ -539,6 +539,7 @@ impl vr::IVRCompositor028_Interface for Compositor {
         fn submit<G: GraphicsBackend + 'static>(
             ctrl: &mut FrameController<G>,
             session_data: &SessionData,
+            system: &System,
             display_time: xr::Time,
             overlays: Option<&OverlayMan>,
             eye: vr::EVREye,
@@ -556,6 +557,7 @@ impl vr::IVRCompositor028_Interface for Compositor {
             let real_texture = G::get_texture(texture);
             ctrl.submit_impl(
                 session_data,
+                system,
                 display_time,
                 overlays,
                 eye,
@@ -568,6 +570,7 @@ impl vr::IVRCompositor028_Interface for Compositor {
 
         if let Err(e) = ctrl.with_any_graphics_mut::<submit>((
             &session_lock,
+            &self.system.force(|i| System::new(self.openxr.clone(), i)),
             self.openxr.display_time.get(),
             self.overlays.get().as_deref(),
             eye,
@@ -840,9 +843,10 @@ impl<G: GraphicsBackend> FrameController<G> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn submit_impl<'a>(
+    fn submit_impl(
         &mut self,
-        session_data: &'a SessionData,
+        session_data: &SessionData,
+        system: &System,
         display_time: xr::Time,
         overlays: Option<&OverlayMan>,
         eye: vr::EVREye,
@@ -925,15 +929,9 @@ impl<G: GraphicsBackend> FrameController<G> {
         self.image_acquired = false;
 
         let mut proj_layer_views = Vec::new();
-        if self.should_render && !self.submitting_null {
-            let (flags, views) = session_data
-                .session
-                .locate_views(
-                    xr::ViewConfigurationType::PRIMARY_STEREO,
-                    display_time,
-                    session_data.tracking_space(),
-                )
-                .expect("Couldn't locate views");
+        if self.should_render {
+            let crate::system::ViewData { flags, views } =
+                system.get_views(session_data.current_origin_as_reference_space());
 
             proj_layer_views = views
                 .into_iter()

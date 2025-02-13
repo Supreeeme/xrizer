@@ -69,6 +69,7 @@ impl<C: Compositor> Drop for OpenXrData<C> {
 #[allow(dead_code)] // Results aren't used, but they're printed
 #[allow(clippy::enum_variant_names)]
 pub enum InitError {
+    EnumeratingExtensionsFailed(xr::sys::Result),
     InstanceCreationFailed(xr::sys::Result),
     SystemCreationFailed(xr::sys::Result),
     SessionCreationFailed(SessionCreationError),
@@ -91,8 +92,9 @@ impl<C: Compositor> OpenXrData<C> {
             unsafe { xr::Entry::from_get_instance_proc_addr(fakexr::get_instance_proc_addr) }
                 .unwrap();
 
-        let supported_exts = entry.enumerate_extensions().unwrap();
-
+        let supported_exts = entry
+            .enumerate_extensions()
+            .map_err(InitError::EnumeratingExtensionsFailed)?;
         let mut exts = xr::ExtensionSet::default();
         exts.khr_vulkan_enable = supported_exts.khr_vulkan_enable;
         exts.khr_opengl_enable = supported_exts.khr_opengl_enable;

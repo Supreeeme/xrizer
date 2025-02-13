@@ -96,16 +96,37 @@ impl<C: openxr_data::Compositor> Input<C> {
             )
         });
 
+        // See Input::frame_start_update for the explanation of this.
+        let info_set = self
+            .openxr
+            .instance
+            .create_action_set("xrizer-info-set", "XRizer info set", 0)
+            .unwrap();
+        let info_action = info_set
+            .create_action::<bool>("xrizer-info-action", "XRizer info action", &[])
+            .unwrap();
+
         self.load_bindings(
             manifest_path.parent().unwrap(),
             &sets,
             &mut actions,
             manifest.default_bindings,
             &legacy.actions,
+            &info_action,
         );
 
-        let xr_sets: Vec<_> = sets.values().chain(std::iter::once(&legacy.set)).collect();
+        let xr_sets: Vec<_> = sets
+            .values()
+            .chain(std::iter::once(&legacy.set))
+            .chain(std::iter::once(&info_set))
+            .collect();
         session_data.session.attach_action_sets(&xr_sets).unwrap();
+
+        // Try forcing an interaction profile now
+        session_data
+            .session
+            .sync_actions(&[xr::ActiveActionSet::new(&info_set)])
+            .unwrap();
 
         // Transform actions and sets into maps
         // If the application has already requested the handle for an action/set, we need to
@@ -137,7 +158,12 @@ impl<C: openxr_data::Compositor> Input<C> {
             })
             .collect();
 
-        let loaded = super::LoadedActions { sets, actions };
+        let loaded = super::LoadedActions {
+            sets,
+            actions,
+            _info_action: info_action,
+            info_set,
+        };
 
         match session_data.input_data.loaded_actions.get() {
             Some(lock) => {
@@ -740,6 +766,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         actions: &mut LoadedActionDataMap,
         bindings: Vec<DefaultBindings>,
         legacy_actions: &LegacyActions,
+        info_action: &xr::Action<bool>,
     ) {
         let mut it: Box<dyn Iterator<Item = DefaultBindings>> = Box::new(bindings.into_iter());
         while let Some(DefaultBindings {
@@ -783,6 +810,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                                 action_sets,
                                 actions,
                                 legacy_actions,
+                                info_action,
                                 bindings,
                             );
                         }
@@ -807,6 +835,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         action_sets: &HashMap<String, xr::ActionSet>,
         actions: &mut LoadedActionDataMap,
         legacy_actions: &LegacyActions,
+        info_action: &xr::Action<bool>,
         bindings: &HashMap<String, ActionSetBinding>,
     ) {
         info!("loading bindings for {}", profile.profile_path());
@@ -897,6 +926,12 @@ impl<C: openxr_data::Compositor> Input<C> {
             ));
         }
 
+        let info_action_binding = *legacy_bindings.trigger_click.first().unwrap_or_else(|| {
+            panic!(
+                "Missing trigger_click binding for {}",
+                profile.profile_path()
+            )
+        });
         let bindings: Vec<xr::Binding<'_>> = xr_bindings
             .into_iter()
             .map(|(name, path)| {
@@ -913,6 +948,10 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
             })
             .chain(legacy_bindings.binding_iter(legacy_actions))
+            .chain(std::iter::once(xr::Binding::new(
+                info_action,
+                info_action_binding,
+            )))
             .collect();
 
         self.openxr
