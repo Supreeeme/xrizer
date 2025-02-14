@@ -1,23 +1,39 @@
-use super::{InteractionProfile, PathTranslation, StringToPath};
-use crate::input::legacy::LegacyBindings;
-use crate::openxr_data::Hand;
-use std::ffi::CStr;
+use openvr::ETrackedDeviceProperty;
+
+use super::{
+    DevicePropertyTypes, HandValueType, InteractionProfile, PathTranslation, StringToPath,
+};
+use crate::input::{devices::tracked_device::TrackedDeviceType, legacy::LegacyBindings};
 
 pub struct SimpleController;
 
 impl InteractionProfile for SimpleController {
-    fn openvr_controller_type(&self) -> &'static CStr {
-        c"generic" // meaningless really
-    }
-    fn model(&self) -> &'static CStr {
-        c"<unknown>"
-    }
-    fn render_model_name(&self, _: Hand) -> &'static CStr {
-        c"generic_controller"
-    }
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/khr/simple_controller"
     }
+
+    fn model(&self, _: TrackedDeviceType) -> &'static str {
+        "<unknown>"
+    }
+
+    fn hmd_properties(&self) -> &'static [(ETrackedDeviceProperty, DevicePropertyTypes)] {
+        &[]
+    }
+
+    fn controller_properties(
+        &self,
+    ) -> &'static [(ETrackedDeviceProperty, HandValueType<DevicePropertyTypes>)] {
+        &[]
+    }
+
+    fn openvr_controller_type(&self) -> &'static str {
+        "generic"
+    }
+
+    fn render_model_name(&self, _: TrackedDeviceType) -> &'static str {
+        "generic_controller"
+    }
+
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {
@@ -33,15 +49,15 @@ impl InteractionProfile for SimpleController {
         ]
     }
 
-    fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
-        LegacyBindings {
+    fn legacy_bindings(&self, stp: &dyn StringToPath) -> Option<LegacyBindings> {
+        Some(LegacyBindings {
             grip_pose: stp.leftright("input/grip/pose"),
             aim_pose: stp.leftright("input/aim/pose"),
             trigger: stp.leftright("input/select/click"),
             trigger_click: stp.leftright("input/select/click"),
             app_menu: stp.leftright("input/menu/click"),
             squeeze: stp.leftright("input/menu/click"),
-        }
+        })
     }
 
     fn legal_paths(&self) -> Box<[String]> {
