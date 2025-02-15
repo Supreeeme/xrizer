@@ -759,7 +759,11 @@ impl<C: openxr_data::Compositor> Input<C> {
         }) = it.next()
         {
             let load_bindings = || {
-                let custom_path = current_dir().unwrap().join("xrizer").join(format!("{controller_type:?}.json").to_lowercase());
+                let custom_path = if let Ok(custom_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
+                    PathBuf::from(custom_dir)
+                } else {
+                    current_dir().unwrap().join("xrizer")
+                }.join(format!("{controller_type:?}.json").to_lowercase());
                 let bindings_path = if custom_path.exists() {
                     info!("Using custom bindings for {controller_type:?} (at {})", custom_path.display());
                     custom_path
