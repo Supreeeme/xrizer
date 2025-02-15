@@ -8,8 +8,11 @@ use openxr as xr;
 pub use vulkan::VulkanData;
 
 pub trait GraphicsBackend: Into<SupportedBackend> {
-    type Api: xr::Graphics;
+    type Api: xr::Graphics + 'static;
     type OpenVrTexture: Copy;
+    type NiceFormat: std::fmt::Debug;
+
+    fn to_nice_format(format: <Self::Api as xr::Graphics>::Format) -> Self::NiceFormat;
 
     fn session_create_info(&self) -> <Self::Api as xr::Graphics>::SessionCreateInfo;
 
@@ -22,12 +25,17 @@ pub trait GraphicsBackend: Into<SupportedBackend> {
         color_space: vr::EColorSpace,
     ) -> xr::SwapchainCreateInfo<Self::Api>;
 
-    fn store_swapchain_images(&mut self, images: Vec<<Self::Api as xr::Graphics>::SwapchainImage>);
+    fn store_swapchain_images(
+        &mut self,
+        images: Vec<<Self::Api as xr::Graphics>::SwapchainImage>,
+        format: <Self::Api as xr::Graphics>::Format,
+    );
 
     fn copy_texture_to_swapchain(
         &self,
         eye: vr::EVREye,
         texture: Self::OpenVrTexture,
+        color_space: vr::EColorSpace,
         bounds: vr::VRTextureBounds_t,
         image_index: usize,
         submit_flags: vr::EVRSubmitFlags,

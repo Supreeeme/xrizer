@@ -242,7 +242,7 @@ pub extern "system" fn get_instance_proc_addr(
                 AcquireSwapchainImage,
                 WaitSwapchainImage,
                 ReleaseSwapchainImage,
-                (EnumerateSwapchainFormats),
+                EnumerateSwapchainFormats,
                 (EnumerateReferenceSpaces),
                 CreateActionSpace,
                 LocateSpace,
@@ -1344,6 +1344,9 @@ extern "system" fn create_swapchain(
     if info.width == 0 || info.height == 0 {
         return xr::Result::ERROR_VALIDATION_FAILURE;
     }
+    if info.format != 0 {
+        return xr::Result::ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED;
+    }
     let swap = Arc::new(Swapchain {
         image_acquired: false.into(),
     });
@@ -1355,6 +1358,25 @@ extern "system" fn create_swapchain(
 
 extern "system" fn destroy_swapchain(swapchain: xr::Swapchain) -> xr::Result {
     destroy_handle(swapchain)
+}
+
+extern "system" fn enumerate_swapchain_formats(
+    _session: xr::Session,
+    capacity: u32,
+    output: *mut u32,
+    formats: *mut i64,
+) -> xr::Result {
+    unsafe {
+        output.write(1);
+    }
+    if capacity >= 1 {
+        let formats = unsafe {
+            std::slice::from_raw_parts_mut(formats, capacity as usize)
+        };
+        formats[0] = 0;
+    }
+
+    xr::Result::SUCCESS
 }
 
 extern "system" fn enumerate_swapchain_images(

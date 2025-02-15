@@ -99,6 +99,11 @@ impl GlData {
 impl GraphicsBackend for GlData {
     type Api = xr::OpenGL;
     type OpenVrTexture = gl::types::GLuint;
+    type NiceFormat = u32;
+
+    fn to_nice_format(format: u32) -> Self::NiceFormat {
+        format
+    }
 
     fn session_create_info(&self) -> <Self::Api as openxr::Graphics>::SessionCreateInfo {
         // SAFETY: SessionCreateInfo should be Copy anyway but doesn't work right
@@ -112,7 +117,11 @@ impl GraphicsBackend for GlData {
     }
 
     #[inline]
-    fn store_swapchain_images(&mut self, images: Vec<<Self::Api as xr::Graphics>::SwapchainImage>) {
+    fn store_swapchain_images(
+        &mut self,
+        images: Vec<<Self::Api as xr::Graphics>::SwapchainImage>,
+        _format: u32,
+    ) {
         self.images = images;
     }
 
@@ -147,6 +156,7 @@ impl GraphicsBackend for GlData {
         &self,
         eye: vr::EVREye,
         texture: Self::OpenVrTexture,
+        _color_space: vr::EColorSpace,
         bounds: vr::VRTextureBounds_t,
         image_index: usize,
         _submit_flags: vr::EVRSubmitFlags,
@@ -189,6 +199,7 @@ impl GraphicsBackend for GlData {
         self.copy_texture_to_swapchain(
             vr::EVREye::Left,
             texture,
+            vr::EColorSpace::Auto,
             bounds,
             image_index,
             vr::EVRSubmitFlags::Default,

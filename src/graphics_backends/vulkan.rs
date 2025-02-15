@@ -3,10 +3,13 @@ use ash::vk::{self, Handle};
 use log::warn;
 use openvr as vr;
 use openxr as xr;
+use std::collections::HashSet;
 use std::ffi::{c_char, CString};
+use std::sync::{LazyLock, Mutex};
 
 struct RealSessionData {
     images: Vec<vk::Image>,
+    format: vk::Format,
     pool: vk::CommandPool,
     bufs: Vec<vk::CommandBuffer>,
     overlay_pipeline: Option<PipelineData>,
@@ -51,6 +54,12 @@ impl Drop for VulkanData {
 impl GraphicsBackend for VulkanData {
     type Api = xr::Vulkan;
     type OpenVrTexture = *const vr::VRVulkanTextureData_t;
+    type NiceFormat = vk::Format;
+
+    #[inline]
+    fn to_nice_format(format: u32) -> Self::NiceFormat {
+        vk::Format::from_raw(format as _)
+    }
 
     fn session_create_info(&self) -> <Self::Api as openxr::Graphics>::SessionCreateInfo {
         let queue_families = unsafe {
@@ -82,7 +91,7 @@ impl GraphicsBackend for VulkanData {
     fn get_texture(texture: &vr::Texture_t) -> Self::OpenVrTexture {
         texture.handle.cast()
     }
-    fn store_swapchain_images(&mut self, images: Vec<u64>) {
+    fn store_swapchain_images(&mut self, images: Vec<u64>, format: u32) {
         let images: Vec<vk::Image> = images.into_iter().map(vk::Image::from_raw).collect();
         let pool = unsafe {
             self.device
@@ -108,6 +117,7 @@ impl GraphicsBackend for VulkanData {
 
         if let Some(data) = self.real_data.replace(RealSessionData {
             images,
+            format: vk::Format::from_raw(format as _),
             pool,
             bufs,
             overlay_pipeline: Default::default(),
@@ -148,6 +158,7 @@ impl GraphicsBackend for VulkanData {
         &self,
         eye: vr::EVREye,
         texture: *const vr::VRVulkanTextureData_t,
+        color_space: vr::EColorSpace,
         bounds: vr::VRTextureBounds_t,
         image_index: usize,
         submit_flags: vr::EVRSubmitFlags,
@@ -219,6 +230,11 @@ impl GraphicsBackend for VulkanData {
                 dst_offset: vk::Offset3D::default(),
                 extent,
             };
+
+            let game_format = get_colorspace_corrected_format(
+                vk::Format::from_raw(texture.m_nFormat as _),
+                color_space,
+            );
             if texture.m_nSampleCount > 1 {
                 self.device.cmd_resolve_image(
                     buf,
@@ -227,6 +243,26 @@ impl GraphicsBackend for VulkanData {
                     swapchain_image,
                     vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                     &[copy],
+                );
+            } else if data.format != game_format {
+                let end_img_offset = vk::Offset3D {
+                    x: extent.width as _,
+                    y: extent.height as _,
+                    z: 1,
+                };
+                self.device.cmd_blit_image(
+                    buf,
+                    game_image,
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    swapchain_image,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &[vk::ImageBlit {
+                        src_subresource: copy.src_subresource,
+                        src_offsets: [copy.src_offset, end_img_offset],
+                        dst_subresource: copy.dst_subresource,
+                        dst_offsets: [copy.dst_offset, end_img_offset],
+                    }],
+                    vk::Filter::NEAREST,
                 );
             } else {
                 self.device.cmd_copy_image(
@@ -293,11 +329,18 @@ impl GraphicsBackend for VulkanData {
             },
         };
         let pipeline_data = match &data.overlay_pipeline {
-            Some(d) => d,
+            Some(d) => {
+                assert_eq!(
+                    d.image_format, data.format,
+                    "Overlay image format unexpectedly changed"
+                );
+                d
+            }
             None => {
                 self.real_data.as_mut().unwrap().overlay_pipeline = Some(PipelineData::new(
                     &self.device,
                     vk::Format::from_raw(texture.m_nFormat as _),
+                    data.format,
                     texture.m_nSampleCount,
                     &data.images,
                 ));
@@ -561,6 +604,7 @@ struct PipelineData {
     layout: vk::PipelineLayout,
     renderpass: vk::RenderPass,
     image_views: Vec<vk::ImageView>,
+    image_format: vk::Format,
     pool: vk::DescriptorPool,
     set: vk::DescriptorSet,
     sampler: vk::Sampler,
@@ -569,7 +613,8 @@ struct PipelineData {
 impl PipelineData {
     fn new(
         device: &ash::Device,
-        format: vk::Format,
+        source_format: vk::Format,
+        target_format: vk::Format,
         sample_count: u32,
         images: &[vk::Image],
     ) -> Self {
@@ -589,7 +634,7 @@ impl PipelineData {
         let attachments = [
             // game image
             vk::AttachmentDescription {
-                format,
+                format: source_format,
                 samples,
                 load_op: vk::AttachmentLoadOp::LOAD,
                 store_op: vk::AttachmentStoreOp::DONT_CARE,
@@ -599,7 +644,7 @@ impl PipelineData {
             },
             // swapchain image
             vk::AttachmentDescription {
-                format,
+                format: target_format,
                 samples,
                 load_op: vk::AttachmentLoadOp::DONT_CARE,
                 store_op: vk::AttachmentStoreOp::STORE,
@@ -789,7 +834,7 @@ impl PipelineData {
                         &vk::ImageViewCreateInfo::default()
                             .image(img)
                             .view_type(vk::ImageViewType::TYPE_2D)
-                            .format(format)
+                            .format(target_format)
                             .components(vk::ComponentMapping::default())
                             .subresource_range(vk::ImageSubresourceRange {
                                 aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -815,6 +860,7 @@ impl PipelineData {
             layout: pipeline_layout,
             renderpass,
             image_views,
+            image_format: target_format,
             pool,
             set,
             sampler,
@@ -822,13 +868,21 @@ impl PipelineData {
     }
 }
 
+#[inline]
 fn get_colorspace_corrected_format(format: vk::Format, color_space: vr::EColorSpace) -> vk::Format {
+    static UNSUPPORTED: LazyLock<Mutex<HashSet<vk::Format>>> = LazyLock::new(Mutex::default);
     // https://github.com/ValveSoftware/openvr/wiki/Vulkan#image-formats
     match color_space {
         vr::EColorSpace::Auto | vr::EColorSpace::Gamma => match format {
             vk::Format::R8G8B8A8_UNORM | vk::Format::R8G8B8A8_SRGB => vk::Format::R8G8B8A8_SRGB,
             vk::Format::B8G8R8A8_UNORM | vk::Format::B8G8R8A8_SRGB => vk::Format::B8G8R8A8_SRGB,
-            _ => panic!("Unhandled texture format: {format:?}"),
+            vk::Format::BC3_SRGB_BLOCK => format,
+            _ => {
+                if UNSUPPORTED.lock().unwrap().insert(format) {
+                    warn!("Unhandled texture format: {format:?}");
+                }
+                format
+            }
         },
         vr::EColorSpace::Linear => todo!("Linear colorspace not implemented yet"),
     }

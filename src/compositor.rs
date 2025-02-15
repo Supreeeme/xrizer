@@ -188,9 +188,10 @@ impl openxr_data::Compositor for Compositor {
         ) -> DynFrameController
         where
             for<'a> &'a openxr_data::GraphicalSession:
-                TryInto<&'a xr::Session<G::Api>, Error: std::fmt::Display>,
+                TryInto<&'a openxr_data::Session<G::Api>, Error: std::fmt::Display>,
             FrameStream: TryInto<xr::FrameStream<G::Api>>,
             DynFrameController: From<FrameController<G>>,
+            <G::Api as xr::Graphics>::Format: PartialEq + std::fmt::Debug,
         {
             FrameController::new(
                 session_data,
@@ -549,8 +550,8 @@ impl vr::IVRCompositor028_Interface for Compositor {
         ) -> xr::Result<(), vr::EVRCompositorError>
         where
             for<'d> &'d openxr_data::GraphicalSession:
-                TryInto<&'d xr::Session<G::Api>, Error: std::fmt::Display>,
-            <G::Api as xr::Graphics>::Format: Eq,
+                TryInto<&'d openxr_data::Session<G::Api>, Error: std::fmt::Display>,
+            <G::Api as xr::Graphics>::Format: Eq + std::fmt::Debug,
             for<'d> &'d crate::overlay::AnySwapchainMap:
                 TryInto<&'d crate::overlay::SwapchainMap<G::Api>, Error: std::fmt::Display>,
         {
@@ -684,6 +685,7 @@ struct SubmittedEye {
 struct SwapchainData<G: xr::Graphics> {
     swapchain: xr::Swapchain<G>,
     info: xr::SwapchainCreateInfo<G>,
+    initial_format: G::Format,
 }
 
 struct FrameController<G: GraphicsBackend> {
@@ -702,12 +704,13 @@ supported_backends_enum!(enum DynFrameController: FrameController);
 impl<G: GraphicsBackend> FrameController<G> {
     fn init_swapchain(
         session_data: &SessionData,
-        create_info: &xr::SwapchainCreateInfo<G::Api>,
+        create_info: &mut xr::SwapchainCreateInfo<G::Api>,
         backend: &mut G,
-    ) -> xr::Swapchain<G::Api>
+    ) -> (xr::Swapchain<G::Api>, <G::Api as xr::Graphics>::Format)
     where
         for<'a> &'a openxr_data::GraphicalSession:
-            TryInto<&'a xr::Session<G::Api>, Error: std::fmt::Display>,
+            TryInto<&'a openxr_data::Session<G::Api>, Error: std::fmt::Display>,
+        <G::Api as xr::Graphics>::Format: PartialEq,
     {
         assert!(
             is_valid_swapchain_info(create_info),
@@ -715,6 +718,10 @@ impl<G: GraphicsBackend> FrameController<G> {
             create_info.width,
             create_info.height
         );
+
+        let initial_format = create_info.format;
+        session_data.check_format::<G>(create_info);
+
         let swapchain = session_data
             .create_swapchain(create_info)
             .unwrap_or_else(|err| {
@@ -733,9 +740,9 @@ impl<G: GraphicsBackend> FrameController<G> {
             .enumerate_images()
             .expect("Failed to enumerate swapchain images");
 
-        backend.store_swapchain_images(images);
+        backend.store_swapchain_images(images, create_info.format);
 
-        swapchain
+        (swapchain, initial_format)
     }
 
     fn new(
@@ -747,12 +754,18 @@ impl<G: GraphicsBackend> FrameController<G> {
     ) -> Self
     where
         for<'a> &'a openxr_data::GraphicalSession:
-            TryInto<&'a xr::Session<G::Api>, Error: std::fmt::Display>,
+            TryInto<&'a openxr_data::Session<G::Api>, Error: std::fmt::Display>,
+        <G::Api as xr::Graphics>::Format: PartialEq + std::fmt::Debug,
     {
-        let swapchain_data = if let Some(info) = create_info {
+        let swapchain_data = if let Some(mut info) = create_info {
             is_valid_swapchain_info(&info).then(|| {
-                let swapchain = Self::init_swapchain(session_data, &info, &mut backend);
-                SwapchainData { swapchain, info }
+                let (swapchain, initial_format) =
+                    Self::init_swapchain(session_data, &mut info, &mut backend);
+                SwapchainData {
+                    swapchain,
+                    info,
+                    initial_format,
+                }
             })
         } else {
             None
@@ -774,16 +787,19 @@ impl<G: GraphicsBackend> FrameController<G> {
     fn recreate_swapchain(
         &mut self,
         session_data: &SessionData,
-        create_info: xr::SwapchainCreateInfo<G::Api>,
+        mut create_info: xr::SwapchainCreateInfo<G::Api>,
     ) where
         for<'a> &'a openxr_data::GraphicalSession:
-            TryInto<&'a xr::Session<G::Api>, Error: std::fmt::Display>,
+            TryInto<&'a openxr_data::Session<G::Api>, Error: std::fmt::Display>,
+        <G::Api as xr::Graphics>::Format: PartialEq + std::fmt::Debug,
     {
-        let swapchain = Self::init_swapchain(session_data, &create_info, &mut self.backend);
+        let (swapchain, initial_format) =
+            Self::init_swapchain(session_data, &mut create_info, &mut self.backend);
 
         self.swapchain_data = Some(SwapchainData {
             swapchain,
             info: create_info,
+            initial_format,
         });
         self.acquire_swapchain_image();
         self.eyes_submitted = Default::default();
@@ -858,9 +874,10 @@ impl<G: GraphicsBackend> FrameController<G> {
     where
         <G::Api as xr::Graphics>::Format: Eq,
         for<'b> &'b openxr_data::GraphicalSession:
-            TryInto<&'b xr::Session<G::Api>, Error: std::fmt::Display>,
+            TryInto<&'b openxr_data::Session<G::Api>, Error: std::fmt::Display>,
         for<'b> &'b crate::overlay::AnySwapchainMap:
             TryInto<&'b crate::overlay::SwapchainMap<G::Api>, Error: std::fmt::Display>,
+        <G::Api as xr::Graphics>::Format: PartialEq + std::fmt::Debug,
     {
         // No Man's Sky does this.
         if self.eyes_submitted[eye as usize].is_some() {
@@ -879,15 +896,19 @@ impl<G: GraphicsBackend> FrameController<G> {
                         !self.submitting_null,
                         "App submitted a null texture and a normal texture in the same frame"
                     );
+
+                    let creation_format;
                     let current_info = if let Some(data) = self.swapchain_data.as_ref() {
+                        creation_format = data.initial_format;
                         &data.info
                     } else {
                         // SAFETY: Technically SessionCreateInfo should be Copy anyway so this should be fine:
                         // https://github.com/Ralith/openxrs/issues/183
+                        creation_format = new_info.format;
                         self.recreate_swapchain(session_data, unsafe { std::ptr::read(&new_info) });
                         self.swapchain_data.as_ref().map(|d| &d.info).unwrap()
                     };
-                    if !is_usable_swapchain(current_info, &new_info) {
+                    if !is_usable_swapchain(current_info, creation_format, &new_info) {
                         info!("recreating swapchain (for {eye:?})");
                         self.recreate_swapchain(session_data, new_info);
                     }
@@ -895,6 +916,7 @@ impl<G: GraphicsBackend> FrameController<G> {
                         extent: self.backend.copy_texture_to_swapchain(
                             eye,
                             texture,
+                            color_space,
                             bounds,
                             self.image_index,
                             submit_flags,
@@ -903,6 +925,7 @@ impl<G: GraphicsBackend> FrameController<G> {
                     }
                 })
                 .or_else(|| {
+                    trace!("submitting null this frame");
                     self.submitting_null = true;
                     Some(Default::default())
                 })
@@ -977,6 +1000,7 @@ impl<G: GraphicsBackend> FrameController<G> {
 
         let mut proj_layer = None;
         if !proj_layer_views.is_empty() {
+            trace!("projection layer present");
             proj_layer = Some(
                 xr::CompositionLayerProjection::new()
                     .space(session_data.tracking_space())
@@ -1004,12 +1028,13 @@ impl<G: GraphicsBackend> FrameController<G> {
 
 pub fn is_usable_swapchain<G: xr::Graphics>(
     current: &xr::SwapchainCreateInfo<G>,
+    creation_format: G::Format,
     new: &xr::SwapchainCreateInfo<G>,
 ) -> bool
 where
     G::Format: Eq,
 {
-    current.format == new.format
+    creation_format == new.format
         && current.width == new.width
         && current.height == new.height
         && current.array_size == new.array_size
@@ -1034,10 +1059,14 @@ mod tests {
     use vr::EVRCompositorError::*;
     use vr::IVRCompositor028_Interface;
 
-    pub struct FakeGraphicsData(Arc<VulkanData>);
+    pub struct FakeGraphicsData {
+        vk: Arc<VulkanData>,
+        swapchain_format: Option<u32>,
+    }
     thread_local! {
         static SWAPCHAIN_WIDTH: Cell<u32> = const { Cell::new(10) };
         static SWAPCHAIN_HEIGHT: Cell<u32> = const { Cell::new(10) };
+        static SWAPCHAIN_FORMAT: Cell<u32> = const { Cell::new(0) };
     }
 
     pub enum FakeApi {}
@@ -1080,8 +1109,13 @@ mod tests {
     impl GraphicsBackend for FakeGraphicsData {
         type Api = FakeApi;
         type OpenVrTexture = <VulkanData as GraphicsBackend>::OpenVrTexture;
+        type NiceFormat = <VulkanData as GraphicsBackend>::NiceFormat;
+
+        fn to_nice_format(format: <Self::Api as openxr::Graphics>::Format) -> Self::NiceFormat {
+            VulkanData::to_nice_format(format)
+        }
         fn session_create_info(&self) -> <Self::Api as openxr::Graphics>::SessionCreateInfo {
-            self.0.session_create_info()
+            self.vk.session_create_info()
         }
 
         fn get_texture(texture: &openvr::Texture_t) -> Self::OpenVrTexture {
@@ -1097,7 +1131,7 @@ mod tests {
             xr::SwapchainCreateInfo {
                 create_flags: xr::SwapchainCreateFlags::EMPTY,
                 usage_flags: xr::SwapchainUsageFlags::EMPTY,
-                format: 0,
+                format: SWAPCHAIN_FORMAT.get(),
                 sample_count: 1,
                 width: SWAPCHAIN_WIDTH.get(),
                 height: SWAPCHAIN_HEIGHT.get(),
@@ -1110,13 +1144,16 @@ mod tests {
         fn store_swapchain_images(
             &mut self,
             _images: Vec<<Self::Api as openxr::Graphics>::SwapchainImage>,
+            format: u32,
         ) {
+            self.swapchain_format.replace(format);
         }
 
         fn copy_texture_to_swapchain(
             &self,
             _eye: openvr::EVREye,
             _texture: Self::OpenVrTexture,
+            _color_space: vr::EColorSpace,
             _bounds: openvr::VRTextureBounds_t,
             _image_index: usize,
             _submit_flags: openvr::EVRSubmitFlags,
@@ -1151,7 +1188,10 @@ mod tests {
                 Arc::increment_strong_count(ptr);
                 Arc::from_raw(ptr)
             };
-            Self(vk)
+            Self {
+                vk,
+                swapchain_format: Option::None,
+            }
         }
     }
 
@@ -1420,5 +1460,26 @@ mod tests {
             },
             "device exts",
         );
+    }
+
+    #[test]
+    fn unsupported_format() {
+        let f = Fixture::new();
+        fakexr::should_render_next_frame(f.comp.openxr.instance.as_raw(), true);
+        SWAPCHAIN_FORMAT.set(1);
+        assert_eq!(f.wait_get_poses(), None);
+        assert_eq!(f.submit(vr::EVREye::Left), None);
+        assert_eq!(f.submit(vr::EVREye::Right), None);
+        let data = f.comp.openxr.session_data.get();
+        let lock = data.comp_data.0.lock().unwrap();
+        let DynFrameController::Fake(ctrl) = lock.as_ref().unwrap() else {
+            panic!("Frame controller was not set up or not faked!");
+        };
+        let data = ctrl
+            .swapchain_data
+            .as_ref()
+            .expect("Swapchain data is missing");
+        assert_eq!(data.initial_format, 1);
+        assert_eq!(data.info.format, 0);
     }
 }

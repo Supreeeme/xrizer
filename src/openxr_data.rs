@@ -5,7 +5,7 @@ use crate::{
 };
 use derive_more::{Deref, From, TryInto};
 use glam::f32::{Quat, Vec3};
-use log::info;
+use log::{info, warn};
 use openvr as vr;
 use openxr as xr;
 use std::mem::ManuallyDrop;
@@ -305,7 +305,11 @@ impl SessionReadGuard {
     }
 }
 
-supported_apis_enum!(pub enum GraphicalSession: xr::Session);
+pub struct Session<G: xr::Graphics> {
+    session: xr::Session<G>,
+    swapchain_formats: Vec<G::Format>,
+}
+supported_apis_enum!(pub enum GraphicalSession: Session);
 supported_apis_enum!(pub enum FrameStream: xr::FrameStream);
 
 // Implementing From results in a "conflicting implementations" error: https://github.com/rust-lang/rust/issues/85576
@@ -396,16 +400,23 @@ impl SessionData {
             FrameStream,
         )>
         where
-            GraphicalSession: From<xr::Session<G>>,
+            GraphicalSession: From<Session<G>>,
             FrameStream: From<xr::FrameStream<G>>,
         {
             // required to call
             let _ = instance.graphics_requirements::<G>(system_id).unwrap();
 
             unsafe { instance.create_session(system_id, &info.0) }.map(|(session, w, s)| {
+                let swapchain_formats = session
+                    .enumerate_swapchain_formats()
+                    .expect("Couldn't enumerate session swapchain formats!");
                 (
                     session.clone().into_any_graphics(),
-                    session.into(),
+                    Session {
+                        session,
+                        swapchain_formats,
+                    }
+                    .into(),
                     w,
                     s.into(),
                 )
@@ -478,7 +489,7 @@ impl SessionData {
         info: &xr::SwapchainCreateInfo<G>,
     ) -> xr::Result<xr::Swapchain<G>>
     where
-        for<'a> &'a GraphicalSession: TryInto<&'a xr::Session<G>, Error: std::fmt::Display>,
+        for<'a> &'a GraphicalSession: TryInto<&'a Session<G>, Error: std::fmt::Display>,
     {
         (&self.session_graphics)
             .try_into()
@@ -488,7 +499,34 @@ impl SessionData {
                     std::any::type_name::<G>()
                 )
             })
+            .session
             .create_swapchain(info)
+    }
+
+    pub fn check_format<G: GraphicsBackend>(&self, info: &mut xr::SwapchainCreateInfo<G::Api>)
+    where
+        for<'a> &'a GraphicalSession: TryInto<&'a Session<G::Api>, Error: std::fmt::Display>,
+        <G::Api as xr::Graphics>::Format: PartialEq,
+    {
+        let formats = &(&self.session_graphics)
+            .try_into()
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Session was not using API {}: {e}",
+                    std::any::type_name::<G>()
+                )
+            })
+            .swapchain_formats;
+
+        if !formats.contains(&info.format) {
+            let new_format = formats[0];
+            warn!(
+                "Requested to init swapchain with unsupported format {:?} - instead using {:?}",
+                G::to_nice_format(info.format),
+                G::to_nice_format(new_format)
+            );
+            info.format = new_format;
+        }
     }
 
     pub fn tracking_space(&self) -> &xr::Space {

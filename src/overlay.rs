@@ -1,7 +1,7 @@
 use crate::{
     compositor::{is_usable_swapchain, Compositor},
     graphics_backends::{supported_apis_enum, GraphicsBackend, SupportedBackend},
-    openxr_data::{GraphicalSession, OpenXrData, SessionData},
+    openxr_data::{GraphicalSession, OpenXrData, Session, SessionData},
 };
 use log::{debug, trace};
 use openvr as vr;
@@ -54,7 +54,7 @@ impl OverlayMan {
             if !overlay.visible {
                 continue;
             }
-            let Some(data) = overlay.last_frame.take() else {
+            let Some(rect) = overlay.rect else {
                 continue;
             };
 
@@ -67,7 +67,7 @@ impl OverlayMan {
                     .unwrap_or(session.current_origin),
             );
 
-            trace!("overlay rect: {:#?}", data.rect);
+            trace!("overlay rect: {:#?}", rect);
             let layer = xr::CompositionLayerQuad::new()
                 .space(space)
                 .layer_flags(xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
@@ -76,7 +76,7 @@ impl OverlayMan {
                     xr::SwapchainSubImage::new()
                         .image_array_index(vr::EVREye::Left as u32)
                         .swapchain(swapchain)
-                        .image_rect(data.rect),
+                        .image_rect(rect),
                 )
                 .pose(
                     overlay
@@ -94,8 +94,7 @@ impl OverlayMan {
                 )
                 .size(xr::Extent2Df {
                     width: overlay.width,
-                    height: data.rect.extent.height as f32 * overlay.width
-                        / data.rect.extent.width as f32,
+                    height: rect.extent.height as f32 * overlay.width / rect.extent.width as f32,
                 });
 
             fn lifetime_extend<'a, 'b: 'a, G: xr::Graphics>(
@@ -125,6 +124,7 @@ new_key_type!(
 pub(crate) struct SwapchainData<G: xr::Graphics> {
     swapchain: xr::Swapchain<G>,
     info: xr::SwapchainCreateInfo<G>,
+    initial_format: G::Format,
 }
 
 pub(crate) type SwapchainMap<G> = SecondaryMap<OverlayKey, SwapchainData<G>>;
@@ -144,11 +144,7 @@ struct Overlay {
     bounds: vr::VRTextureBounds_t,
     transform: Option<(vr::ETrackingUniverseOrigin, vr::HmdMatrix34_t)>,
     compositor: Option<SupportedBackend>,
-    last_frame: Option<FrameData>,
-}
-
-struct FrameData {
-    rect: xr::Rect2Di,
+    rect: Option<xr::Rect2Di>,
 }
 
 impl Overlay {
@@ -167,7 +163,7 @@ impl Overlay {
             },
             transform: None,
             compositor: None,
-            last_frame: None,
+            rect: None,
         }
     }
 
@@ -205,8 +201,7 @@ impl Overlay {
         where
             for<'a> &'a mut SwapchainMap<G::Api>:
                 TryFrom<&'a mut AnySwapchainMap, Error: std::fmt::Display>,
-            for<'a> &'a GraphicalSession:
-                TryInto<&'a xr::Session<G::Api>, Error: std::fmt::Display>,
+            for<'a> &'a GraphicalSession: TryInto<&'a Session<G::Api>, Error: std::fmt::Display>,
             <G::Api as xr::Graphics>::Format: Eq,
         {
             let map: &mut SwapchainMap<G::Api> = map.try_into().unwrap_or_else(|e| {
@@ -219,24 +214,30 @@ impl Overlay {
             let tex_swapchain_info =
                 backend.swapchain_info_for_texture(b_texture, overlay.bounds, texture.eColorSpace);
             let mut create_swapchain = || {
-                let info = backend.swapchain_info_for_texture(
+                let mut info = backend.swapchain_info_for_texture(
                     b_texture,
                     overlay.bounds,
                     texture.eColorSpace,
                 );
+                let initial_format = info.format;
+                session_data.check_format::<G>(&mut info);
                 let swapchain = session_data.create_swapchain(&info).unwrap();
                 let images = swapchain
                     .enumerate_images()
                     .expect("Couldn't enumerate swapchain images");
-                backend.store_swapchain_images(images);
-                SwapchainData { swapchain, info }
+                backend.store_swapchain_images(images, info.format);
+                SwapchainData {
+                    swapchain,
+                    info,
+                    initial_format,
+                }
             };
             let swapchain = {
                 let data = map
                     .entry(key)
                     .unwrap()
                     .or_insert_with(&mut create_swapchain);
-                if !is_usable_swapchain(&data.info, &tex_swapchain_info) {
+                if !is_usable_swapchain(&data.info, data.initial_format, &tex_swapchain_info) {
                     *data = create_swapchain();
                 }
                 &mut data.swapchain
@@ -264,11 +265,9 @@ impl Overlay {
             texture,
         ));
         self.compositor = Some(backend);
-        self.last_frame = Some(FrameData {
-            rect: xr::Rect2Di {
-                extent,
-                offset: xr::Offset2Di::default(),
-            },
+        self.rect = Some(xr::Rect2Di {
+            extent,
+            offset: xr::Offset2Di::default(),
         });
     }
 }
