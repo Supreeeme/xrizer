@@ -1370,9 +1370,7 @@ extern "system" fn enumerate_swapchain_formats(
         output.write(1);
     }
     if capacity >= 1 {
-        let formats = unsafe {
-            std::slice::from_raw_parts_mut(formats, capacity as usize)
-        };
+        let formats = unsafe { std::slice::from_raw_parts_mut(formats, capacity as usize) };
         formats[0] = 0;
     }
 

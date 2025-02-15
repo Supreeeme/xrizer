@@ -15,11 +15,14 @@ use serde::{
     Deserialize,
 };
 use slotmap::SecondaryMap;
-use std::{cell::{LazyCell, RefCell}, env::current_dir};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::RwLock;
+use std::{
+    cell::{LazyCell, RefCell},
+    env::current_dir,
+};
 
 impl<C: openxr_data::Compositor> Input<C> {
     pub(super) fn load_action_manifest(
@@ -759,16 +762,24 @@ impl<C: openxr_data::Compositor> Input<C> {
         }) = it.next()
         {
             let load_bindings = || {
-                let custom_path = if let Ok(custom_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
-                    PathBuf::from(custom_dir)
-                } else {
-                    current_dir().unwrap().join("xrizer")
-                }.join(format!("{controller_type:?}.json").to_lowercase());
+                let custom_path =
+                    if let Ok(custom_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
+                        PathBuf::from(custom_dir)
+                    } else {
+                        current_dir().unwrap().join("xrizer")
+                    }
+                    .join(format!("{controller_type:?}.json").to_lowercase());
                 let bindings_path = if custom_path.exists() {
-                    info!("Using custom bindings for {controller_type:?} (at {})", custom_path.display());
+                    info!(
+                        "Using custom bindings for {controller_type:?} (at {})",
+                        custom_path.display()
+                    );
                     custom_path
                 } else {
-                    info!("Using default bindings for {controller_type:?} (at {})", parent_path.join(&binding_url).display());
+                    info!(
+                        "Using default bindings for {controller_type:?} (at {})",
+                        parent_path.join(&binding_url).display()
+                    );
                     parent_path.join(binding_url)
                 };
                 debug!(
