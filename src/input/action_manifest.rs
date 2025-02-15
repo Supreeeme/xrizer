@@ -769,18 +769,9 @@ impl<C: openxr_data::Compositor> Input<C> {
                         current_dir().unwrap().join("xrizer")
                     }
                     .join(format!("{controller_type:?}.json").to_lowercase());
-                let bindings_path = if custom_path.exists() {
-                    info!(
-                        "Using custom bindings for {controller_type:?} (at {})",
-                        custom_path.display()
-                    );
-                    custom_path
-                } else {
-                    info!(
-                        "Using default bindings for {controller_type:?} (at {})",
-                        parent_path.join(&binding_url).display()
-                    );
-                    parent_path.join(binding_url)
+                let bindings_path = match custom_path.exists() {
+                    true => custom_path,
+                    false => parent_path.join(binding_url),
                 };
                 debug!(
                     "Reading bindings for {controller_type:?} (at {})",
