@@ -5,10 +5,11 @@ use super::Input;
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use glam::{Affine3A, Quat, Vec3};
 use openvr as vr;
-use openxr as xr;
+use openxr::{self as xr};
 use paste::paste;
 use std::cell::RefCell;
 use std::f32::consts::{FRAC_PI_2, PI};
+use std::time::Instant;
 use HandSkeletonBone::*;
 
 impl<C: openxr_data::Compositor> Input<C> {
@@ -30,13 +31,13 @@ impl<C: openxr_data::Compositor> Input<C> {
             Hand::Left => &legacy.left_spaces,
             Hand::Right => &legacy.right_spaces,
         }
-        .try_get_or_init_raw(xr_data, session_data, &legacy.actions, display_time) else {
-            self.get_estimated_bones(session_data, space, hand, transforms);
+        .try_get_or_init_raw(xr_data, session_data, &legacy.actions) else {
+            self.get_estimated_bones(space, hand, transforms);
             return;
         };
 
         let Some(joints) = raw.locate_hand_joints(hand_tracker, display_time).unwrap() else {
-            self.get_estimated_bones(session_data, space, hand, transforms);
+            self.get_estimated_bones(space, hand, transforms);
             return;
         };
 
@@ -159,30 +160,14 @@ impl<C: openxr_data::Compositor> Input<C> {
 
     pub(super) fn get_estimated_bones(
         &self,
-        session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
         hand: Hand,
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
-        let path = match hand {
-            Hand::Left => self.openxr.left_hand.subaction_path,
-            Hand::Right => self.openxr.right_hand.subaction_path,
-        };
-        let legacy = session_data.input_data.legacy_actions.get().unwrap();
-        let actions = &legacy.actions;
-        let trigger_state = actions.trigger.state(&session_data.session, path).unwrap();
-        let squeeze_state = actions.squeeze.state(&session_data.session, path).unwrap();
-        let (bind, squeeze, open) = match hand {
-            Hand::Left => (
-                &gen::left_hand::BINDPOSE,
-                &gen::left_hand::SQUEEZE,
-                &gen::left_hand::OPENHAND,
-            ),
-            Hand::Right => (
-                &gen::right_hand::BINDPOSE,
-                &gen::right_hand::SQUEEZE,
-                &gen::right_hand::OPENHAND,
-            ),
+        let finger_state = self.get_finger_state(hand);
+        let (open, fist) = match hand {
+            Hand::Left => (&gen::left_hand::OPENHAND, &gen::left_hand::FIST),
+            Hand::Right => (&gen::right_hand::OPENHAND, &gen::right_hand::FIST),
         };
 
         const fn constrain<'a, F, G>(f: F) -> F
@@ -195,7 +180,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let bone_transform_map = constrain(|start_data: &[vr::VRBoneTransform_t], state| {
             move |idx| {
                 let (start_pos, start_rot) = bone_transform_to_glam(start_data[idx]);
-                let (closed_pos, closed_rot) = bone_transform_to_glam(squeeze[idx]);
+                let (closed_pos, closed_rot) = bone_transform_to_glam(fist[idx]);
 
                 let pos = start_pos.lerp(closed_pos, state);
                 let rot = start_rot.slerp(closed_rot, state);
@@ -204,19 +189,13 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
         });
 
-        // If squeezing and not pressing the trigger, index finger should be pointed straight
-        let index_start = if squeeze_state.current_state > 0.0 && trigger_state.current_state == 0.0
-        {
-            open
-        } else {
-            bind
-        };
-        let index_it = (IndexFinger0 as usize..=IndexFinger4 as usize)
-            .map(bone_transform_map(index_start, trigger_state.current_state));
+        let bone_it = (0..HandSkeletonBone::Count as usize).map(|idx| {
+            let bone = unsafe { std::mem::transmute::<usize, HandSkeletonBone>(idx) };
+            let curl_state = finger_state.get_bone_state(bone);
 
-        let rest_map = bone_transform_map(bind, squeeze_state.current_state);
-        let pre_it = (Root as usize..=Thumb3 as usize).map(rest_map);
-        let rest_it = (MiddleFinger0 as usize..Count as usize).map(rest_map);
+            let map_fn = bone_transform_map(open, curl_state);
+            map_fn(idx)
+        });
 
         // If we need to convert our iterator to model space, it will become a different type -
         // this is the only reason for this enum existing
@@ -224,7 +203,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             Parent(T),
             Model(U),
         }
-        let mut full_it = TransformedIt::Parent(pre_it.chain(index_it).chain(rest_it));
+        let mut full_it = TransformedIt::Parent(bone_it);
 
         if space == vr::EVRSkeletalTransformSpace::Model {
             let TransformedIt::Parent(it) = full_it else {
@@ -247,10 +226,104 @@ impl<C: openxr_data::Compositor> Input<C> {
             TransformedIt::Model(it) => convert(it, transforms),
         }
 
-        // TODO: This is an arbitrary transform, and only appears to work as expected in parent space.
-        transforms[Root as usize].position = Vec3::new(0.0, 0.0, -0.15).into();
-
         *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
+    }
+
+    fn get_finger_state(&self, hand: Hand) -> FingerState {
+        let input = &self
+            .skeletal_input_ipc
+            .lock()
+            .unwrap()
+            .get_action_states(hand)
+            .expect("Failed to get skeletal input from IPC!");
+
+        let index = input
+            .index_curl
+            .max(if input.index_touch || input.index_curl > 0.0 {
+                0.3
+            } else {
+                0.0
+            });
+
+        let mut state = self.estimated_finger_state[match hand {
+            Hand::Left => 0,
+            Hand::Right => 1,
+        }]
+        .lock()
+        .unwrap();
+
+        let current_time = std::time::Instant::now();
+
+        let target = FingerState {
+            index,
+            middle: input.rest_curl.max(index / 2.0),
+            ring: input.rest_curl.max(index / 4.0),
+            pinky: input.rest_curl.max(index / 6.0),
+            thumb: if input.thumb_touch { 1.0 } else { 0.0 },
+            time: current_time,
+        };
+
+        let elapsed_time = current_time.duration_since(state.time).as_secs_f32();
+        let alpha = (elapsed_time * 24.0).min(1.0);
+
+        *state = state.lerp(&target, alpha);
+
+        *state
+    }
+
+    pub(super) fn get_reference_transforms(
+        &self,
+        hand: Hand,
+        space: vr::EVRSkeletalTransformSpace,
+        pose: vr::EVRSkeletalReferencePose,
+        transforms: &mut [vr::VRBoneTransform_t],
+    ) {
+        let skeleton = match hand {
+            Hand::Left => match pose {
+                openvr::EVRSkeletalReferencePose::BindPose => &gen::left_hand::BINDPOSE,
+                openvr::EVRSkeletalReferencePose::OpenHand => &gen::left_hand::OPENHAND,
+                openvr::EVRSkeletalReferencePose::Fist => &gen::left_hand::FIST,
+                openvr::EVRSkeletalReferencePose::GripLimit => &gen::left_hand::GRIPLIMIT,
+            },
+            Hand::Right => match pose {
+                openvr::EVRSkeletalReferencePose::BindPose => &gen::right_hand::BINDPOSE,
+                openvr::EVRSkeletalReferencePose::OpenHand => &gen::right_hand::OPENHAND,
+                openvr::EVRSkeletalReferencePose::Fist => &gen::right_hand::FIST,
+                openvr::EVRSkeletalReferencePose::GripLimit => &gen::right_hand::GRIPLIMIT,
+            },
+        };
+
+        let bone_it =
+            (0..HandSkeletonBone::Count as usize).map(|idx| bone_transform_to_glam(skeleton[idx]));
+
+        // If we need to convert our iterator to model space, it will become a different type -
+        // this is the only reason for this enum existing
+        enum TransformedIt<T: PoseIterator, U: PoseIterator> {
+            Parent(T),
+            Model(U),
+        }
+        let mut full_it = TransformedIt::Parent(bone_it);
+
+        if space == vr::EVRSkeletalTransformSpace::Model {
+            let TransformedIt::Parent(it) = full_it else {
+                unreachable!();
+            };
+            full_it = TransformedIt::Model(parent_to_model_space_bone_data(it));
+        }
+
+        fn convert(it: impl PoseIterator, transforms: &mut [vr::VRBoneTransform_t]) {
+            for ((pos, rot), transform) in it.zip(transforms) {
+                *transform = vr::VRBoneTransform_t {
+                    position: pos.into(),
+                    orientation: rot.into(),
+                };
+            }
+        }
+
+        match full_it {
+            TransformedIt::Parent(it) => convert(it, transforms),
+            TransformedIt::Model(it) => convert(it, transforms),
+        }
     }
 }
 
@@ -342,6 +415,70 @@ static AUX_BONES: &[(HandSkeletonBone, xr::HandJoint)] = &[
     (AuxRingFinger, xr::HandJoint::RING_DISTAL),
     (AuxPinkyFinger, xr::HandJoint::LITTLE_DISTAL),
 ];
+
+#[derive(Copy, Clone)]
+pub(super) struct FingerState {
+    index: f32,
+    middle: f32,
+    ring: f32,
+    pinky: f32,
+    thumb: f32,
+    time: Instant,
+}
+
+impl FingerState {
+    pub fn new() -> FingerState {
+        FingerState {
+            index: 0.0,
+            middle: 0.0,
+            ring: 0.0,
+            pinky: 0.0,
+            thumb: 0.0,
+            time: Instant::now(),
+        }
+    }
+
+    fn lerp(&self, target: &Self, amount: f32) -> Self {
+        Self {
+            index: self.index + (target.index - self.index) * amount,
+            middle: self.middle + (target.middle - self.middle) * amount,
+            ring: self.ring + (target.ring - self.ring) * amount,
+            pinky: self.pinky + (target.pinky - self.pinky) * amount,
+            thumb: self.thumb + (target.thumb - self.thumb) * amount,
+            time: target.time,
+        }
+    }
+
+    fn get_bone_state(&self, bone: HandSkeletonBone) -> f32 {
+        match bone {
+            HandSkeletonBone::IndexFinger0
+            | HandSkeletonBone::IndexFinger1
+            | HandSkeletonBone::IndexFinger2
+            | HandSkeletonBone::IndexFinger3
+            | HandSkeletonBone::IndexFinger4 => self.index,
+            HandSkeletonBone::MiddleFinger0
+            | HandSkeletonBone::MiddleFinger1
+            | HandSkeletonBone::MiddleFinger2
+            | HandSkeletonBone::MiddleFinger3
+            | HandSkeletonBone::MiddleFinger4 => self.middle,
+            HandSkeletonBone::RingFinger0
+            | HandSkeletonBone::RingFinger1
+            | HandSkeletonBone::RingFinger2
+            | HandSkeletonBone::RingFinger3
+            | HandSkeletonBone::RingFinger4 => self.ring,
+            HandSkeletonBone::PinkyFinger0
+            | HandSkeletonBone::PinkyFinger1
+            | HandSkeletonBone::PinkyFinger2
+            | HandSkeletonBone::PinkyFinger3
+            | HandSkeletonBone::PinkyFinger4 => self.pinky,
+            HandSkeletonBone::Thumb0
+            | HandSkeletonBone::Thumb1
+            | HandSkeletonBone::Thumb2
+            | HandSkeletonBone::Thumb3 => self.thumb,
+            _ => 0.0,
+        }
+    }
+}
 
 #[repr(usize)]
 #[derive(Copy, Clone)]

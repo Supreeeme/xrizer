@@ -78,7 +78,6 @@ impl<C: openxr_data::Compositor> Input<C> {
         let legacy = session_data.input_data.legacy_actions.get_or_init(|| {
             LegacyActionData::new(
                 &self.openxr.instance,
-                &session_data.session,
                 self.openxr.left_hand.subaction_path,
                 self.openxr.right_hand.subaction_path,
             )
