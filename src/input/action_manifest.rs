@@ -6,7 +6,10 @@ use super::{
     profiles::{InteractionProfile, PathTranslation, Profiles},
     BoundPoseType, Input,
 };
-use crate::openxr_data::{self, Hand, SessionData};
+use crate::{
+    input::devices::tracked_device::TrackedDeviceType,
+    openxr_data::{self, SessionData},
+};
 use log::{debug, error, info, trace, warn};
 use openvr as vr;
 use openxr as xr;
@@ -61,15 +64,21 @@ impl<C: openxr_data::Compositor> Input<C> {
             manifest.action_sets,
         )?;
         debug!("Loaded {} action sets.", sets.len());
-
+        let devices = self.openxr.devices.read().unwrap();
         let mut actions = load_actions(
             &self.openxr.instance,
             &session_data.session,
             english.as_ref(),
             &mut sets,
             manifest.actions,
-            self.openxr.left_hand.subaction_path,
-            self.openxr.right_hand.subaction_path,
+            devices
+                .get_controller(TrackedDeviceType::LeftHand)
+                .unwrap()
+                .subaction_path,
+            devices
+                .get_controller(TrackedDeviceType::RightHand)
+                .unwrap()
+                .subaction_path,
         )?;
         debug!("Loaded {} actions.", actions.len());
 
@@ -79,8 +88,14 @@ impl<C: openxr_data::Compositor> Input<C> {
             LegacyActionData::new(
                 &self.openxr.instance,
                 &session_data.session,
-                self.openxr.left_hand.subaction_path,
-                self.openxr.right_hand.subaction_path,
+                devices
+                    .get_controller(TrackedDeviceType::LeftHand)
+                    .unwrap()
+                    .subaction_path,
+                devices
+                    .get_controller(TrackedDeviceType::RightHand)
+                    .unwrap()
+                    .subaction_path,
             )
         });
 
@@ -225,12 +240,12 @@ struct ActionDataCommon {
 #[derive(Deserialize)]
 struct SkeletonData {
     #[serde(deserialize_with = "parse_skeleton")]
-    skeleton: Hand,
+    skeleton: TrackedDeviceType,
     #[serde(flatten)]
     data: ActionDataCommon,
 }
 
-fn parse_skeleton<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Hand, D::Error> {
+fn parse_skeleton<'de, D: serde::Deserializer<'de>>(d: D) -> Result<TrackedDeviceType, D::Error> {
     let path: &str = Deserialize::deserialize(d)?;
     let Some(hand) = path.strip_prefix("/skeleton/hand") else {
         return Err(D::Error::invalid_value(
@@ -240,8 +255,8 @@ fn parse_skeleton<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Hand, D::Err
     };
 
     match hand {
-        "/left" => Ok(Hand::Left),
-        "/right" => Ok(Hand::Right),
+        "/left" => Ok(TrackedDeviceType::LeftHand),
+        "/right" => Ok(TrackedDeviceType::RightHand),
         _ => Err(D::Error::invalid_value(
             Unexpected::Str(hand),
             &r#""/left" or "/right""#,
@@ -407,8 +422,9 @@ fn load_actions(
             ActionType::Skeleton(SkeletonData { skeleton, data }) => {
                 trace!("Creating skeleton action {}", data.name.to_lowercase());
                 let hand_tracker = match session.create_hand_tracker(match skeleton {
-                    Hand::Left => xr::Hand::LEFT,
-                    Hand::Right => xr::Hand::RIGHT,
+                    TrackedDeviceType::LeftHand => xr::Hand::LEFT,
+                    TrackedDeviceType::RightHand => xr::Hand::RIGHT,
+                    _ => unreachable!(),
                 }) {
                     Ok(t) => Some(t),
                     Err(
@@ -484,12 +500,12 @@ impl<'de> Deserialize<'de> for LowercaseActionPath {
 struct PoseBinding {
     output: LowercaseActionPath,
     #[serde(deserialize_with = "parse_pose_binding")]
-    path: (Hand, BoundPoseType),
+    path: (TrackedDeviceType, BoundPoseType),
 }
 
 fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
     d: D,
-) -> Result<(Hand, BoundPoseType), D::Error> {
+) -> Result<(TrackedDeviceType, BoundPoseType), D::Error> {
     let pose_path: &str = Deserialize::deserialize(d)?;
 
     let (hand, pose) = pose_path.rsplit_once('/').ok_or(D::Error::invalid_value(
@@ -498,8 +514,8 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
     ))?;
 
     let hand = match hand {
-        "/user/hand/left/pose" => Hand::Left,
-        "/user/hand/right/pose" => Hand::Right,
+        "/user/hand/left/pose" => TrackedDeviceType::LeftHand,
+        "/user/hand/right/pose" => TrackedDeviceType::RightHand,
         _ => {
             return Err(D::Error::unknown_variant(
                 hand,
@@ -527,14 +543,14 @@ struct SimpleActionBinding {
 struct SkeletonActionBinding {
     output: LowercaseActionPath,
     #[serde(deserialize_with = "path_to_skeleton")]
-    path: Hand,
+    path: TrackedDeviceType,
 }
 
-fn path_to_skeleton<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Hand, D::Error> {
+fn path_to_skeleton<'de, D: serde::Deserializer<'de>>(d: D) -> Result<TrackedDeviceType, D::Error> {
     let path: &str = Deserialize::deserialize(d)?;
     match path {
-        "/user/hand/left/input/skeleton/left" => Ok(Hand::Left),
-        "/user/hand/right/input/skeleton/right" => Ok(Hand::Right),
+        "/user/hand/left/input/skeleton/left" => Ok(TrackedDeviceType::LeftHand),
+        "/user/hand/right/input/skeleton/right" => Ok(TrackedDeviceType::RightHand),
         other => Err(D::Error::invalid_value(
             Unexpected::Str(other),
             &"/user/hand/left/input/skeleton/left or /user/hand/right/input/skeleton/right",
@@ -846,6 +862,14 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
         let stp = constrain(|s| self.openxr.instance.string_to_path(s).unwrap());
         let legacy_bindings = profile.legacy_bindings(&stp);
+
+        if legacy_bindings.is_none() {
+            info!("Ignoring bindings for profile {}", profile.profile_path());
+            return;
+        }
+
+        let legacy_bindings = legacy_bindings.unwrap();
+
         let profile_path = stp(profile.profile_path());
         let legal_paths = profile.legal_paths();
         let translate_map = profile.translate_map();
@@ -893,6 +917,8 @@ impl<C: openxr_data::Compositor> Input<C> {
                 handle_skeleton_bindings(actions, bindings);
             }
 
+            let devices = self.openxr.devices.read().unwrap();
+
             xr_bindings.extend(handle_sources(
                 &self.openxr.instance,
                 path_translator,
@@ -901,8 +927,14 @@ impl<C: openxr_data::Compositor> Input<C> {
                 set,
                 &bindings.sources,
                 [
-                    self.openxr.left_hand.subaction_path,
-                    self.openxr.right_hand.subaction_path,
+                    devices
+                        .get_controller(TrackedDeviceType::LeftHand)
+                        .unwrap()
+                        .subaction_path,
+                    devices
+                        .get_controller(TrackedDeviceType::RightHand)
+                        .unwrap()
+                        .subaction_path,
                 ],
             ));
         }
@@ -1552,8 +1584,9 @@ fn handle_pose_bindings(
         });
 
         let b = match hand {
-            Hand::Left => &mut bound.left,
-            Hand::Right => &mut bound.right,
+            TrackedDeviceType::LeftHand => &mut bound.left,
+            TrackedDeviceType::RightHand => &mut bound.right,
+            _ => unreachable!(),
         };
         *b = Some(*pose_ty);
         trace!("bound {:?} to pose {output} for hand {hand:?}", *pose_ty);

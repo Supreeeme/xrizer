@@ -3,9 +3,7 @@ use super::{
     ActionData, Input, InteractionProfile,
 };
 use crate::{
-    graphics_backends::GraphicsBackend,
-    openxr_data::{FrameStream, OpenXrData, SessionCreateInfo},
-    vr::{self, IVRInput010_Interface},
+    graphics_backends::GraphicsBackend, input::devices::tracked_device::TrackedDevice, openxr_data::{FrameStream, OpenXrData, SessionCreateInfo}, vr::{self, IVRInput010_Interface}
 };
 use fakexr::UserPath::*;
 use glam::Quat;
@@ -535,10 +533,14 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     fakexr::set_aim(f.raw_session(), LeftHand, pose);
 
     let seated_origin = vr::ETrackingUniverseOrigin::Seated;
+
     let waitgetposes_pose = f
         .input
-        .get_controller_pose(super::Hand::Left, Some(seated_origin))
-        .expect("WaitGetPoses should succeed");
+        .get_device_pose(
+            crate::input::devices::tracked_device::TrackedDeviceType::LeftHand as usize,
+            Some(seated_origin),
+        )
+        .expect("wtf");
 
     let mut raw_pose = vr::InputPoseActionData_t {
         pose: vr::TrackedDevicePose_t {
@@ -872,14 +874,16 @@ fn detect_controller_after_manifest_load() {
         f.input.frame_start_update();
     };
 
+    let devices = f.input.openxr.devices.read().unwrap();
+
     frame();
-    assert!(!f.input.openxr.left_hand.connected());
+    assert!(!devices.get_controller(crate::input::devices::tracked_device::TrackedDeviceType::LeftHand).unwrap().connected());
 
     f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
     frame();
     // Profile won't be set for this frame - we call sync after events have already been polled
-    assert!(!f.input.openxr.left_hand.connected());
+    assert!(!devices.get_controller(crate::input::devices::tracked_device::TrackedDeviceType::LeftHand).unwrap().connected());
 
     frame();
-    assert!(f.input.openxr.left_hand.connected());
+    assert!(devices.get_controller(crate::input::devices::tracked_device::TrackedDeviceType::LeftHand).unwrap().connected());
 }

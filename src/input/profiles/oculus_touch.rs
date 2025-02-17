@@ -1,26 +1,104 @@
-use super::{InteractionProfile, PathTranslation, StringToPath};
-use crate::input::legacy::LegacyBindings;
-use crate::openxr_data::Hand;
-use std::ffi::CStr;
+use openvr::ETrackedDeviceProperty;
+
+use super::{
+    DevicePropertyTypes, HandValueType, InteractionProfile, PathTranslation, StringToPath,
+};
+use crate::input::{devices::tracked_device::TrackedDeviceType, legacy::LegacyBindings};
 
 pub struct Touch;
 
 impl InteractionProfile for Touch {
-    fn openvr_controller_type(&self) -> &'static CStr {
-        c"oculus_touch"
-    }
-    fn model(&self) -> &'static CStr {
-        c"Miramar"
-    }
-    fn render_model_name(&self, hand: Hand) -> &'static CStr {
-        match hand {
-            Hand::Left => c"oculus_quest_controller_left",
-            Hand::Right => c"oculus_quest_controller_right",
-        }
-    }
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/oculus/touch_controller"
     }
+
+    fn model(&self, hand: TrackedDeviceType) -> &'static str {
+        match hand {
+            TrackedDeviceType::LeftHand => self
+                .get_property(ETrackedDeviceProperty::ModelNumber_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+
+            TrackedDeviceType::RightHand => self
+                .get_property(ETrackedDeviceProperty::ModelNumber_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+            _ => unreachable!(),
+        }
+    }
+
+    fn hmd_properties(&self) -> &'static [(ETrackedDeviceProperty, DevicePropertyTypes)] {
+        &[
+            (
+                ETrackedDeviceProperty::ManufacturerName_String,
+                DevicePropertyTypes::String("Oculus"),
+            ),
+            (
+                ETrackedDeviceProperty::TrackingSystemName_String,
+                DevicePropertyTypes::String("oculus"),
+            ),
+        ]
+    }
+
+    fn controller_properties(
+        &self,
+    ) -> &'static [(ETrackedDeviceProperty, HandValueType<DevicePropertyTypes>)] {
+        &[
+            (
+                ETrackedDeviceProperty::ModelNumber_String,
+                HandValueType {
+                    left: DevicePropertyTypes::String("Miramar (Left Controller)"),
+                    right: Some(DevicePropertyTypes::String("Miramar (Right Controller)")),
+                },
+            ),
+            (
+                ETrackedDeviceProperty::RenderModelName_String,
+                HandValueType {
+                    left: DevicePropertyTypes::String("oculus_quest2_controller_left"),
+                    right: Some(DevicePropertyTypes::String(
+                        "oculus_quest2_controller_right",
+                    )),
+                },
+            ),
+            (
+                ETrackedDeviceProperty::ControllerType_String,
+                HandValueType {
+                    left: DevicePropertyTypes::String("oculus_touch"),
+                    right: None,
+                },
+            ),
+        ]
+    }
+
+    fn openvr_controller_type(&self) -> &'static str {
+        self.get_property(
+            ETrackedDeviceProperty::ControllerType_String,
+            TrackedDeviceType::LeftHand,
+        )
+        .unwrap()
+        .as_string()
+        .unwrap()
+    }
+
+    fn render_model_name(&self, hand: TrackedDeviceType) -> &'static str {
+        match hand {
+            TrackedDeviceType::LeftHand => self
+                .get_property(ETrackedDeviceProperty::RenderModelName_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+
+            TrackedDeviceType::RightHand => self
+                .get_property(ETrackedDeviceProperty::RenderModelName_String, hand)
+                .unwrap()
+                .as_string()
+                .unwrap(),
+            _ => unreachable!(),
+        }
+    }
+
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {
@@ -56,15 +134,15 @@ impl InteractionProfile for Touch {
         ]
     }
 
-    fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
-        LegacyBindings {
+    fn legacy_bindings(&self, stp: &dyn StringToPath) -> Option<LegacyBindings> {
+        Some(LegacyBindings {
             grip_pose: stp.leftright("input/grip/pose"),
             aim_pose: stp.leftright("input/aim/pose"),
             trigger: stp.leftright("input/trigger/value"),
             trigger_click: stp.leftright("input/trigger/value"),
             app_menu: vec![], // TODO
             squeeze: stp.leftright("input/squeeze/value"),
-        }
+        })
     }
 
     fn legal_paths(&self) -> Box<[String]> {

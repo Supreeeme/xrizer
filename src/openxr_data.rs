@@ -1,17 +1,27 @@
 use crate::{
     clientcore::{Injected, Injector},
     graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData},
-    input::{InteractionProfile, Profiles},
+    input::{
+        devices::{
+            generic_tracker::XrGenericTracker,
+            tracked_device::{TrackedDevice, TrackedDeviceType},
+            DeviceContainer, XrTrackedDeviceManager,
+        },
+        Profiles,
+    },
+    runtime_extensions::xr_mndx_xdev_space::{
+        XdevSpaceExtension, XR_MNDX_XDEV_SPACE_EXTENSION_NAME,
+    },
 };
 use derive_more::{Deref, From, TryInto};
 use glam::f32::{Quat, Vec3};
 use log::{info, warn};
 use openvr as vr;
-use openxr as xr;
+use openxr::{self as xr};
 use std::mem::ManuallyDrop;
 use std::sync::{
-    atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
-    Mutex, RwLock,
+    atomic::{AtomicI64, AtomicU64, Ordering},
+    RwLock,
 };
 
 pub trait Compositor: vr::InterfaceImpl {
@@ -35,9 +45,11 @@ pub struct OpenXrData<C: Compositor> {
     pub system_id: xr::SystemId,
     pub session_data: SessionReadGuard,
     pub display_time: AtomicXrTime,
-    pub left_hand: HandInfo,
-    pub right_hand: HandInfo,
+    // pub left_hand: HandInfo,
+    // pub right_hand: HandInfo,
+    pub devices: RwLock<XrTrackedDeviceManager<C>>,
     pub enabled_extensions: xr::ExtensionSet,
+    pub xdev_space_extension: Option<XdevSpaceExtension>,
 
     /// should only be externally accessed for testing
     pub(crate) input: Injected<crate::input::Input<C>>,
@@ -61,6 +73,7 @@ pub enum InitError {
     InstanceCreationFailed(xr::sys::Result),
     SystemCreationFailed(xr::sys::Result),
     SessionCreationFailed(SessionCreationError),
+    DeviceCreationFailed(xr::sys::Result),
 }
 
 impl From<SessionCreationError> for InitError {
@@ -87,6 +100,13 @@ impl<C: Compositor> OpenXrData<C> {
         exts.khr_opengl_enable = supported_exts.khr_opengl_enable;
         exts.ext_hand_tracking = supported_exts.ext_hand_tracking;
         exts.khr_visibility_mask = supported_exts.khr_visibility_mask;
+        if supported_exts
+            .other
+            .contains(&XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string())
+        {
+            exts.other
+                .push(XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string());
+        }
 
         let instance = entry
             .create_instance(
@@ -114,8 +134,8 @@ impl<C: Compositor> OpenXrData<C> {
             .0,
         )));
 
-        let left_hand = HandInfo::new(&instance, "/user/hand/left");
-        let right_hand = HandInfo::new(&instance, "/user/hand/right");
+        let xdev_space_ext = XdevSpaceExtension::new(&instance).ok();
+        let devices = XrTrackedDeviceManager::new(&instance);
 
         Ok(Self {
             _entry: entry,
@@ -123,12 +143,56 @@ impl<C: Compositor> OpenXrData<C> {
             system_id,
             session_data,
             display_time: AtomicXrTime(1.into()),
-            left_hand,
-            right_hand,
+            xdev_space_extension: xdev_space_ext,
+            devices: RwLock::new(devices),
             enabled_extensions: exts,
             input: injector.inject(),
             compositor: injector.inject(),
         })
+    }
+
+    fn create_generic_trackers(&self) -> Result<(), xr::sys::Result> {
+        if !self
+            .enabled_extensions
+            .other
+            .contains(&XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string())
+        {
+            return Ok(());
+        }
+
+        info!("Creating generic trackers");
+
+        if self.xdev_space_extension.is_none() {
+            panic!("xdev_space_extension is None, but {} is available", XR_MNDX_XDEV_SPACE_EXTENSION_NAME);
+        }
+
+        let session = self.session_data.get();
+
+        let mut xdevices = self
+            .xdev_space_extension
+            .unwrap()
+            .get_devices(&session.session)?;
+            
+
+        xdevices = xdevices
+            .into_iter()
+            .filter(|dev| {
+                dev.space.is_some() && dev.properties.name().to_lowercase().contains("tracker")
+            })
+            .collect();
+
+        info!("Found {} generic trackers", xdevices.len());
+        
+        let mut devices = self.devices.write().unwrap();
+        devices.devices.truncate(3);
+
+        for device in xdevices {
+            let tracker =
+                XrGenericTracker::<C>::new(devices.len() as u32, device, &session.session);
+            devices.add_device(DeviceContainer::GenericTracker(tracker));
+        }
+
+        Ok(())
     }
 
     pub fn poll_events(&self) {
@@ -139,33 +203,49 @@ impl<C: Compositor> OpenXrData<C> {
                     self.session_data.0.write().unwrap().state = event.state();
                     info!("OpenXR session state changed: {:?}", event.state());
                 }
+
                 xr::Event::InteractionProfileChanged(_) => {
                     let session = self.session_data.get();
-                    for info in [&self.left_hand, &self.right_hand] {
+
+                    for hand in [TrackedDeviceType::LeftHand, TrackedDeviceType::RightHand] {
+                        let devices = self.devices.read().unwrap();
+                        let controller = devices.get_controller(hand).unwrap();
+                        let hmd = devices.get_hmd().unwrap();
+
                         let profile_path = session
                             .session
-                            .current_interaction_profile(info.subaction_path)
+                            .current_interaction_profile(controller.subaction_path)
                             .unwrap();
 
-                        info.profile_path.store(profile_path);
-                        let profile = match profile_path {
+                        controller.get_device().profile_path.store(profile_path);
+
+                        let profile_name = match profile_path {
                             xr::Path::NULL => {
-                                info.connected.store(false, Ordering::Relaxed);
+                                controller.get_device().set_connected(false);
                                 "<null>".to_owned()
                             }
                             path => {
-                                info.connected.store(true, Ordering::Relaxed);
+                                controller.get_device().set_connected(true);
                                 self.instance.path_to_string(path).unwrap()
                             }
                         };
 
-                        *info.profile.lock().unwrap() = Profiles::get().profile_from_name(&profile);
+                        let profile = Profiles::get().profile_from_name(&profile_name);
+
+                        assert!(profile.is_some(), "Unknown profile: {}", profile_name);
+
+                        controller
+                            .get_device()
+                            .set_interaction_profile(profile.unwrap());
+
+                        hmd.set_interaction_profile(profile.unwrap());
 
                         info!(
                             "{} interaction profile changed: {}",
-                            info.path_name, profile
-                        );
+                            controller.hand_path, profile_name
+                        )
                     }
+                    self.create_generic_trackers().unwrap();
                 }
                 _ => {
                     info!("unknown event");
@@ -570,56 +650,16 @@ impl SessionData {
 
 pub struct AtomicPath(AtomicU64);
 impl AtomicPath {
+    pub(crate) fn new() -> Self {
+        Self(0.into())
+    }
+
     pub(crate) fn load(&self) -> xr::Path {
         xr::Path::from_raw(self.0.load(Ordering::Relaxed))
     }
 
     fn store(&self, path: xr::Path) {
         self.0.store(path.into_raw(), Ordering::Relaxed);
-    }
-}
-
-pub struct HandInfo {
-    path_name: &'static str,
-    connected: AtomicBool,
-    pub subaction_path: xr::Path,
-    pub profile_path: AtomicPath,
-    pub profile: Mutex<Option<&'static dyn InteractionProfile>>,
-}
-
-impl HandInfo {
-    #[inline]
-    pub fn connected(&self) -> bool {
-        self.connected.load(Ordering::Relaxed)
-    }
-
-    fn new(instance: &xr::Instance, path_name: &'static str) -> Self {
-        Self {
-            path_name,
-            connected: false.into(),
-            subaction_path: instance.string_to_path(path_name).unwrap(),
-            profile_path: AtomicPath(0.into()),
-            profile: Mutex::default(),
-        }
-    }
-}
-
-#[repr(u32)]
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Hand {
-    Left = 1,
-    Right,
-}
-
-impl TryFrom<vr::TrackedDeviceIndex_t> for Hand {
-    type Error = ();
-    #[inline]
-    fn try_from(value: vr::TrackedDeviceIndex_t) -> Result<Self, Self::Error> {
-        match value {
-            x if x == Hand::Left as u32 => Ok(Hand::Left),
-            x if x == Hand::Right as u32 => Ok(Hand::Right),
-            _ => Err(()),
-        }
     }
 }
 
