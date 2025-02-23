@@ -3,11 +3,14 @@ mod custom_bindings;
 mod legacy;
 mod profiles;
 mod skeletal;
+mod skeletal_input;
 
 #[cfg(test)]
 mod tests;
 
 pub use profiles::{InteractionProfile, Profiles};
+use skeletal::FingerState;
+use skeletal_input::SkeletalInputActionData;
 
 use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
@@ -49,6 +52,7 @@ pub struct Input<C: openxr_data::Compositor> {
     cached_poses: Mutex<CachedSpaces>,
     legacy_packet_num: AtomicU32,
     skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
+    estimated_finger_state: [Mutex<FingerState>; 2],
 }
 
 #[derive(Debug)]
@@ -96,6 +100,10 @@ impl<C: openxr_data::Compositor> Input<C> {
             cached_poses: Mutex::default(),
             legacy_packet_num: 0.into(),
             skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
+            estimated_finger_state: [
+                Mutex::new(FingerState::new()),
+                Mutex::new(FingerState::new()),
+            ],
         }
     }
 
@@ -116,6 +124,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 pub struct InputSessionData {
     loaded_actions: OnceLock<RwLock<LoadedActions>>,
     legacy_actions: OnceLock<LegacyActionData>,
+    estimated_skeleton_actions: OnceLock<SkeletalInputActionData>,
 }
 
 impl InputSessionData {
@@ -441,13 +450,29 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
     }
     fn GetSkeletalReferenceTransforms(
         &self,
-        _: vr::VRActionHandle_t,
-        _: vr::EVRSkeletalTransformSpace,
-        _: vr::EVRSkeletalReferencePose,
-        _: *mut vr::VRBoneTransform_t,
-        _: u32,
+        handle: vr::VRActionHandle_t,
+        space: vr::EVRSkeletalTransformSpace,
+        pose: vr::EVRSkeletalReferencePose,
+        transform_array: *mut vr::VRBoneTransform_t,
+        transform_array_count: u32,
     ) -> vr::EVRInputError {
-        crate::warn_unimplemented!("GetSkeletalReferenceTransforms");
+        // As far as I'm aware this is only/mainly used by HL:A
+        // For some reason it is required to position the wrist bone at all times, at least when it comes to Quest controllers
+
+        assert_eq!(
+            transform_array_count,
+            skeletal::HandSkeletonBone::Count as u32
+        );
+        let transforms = unsafe {
+            std::slice::from_raw_parts_mut(transform_array, transform_array_count as usize)
+        };
+
+        get_action_from_handle!(self, handle, session_data, action);
+        let ActionData::Skeleton { hand, .. } = action else {
+            return vr::EVRInputError::WrongType;
+        };
+
+        self.get_reference_transforms(*hand, space, pose, transforms);
         vr::EVRInputError::None
     }
     fn GetBoneName(
@@ -806,7 +831,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             }
 
             let legacy = data.input_data.legacy_actions.get().unwrap();
+            let skeletal_input = data.input_data.estimated_skeleton_actions.get().unwrap();
             sync_sets.push(xr::ActiveActionSet::new(&legacy.set));
+            sync_sets.push(xr::ActiveActionSet::new(&skeletal_input.set));
             self.legacy_packet_num.fetch_add(1, Ordering::Relaxed);
         }
 
@@ -1060,7 +1087,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
                 let legacy = LegacyActionData::new(
                     &self.openxr.instance,
-                    &data.session,
                     self.openxr.left_hand.subaction_path,
                     self.openxr.right_hand.subaction_path,
                 );
@@ -1185,9 +1211,7 @@ impl CachedSpaces {
                 Hand::Right => &legacy.right_spaces,
             };
 
-            if let Some(raw) =
-                spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions, display_time)
-            {
+            if let Some(raw) = spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions) {
                 raw.relate(session_data.get_space_for_origin(origin), display_time)
                     .unwrap()
             } else {
