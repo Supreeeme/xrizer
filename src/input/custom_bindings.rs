@@ -1,104 +1,10 @@
 use openxr as xr;
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::sync::atomic::{AtomicBool, Ordering};
+use crate::input::{ExtraActionData};
+use crate::openxr_data::SessionData;
 
-pub(super) struct BoolActionData {
-    pub action: xr::Action<bool>,
-    pub dpad_data: Option<DpadData>,
-    pub grab_data: Option<GrabBindingData>,
-    pub toggle_data: Option<ToggleData>,
-}
-
-impl BoolActionData {
-    pub fn new(action: xr::Action<bool>) -> Self {
-        Self {
-            action,
-            dpad_data: None,
-            grab_data: None,
-            toggle_data: None,
-        }
-    }
-
-    pub fn state<G>(
-        &self,
-        session: &xr::Session<G>,
-        subaction_path: xr::Path,
-    ) -> xr::Result<xr::ActionState<bool>> {
-        // First, we try the normal boolean action
-        // We may have dpad data, but some controller types may not have been bound to dpad inputs,
-        // so we need to try the regular action first.
-        let mut state = self.action.state(session, subaction_path)?;
-
-        if state.is_active && state.current_state {
-            return Ok(state);
-        }
-
-        // state.is_active being false implies there's nothing bound to the action, so then we try
-        // our dpad input, if available.
-
-        if let Some(data) = &self.dpad_data {
-            if let Some(s) = data.state(session)? {
-                state = s;
-                if s.current_state {
-                    return Ok(s);
-                }
-            }
-        }
-
-        if let Some(data) = &self.grab_data {
-            if let Some(state) = data.grabbed_bool(session, subaction_path)? {
-                return Ok(state);
-            }
-        }
-
-        if let Some(data) = &self.toggle_data {
-            if let Some(s) = data.state(session, subaction_path)? {
-                state = s;
-                if s.current_state {
-                    return Ok(s);
-                }
-            }
-        }
-
-        Ok(state)
-    }
-}
-
-pub(super) struct FloatActionData {
-    pub action: xr::Action<f32>,
-    pub last_value: super::AtomicF32,
-    pub grab_data: Option<GrabBindingData>,
-}
-
-impl FloatActionData {
-    pub fn new(action: xr::Action<f32>) -> Self {
-        Self {
-            action,
-            last_value: Default::default(),
-            grab_data: None,
-        }
-    }
-
-    pub fn state<G>(
-        &self,
-        session: &xr::Session<G>,
-        subaction_path: xr::Path,
-    ) -> xr::Result<xr::ActionState<f32>> {
-        let state = self.action.state(session, subaction_path)?;
-        if state.is_active {
-            return Ok(state);
-        }
-
-        if let Some(data) = &self.grab_data {
-            if let Some(data) = data.grabbed(session, subaction_path)? {
-                return Ok(data);
-            }
-        }
-
-        Ok(state)
-    }
-}
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(super) enum DpadDirection {
     North,
     East,
@@ -107,17 +13,23 @@ pub(super) enum DpadDirection {
     Center,
 }
 
+pub(super) struct DpadActions {
+    pub xy: xr::Action<xr::Vector2f>,
+    pub click_or_touch: Option<xr::Action<f32>>,
+}
+
 pub(super) struct DpadData {
-    pub parent: xr::Action<xr::Vector2f>,
-    pub click_or_touch: Option<xr::Action<bool>>,
     pub direction: DpadDirection,
     pub last_state: AtomicBool,
 }
 
 impl DpadData {
     const CENTER_ZONE: f32 = 0.5;
-    fn state<G>(&self, session: &xr::Session<G>) -> xr::Result<Option<xr::ActionState<bool>>> {
-        let parent_state = self.parent.state(session, xr::Path::NULL)?;
+    fn state<G>(&self, extras: &ExtraActionData, session: &xr::Session<G>) -> xr::Result<Option<xr::ActionState<bool>>> {
+        let Some(action) = extras.dpad_actions.as_ref() else {
+            return Ok(None);
+        };
+        let parent_state = action.xy.state(session, xr::Path::NULL)?;
         let mut ret_state = xr::ActionState {
             current_state: false,
             last_change_time: parent_state.last_change_time, // TODO: this is wrong
@@ -125,7 +37,7 @@ impl DpadData {
             is_active: parent_state.is_active,
         };
 
-        let active = self
+        let active = action
             .click_or_touch
             .as_ref()
             .map(|a| {
@@ -133,7 +45,7 @@ impl DpadData {
                 // is_active will be false - in this case, it's probably a joystick touch dpad, in
                 // which case we still want to read the current state.
                 a.state(session, xr::Path::NULL)
-                    .map(|s| !s.is_active || s.current_state)
+                    .map(|s| !s.is_active || s.current_state > 0.5) // TODO: proper threshold
             })
             .unwrap_or(Ok(true))?;
 
@@ -179,185 +91,103 @@ impl DpadData {
     }
 }
 
-pub(super) struct GrabBindingData {
+pub(super) struct GrabActions {
     pub force_action: xr::Action<f32>,
     pub value_action: xr::Action<f32>,
-    last_state: [GrabBindingState; 2],
 }
 
-struct GrabBindingState {
-    path: xr::Path,
-    grabbed: AtomicBool,
+pub(super) struct GrabBindingData {
+    hold_threshold: f32,
+    release_threshold: f32,
+    last_state: AtomicBool,
 }
 
 impl GrabBindingData {
-    pub fn new(force: xr::Action<f32>, value: xr::Action<f32>, paths: [xr::Path; 2]) -> Self {
-        assert!(paths.iter().copied().all(|p| p != xr::Path::NULL));
+    pub fn new(grab_threshold: Option<f32>, release_threshold: Option<f32>) -> Self {
         Self {
-            force_action: force,
-            value_action: value,
-            last_state: paths.map(|p| GrabBindingState {
-                path: p,
-                grabbed: false.into(),
-            }),
+            hold_threshold: grab_threshold.unwrap_or(Self::DEFAULT_GRAB_THRESHOLD),
+            release_threshold: release_threshold.unwrap_or(Self::DEFAULT_RELEASE_THRESHOLD),
+            last_state: false.into(),
         }
     }
 
-    // These values were determined empirically.
-
+    // Default thresholds as set by SteamVR binding UI
     /// How much force to apply to begin a grab
-    pub const GRAB_THRESHOLD: f32 = 0.10;
+    pub const DEFAULT_GRAB_THRESHOLD: f32 = 0.70;
     /// How much the value component needs to be to release the grab.
-    pub const RELEASE_THRESHOLD: f32 = 0.35;
+    pub const DEFAULT_RELEASE_THRESHOLD: f32 = 0.65;
 
     /// Returns None if the grab data is not active.
     fn grabbed<G>(
         &self,
         session: &xr::Session<G>,
+        extra_action: &ExtraActionData,
         subaction_path: xr::Path,
-    ) -> xr::Result<Option<xr::ActionState<f32>>> {
+    ) -> xr::Result<Option<xr::ActionState<bool>>> {
         // FIXME: the way this function calculates changed_since_last_sync is incorrect, as it will
         // always be false if this is called more than once between syncs. What should be done is
         // the state should be updated in UpdateActionState, but that may have other implications
         // I currently don't feel like thinking about, as this works and I haven't seen games grab action
         // state more than once beteween syncs.
 
-        fn normalize(value: f32, range: std::ops::RangeInclusive<f32>) -> f32 {
-            (value - range.start()) / (range.end() - range.start())
-        }
+        let Some(grabs) = &extra_action.grab_action else {
+            return Ok(None);
+        };
 
-        let force_state = self.force_action.state(session, subaction_path)?;
-        let value_state = self.value_action.state(session, subaction_path)?;
+        let force_state = grabs.force_action.state(session, subaction_path)?;
+        let value_state = grabs.value_action.state(session, subaction_path)?;
         if !force_state.is_active || !value_state.is_active {
             Ok(None)
         } else {
-            let get_value = |prev_grabbed: bool| {
-                let value = if !prev_grabbed {
-                    normalize(force_state.current_state, 0.0..=Self::GRAB_THRESHOLD)
-                } else {
-                    normalize(value_state.current_state, Self::RELEASE_THRESHOLD..=1.0)
-                };
+            let prev_grabbed = self.last_state.load(Ordering::Relaxed);
+            let value = if force_state.current_state > 0.0 { force_state.current_state + 1.0 } else { value_state.current_state };
 
-                let changed = (!prev_grabbed && force_state.changed_since_last_sync)
-                    || value_state.changed_since_last_sync;
+            let grabbed = (prev_grabbed && value > self.release_threshold)
+                || (!prev_grabbed && value >= self.hold_threshold);
 
-                let grabbed = (prev_grabbed && value_state.current_state > Self::RELEASE_THRESHOLD)
-                    || (!prev_grabbed && force_state.current_state >= Self::GRAB_THRESHOLD);
-
-                (value, changed, grabbed)
-            };
-            let (value, changed_since_last_sync) = match &self.last_state {
-                [old_state, _] | [_, old_state] if old_state.path == subaction_path => {
-                    let prev_grabbed = old_state.grabbed.load(Ordering::Relaxed);
-                    let (value, changed, grabbed) = get_value(prev_grabbed);
-                    old_state.grabbed.store(grabbed, Ordering::Relaxed);
-                    (value, changed)
-                }
-                [old_state1, old_state2] if subaction_path == xr::Path::NULL => {
-                    let prev_grabbed = old_state1.grabbed.load(Ordering::Relaxed)
-                        || old_state2.grabbed.load(Ordering::Relaxed);
-                    let (value, changed, grabbed) = get_value(prev_grabbed);
-                    old_state1.grabbed.store(grabbed, Ordering::Relaxed);
-                    old_state2.grabbed.store(grabbed, Ordering::Relaxed);
-                    (value, changed)
-                }
-                _ => unreachable!(),
-            };
+            let changed_since_last_sync = grabbed != prev_grabbed;
+            self.last_state.store(grabbed, Ordering::Relaxed);
 
             Ok(Some(xr::ActionState {
-                current_state: value,
+                current_state: grabbed,
                 changed_since_last_sync,
                 last_change_time: force_state.last_change_time,
                 is_active: true,
             }))
         }
     }
-
-    fn grabbed_bool<G>(
-        &self,
-        session: &xr::Session<G>,
-        subaction_path: xr::Path,
-    ) -> xr::Result<Option<xr::ActionState<bool>>> {
-        let load_state = || match &self.last_state {
-            [state, _] | [_, state] if subaction_path == state.path => {
-                state.grabbed.load(Ordering::Relaxed)
-            }
-            [state1, state2] if subaction_path == xr::Path::NULL => {
-                state1.grabbed.load(Ordering::Relaxed) || state2.grabbed.load(Ordering::Relaxed)
-            }
-            _ => unreachable!(),
-        };
-
-        let old_state = load_state();
-        let Some(float_state) = self.grabbed(session, subaction_path)? else {
-            return Ok(None);
-        };
-        let state = load_state();
-
-        Ok(Some(xr::ActionState {
-            current_state: state,
-            changed_since_last_sync: old_state != state,
-            last_change_time: float_state.last_change_time,
-            is_active: float_state.is_active,
-        }))
-    }
 }
 
+#[derive(Default)]
 pub(super) struct ToggleData {
-    pub action: xr::Action<bool>,
-    pub last_state: [(xr::Path, AtomicBool); 2],
+    pub last_state: AtomicBool,
 }
 
 impl ToggleData {
-    pub fn new(action: xr::Action<bool>, paths: [xr::Path; 2]) -> Self {
-        Self {
-            action,
-            last_state: paths.map(|p| (p, false.into())),
-        }
-    }
-
     fn state<G>(
         &self,
+        extra_action: &ExtraActionData,
         session: &xr::Session<G>,
         subaction_path: xr::Path,
     ) -> xr::Result<Option<xr::ActionState<bool>>> {
-        let state = self.action.state(session, subaction_path)?;
+        let Some(action_to_read) = &extra_action.toggle_action else {
+            return Ok(None)
+        };
+        let state = action_to_read.state(session, subaction_path)?;
         if !state.is_active {
             return Ok(None);
         }
 
-        let (current_state, changed_since_last_sync) = match &self.last_state {
-            [(path, old_state), _] | [_, (path, old_state)] if *path == subaction_path => {
-                let s = old_state.load(Ordering::Relaxed);
-                let ret = if state.changed_since_last_sync && state.current_state {
-                    !s
-                } else {
-                    s
-                };
-
-                let changed = old_state
-                    .compare_exchange(!ret, ret, Ordering::Relaxed, Ordering::Relaxed)
-                    .is_ok();
-                (ret, changed)
-            }
-            [(_, state1), (_, state2)] if subaction_path == xr::Path::NULL => {
-                let s = state1.load(Ordering::Relaxed) || state2.load(Ordering::Relaxed);
-                let ret = if state.changed_since_last_sync && state.current_state {
-                    !s
-                } else {
-                    s
-                };
-                let cmpex = |state: &AtomicBool| {
-                    state
-                        .compare_exchange(!ret, ret, Ordering::Relaxed, Ordering::Relaxed)
-                        .is_ok()
-                };
-                let changed1 = cmpex(state1);
-                let changed2 = cmpex(state2);
-                (ret, changed1 || changed2)
-            }
-            _ => unreachable!(),
+        let s = self.last_state.load(Ordering::Relaxed);
+        let current_state = if state.changed_since_last_sync && state.current_state {
+            !s
+        } else {
+            s
         };
+
+        let changed_since_last_sync = self.last_state
+            .compare_exchange(!current_state, current_state, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok();
 
         Ok(Some(xr::ActionState {
             current_state,
@@ -368,24 +198,44 @@ impl ToggleData {
     }
 }
 
+pub enum BindingData {
+    // For all cases where the action can be read directly, such as matching type or bool-to-float conversion,
+    //  the xr::Action is read from ActionData
+    // This can include actions where behavior is customized via OXR extensions
+
+    Dpad(DpadData, xr::Path),
+    Toggle(ToggleData, xr::Path),
+    Grab(GrabBindingData, xr::Path),
+}
+
+impl BindingData {
+    pub fn state(&self, session: &SessionData, extra_data: &ExtraActionData, subaction_path: xr::Path) -> xr::Result<Option<xr::ActionState<bool>>> {
+        match self {
+            BindingData::Dpad(dpad, x) if x == &subaction_path => { dpad.state(extra_data, &session.session) }
+            BindingData::Toggle(toggle, x) if x == &subaction_path => { toggle.state(extra_data, &session.session, subaction_path) }
+            BindingData::Grab(grab, x) if x == &subaction_path => { grab.grabbed(&session.session, extra_data, subaction_path) }
+            _ => Ok(None),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::{tests::Fixture, ActionData};
+    use crate::input::{tests::Fixture};
     use fakexr::UserPath::*;
     use openvr as vr;
+    use crate::input::profiles::knuckles::Knuckles;
+    use crate::input::profiles::vive_controller::ViveWands;
 
     macro_rules! get_toggle_action {
         ($fixture:expr, $handle:expr, $toggle_data:ident) => {
             let data = $fixture.input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
-            let ActionData::Bool(BoolActionData { toggle_data, .. }) =
-                actions.try_get_action($handle).unwrap()
-            else {
-                panic!("should be bool action");
-            };
+            let ExtraActionData { toggle_action, .. } =
+                actions.try_get_extra($handle).unwrap();
 
-            let $toggle_data = toggle_data.as_ref().unwrap();
+            let $toggle_data = toggle_action.as_ref().unwrap();
         };
     }
 
@@ -393,13 +243,10 @@ mod tests {
         ($fixture:expr, $handle:expr, $dpad_data:ident) => {
             let data = $fixture.input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
-            let ActionData::Bool(BoolActionData { dpad_data, .. }) =
-                actions.try_get_action($handle).unwrap()
-            else {
-                panic!("should be bool action");
-            };
+            let ExtraActionData { dpad_actions, ..} =
+                actions.try_get_extra($handle).unwrap();
 
-            let $dpad_data = dpad_data.as_ref().unwrap();
+            let $dpad_data = dpad_actions.as_ref().unwrap();
         };
     }
 
@@ -407,13 +254,10 @@ mod tests {
         ($fixture:expr, $handle:expr, $grab_data:ident) => {
             let data = $fixture.input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
-            let ActionData::Bool(BoolActionData { grab_data, .. }) =
-                actions.try_get_action($handle).unwrap()
-            else {
-                panic!("should be bool action");
-            };
+            let ExtraActionData { grab_action, .. } =
+                actions.try_get_extra($handle).unwrap();
 
-            let $grab_data = grab_data.as_ref().unwrap();
+            let $grab_data = grab_action.as_ref().unwrap();
         };
     }
 
@@ -429,14 +273,15 @@ mod tests {
 
         get_dpad_action!(f, boolact, dpad_data);
 
+        f.set_interaction_profile(&ViveWands, LeftHand);
         fakexr::set_action_state(
-            dpad_data.parent.as_raw(),
+            dpad_data.xy.as_raw(),
             fakexr::ActionState::Vector2(0.0, 0.5),
             LeftHand,
         );
         fakexr::set_action_state(
             dpad_data.click_or_touch.as_ref().unwrap().as_raw(),
-            fakexr::ActionState::Bool(true),
+            fakexr::ActionState::Float(1.0),
             LeftHand,
         );
 
@@ -461,7 +306,7 @@ mod tests {
         assert!(!state.bChanged);
 
         fakexr::set_action_state(
-            dpad_data.parent.as_raw(),
+            dpad_data.xy.as_raw(),
             fakexr::ActionState::Vector2(0.5, 0.0),
             LeftHand,
         );
@@ -488,7 +333,7 @@ mod tests {
         get_dpad_action!(f, boolact_set1, set1_dpad);
         get_dpad_action!(f, boolact_set2, set2_dpad);
 
-        assert_ne!(set1_dpad.parent.as_raw(), set2_dpad.parent.as_raw());
+        assert_ne!(set1_dpad.xy.as_raw(), set2_dpad.xy.as_raw());
     }
 
     #[test]
@@ -532,10 +377,11 @@ mod tests {
     fn grab_binding() {
         let f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
-        let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+        let boolact = f.get_action_handle(c"/actions/set1/in/boolact2");
         f.load_actions(c"actions.json");
         get_grab_action!(f, boolact, grab_data);
 
+        f.set_interaction_profile(&Knuckles, LeftHand);
         let value_state_check = |force, value, state, changed, line| {
             fakexr::set_action_state(
                 grab_data.force_action.as_raw(),
@@ -558,13 +404,14 @@ mod tests {
             assert_eq!(s.bChanged, changed, "changed failed (line {line})");
         };
 
-        let grab = GrabBindingData::GRAB_THRESHOLD;
-        let release = GrabBindingData::RELEASE_THRESHOLD;
-        value_state_check(grab - 0.1, 1.0, false, false, line!());
-        value_state_check(grab, 1.0, true, true, line!());
+        let grab = GrabBindingData::DEFAULT_GRAB_THRESHOLD;
+        let release = GrabBindingData::DEFAULT_RELEASE_THRESHOLD;
+        value_state_check(0.0, grab - 0.1, false, false, line!());
+        value_state_check(0.0, grab + 0.1, true, true, line!());
+        value_state_check(0.1, 0.0, true, false, line!());
         value_state_check(0.0, 1.0, true, false, line!());
         value_state_check(0.0, release, false, true, line!());
-        value_state_check(grab - 0.1, 1.0, false, false, line!());
+        value_state_check(0.0, grab - 0.1, false, false, line!());
     }
 
     #[test]
@@ -579,6 +426,9 @@ mod tests {
         f.load_actions(c"actions_dpad_mixed.json");
 
         get_grab_action!(f, set1, grab_data);
+
+        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile(&Knuckles, RightHand);
 
         let value_state_check = |force, value, hand, state, changed, line| {
             fakexr::set_action_state(
@@ -606,16 +456,56 @@ mod tests {
             assert_eq!(s.bChanged, changed, "Changed wrong (line {line})");
         };
 
-        let grab = GrabBindingData::GRAB_THRESHOLD;
-        let release = GrabBindingData::RELEASE_THRESHOLD;
-        value_state_check(grab - 0.1, 1.0, LeftHand, false, false, line!());
-        value_state_check(grab - 0.1, 1.0, RightHand, false, false, line!());
+        let grab = GrabBindingData::DEFAULT_GRAB_THRESHOLD;
+        let release = GrabBindingData::DEFAULT_RELEASE_THRESHOLD;
+        value_state_check(0.0, grab - 0.1, LeftHand, false, false, line!());
+        value_state_check(0.0, grab - 0.1, RightHand, false, false, line!());
 
-        value_state_check(grab, 1.0, LeftHand, true, true, line!());
-        value_state_check(grab, 1.0, RightHand, true, true, line!());
+        value_state_check(0.0, grab, LeftHand, true, true, line!());
+        value_state_check(0.0, grab, RightHand, true, true, line!());
 
         value_state_check(0.0, release, LeftHand, false, true, line!());
         value_state_check(0.0, 1.0, RightHand, true, false, line!());
+    }
+
+    #[test]
+    fn grab_binding_custom_threshold() {
+        let f = Fixture::new();
+        let set1 = f.get_action_set_handle(c"/actions/set1");
+        let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+        f.load_actions(c"actions.json");
+        get_grab_action!(f, boolact, grab_data);
+
+        f.set_interaction_profile(&Knuckles, RightHand);
+        let value_state_check = |force, value, state, changed, line| {
+            fakexr::set_action_state(
+                grab_data.force_action.as_raw(),
+                fakexr::ActionState::Float(force),
+                RightHand,
+            );
+            fakexr::set_action_state(
+                grab_data.value_action.as_raw(),
+                fakexr::ActionState::Float(value),
+                RightHand,
+            );
+            f.sync(vr::VRActiveActionSet_t {
+                ulActionSet: set1,
+                ..Default::default()
+            });
+
+            let s = f.get_bool_state(boolact).unwrap();
+            assert_eq!(s.bState, state, "state failed (line {line})");
+            assert!(s.bActive, "active failed (line {line})");
+            assert_eq!(s.bChanged, changed, "changed failed (line {line})");
+        };
+
+        let grab = 0.16;
+        let release = 0.15;
+        value_state_check(0.0, 1.0, false, false, line!());
+        value_state_check(grab + 0.01, 0.0, true, true, line!());
+        value_state_check(grab - 0.001, 0.0, true, false, line!());
+        value_state_check(release, 0.0, false, true, line!());
+        value_state_check(0.0, 1.0, false, false, line!());
     }
 
     #[test]
@@ -627,8 +517,9 @@ mod tests {
 
         get_toggle_action!(f, boolact, toggle_data);
 
+        f.set_interaction_profile(&Knuckles, LeftHand);
         fakexr::set_action_state(
-            toggle_data.action.as_raw(),
+            toggle_data.as_raw(),
             fakexr::ActionState::Bool(true),
             LeftHand,
         );
@@ -644,7 +535,7 @@ mod tests {
         assert!(state.bChanged);
 
         fakexr::set_action_state(
-            toggle_data.action.as_raw(),
+            toggle_data.as_raw(),
             fakexr::ActionState::Bool(false),
             LeftHand,
         );
@@ -660,7 +551,7 @@ mod tests {
         assert!(!state.bChanged);
 
         fakexr::set_action_state(
-            toggle_data.action.as_raw(),
+            toggle_data.as_raw(),
             fakexr::ActionState::Bool(true),
             LeftHand,
         );
@@ -698,8 +589,10 @@ mod tests {
         f.load_actions(c"actions_toggle.json");
         get_toggle_action!(f, boolact, toggle_data);
 
-        let act = toggle_data.action.as_raw();
+        let act = toggle_data.as_raw();
 
+        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile(&Knuckles, RightHand);
         fakexr::set_action_state(act, false.into(), LeftHand);
         fakexr::set_action_state(act, false.into(), RightHand);
         f.sync(vr::VRActiveActionSet_t {
