@@ -97,7 +97,7 @@ impl Profiles {
                 (ControllerType::ViveController, &ViveWands),
                 (ControllerType::Knuckles, &Knuckles),
                 (ControllerType::OculusTouch, &Touch),
-                (ControllerType::ViveController, &SimpleController),
+                (ControllerType::KhrSimpleController, &SimpleController),
             ],
         };
         &P
