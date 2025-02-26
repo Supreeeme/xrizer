@@ -99,12 +99,21 @@
 				{
 					"inputs": {
 						"grab": {
+							"output": "/actions/set1/in/boolact2"
+						}
+					},
+					"mode": "grab",
+					"path": "/user/hand/left/input/grip"
+				},
+				{
+					"inputs": {
+						"grab": {
 							"output": "/actions/set1/in/boolact"
 						}
 					},
 					"parameters": {
-						"value_hold_threshold": "1.15",
-						"value_release_threshold": "1.16"
+						"value_hold_threshold": "1.16",
+						"value_release_threshold": "1.15"
 					},
 					"mode": "grab",
 					"path": "/user/hand/right/input/grip"
