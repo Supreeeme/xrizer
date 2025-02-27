@@ -613,6 +613,8 @@ enum ActionBinding {
     ScalarConstant {
         path: String,
         inputs: ScalarConstantInput,
+        #[allow(unused)]
+        parameters: Option<ScalarConstantParameters>,
     },
     ForceSensor {
         path: String,
@@ -674,6 +676,13 @@ struct ClickThresholdParams {
     click_activate_threshold: Option<FromString<f32>>,
     #[allow(unused)]
     click_deactivate_threshold: Option<FromString<f32>>,
+}
+
+#[derive(Deserialize)]
+struct ScalarConstantParameters {
+    #[serde(rename = "on/x")]
+    #[allow(unused)]
+    on_x: Option<String>
 }
 
 #[derive(Deserialize)]
@@ -1404,6 +1413,7 @@ fn handle_sources(
                     ScalarConstantInput {
                         value: ActionBindingOutput { output },
                     },
+                ..
             } => {
                 let vpath = format!("{path}/value");
                 let Ok(translated) = path_translator(&vpath)
