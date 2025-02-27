@@ -868,6 +868,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                         if let Some(bindings) = bindings.as_ref() {
                             self.load_bindings_for_profile(
                                 profile,
+                                other,
                                 action_sets,
                                 actions,
                                 extra_actions,
@@ -897,6 +898,7 @@ impl<C: openxr_data::Compositor> Input<C> {
     fn load_bindings_for_profile(
         &self,
         profile: &dyn InteractionProfile,
+        controller_type: &ControllerType,
         action_sets: &HashMap<String, xr::ActionSet>,
         actions: &mut LoadedActionDataMap,
         extra_actions: &mut HashMap<String, ExtraActionData>,
@@ -979,6 +981,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                     self.openxr.left_hand.subaction_path,
                     self.openxr.right_hand.subaction_path,
                 ],
+                &controller_type,
             ));
         }
 
@@ -1041,6 +1044,7 @@ fn handle_dpad_binding(
     }: &DpadInput,
     parameters: Option<&DpadParameters>,
     parsed_bindings: &mut HashMap<String, Vec<BindingData>>,
+    controller_type: &ControllerType,
 ) -> Vec<(String, xr::Path)> {
     // Would love to use the dpad extension here, but it doesn't seem to
     // support touch trackpad dpads.
@@ -1094,6 +1098,7 @@ fn handle_dpad_binding(
             action_set,
             &actions,
             parameters,
+            controller_type,
         )
     });
     for (action_name, direction) in bound_actions {
@@ -1101,10 +1106,19 @@ fn handle_dpad_binding(
         let mut data = extra_actions.remove(action_name).unwrap_or_default();
 
         if data.dpad_actions.is_none() {
+            // FIXME: this steals a random action from app's action set for haptic feedback; there might be none
+            let haptic = if matches!(controller_type, ControllerType::Knuckles) && parent_path.ends_with("trackpad") {
+                let actions = actions.borrow();
+                actions.iter().filter_map(|(_, a)| if let ActionData::Haptic(h) = a { Some(h) } else { None }).find(|_| true).map(|x| x.clone())
+            } else {
+                None
+            };
+
             let (parent_action, click_or_touch) = LazyCell::force(&created_actions);
             data.dpad_actions = Some(DpadActions {
                 xy: parent_action.clone(),
                 click_or_touch: click_or_touch.as_ref().map(|d| d.action.clone()),
+                haptic,
             })
         }
 
@@ -1148,6 +1162,7 @@ fn get_dpad_parent(
     action_set: &xr::ActionSet,
     actions: &RefCell<&mut LoadedActionDataMap>,
     parameters: Option<&DpadParameters>,
+    controller_type: &ControllerType,
 ) -> (xr::Action<xr::Vector2f>, Option<DpadActivatorData>) {
     let mut actions = actions.borrow_mut();
     // Share parent actions that use the same action set and same bound path
@@ -1177,15 +1192,21 @@ fn get_dpad_parent(
     };
     // Remove lifetime
     let parent_action = parent_action.clone();
+    let use_force = matches!(controller_type, ControllerType::Knuckles) && parent_path.ends_with("trackpad");
 
     // Create our path to our parent click/touch, if such a path exists
     let (activator_binding_str, activator_binding_path) = parameters
         .as_ref()
         .and_then(|p| {
-            let name = match p.sub_mode {
-                DpadSubMode::Click => format!("{parent_path}/click"),
-                DpadSubMode::Touch => format!("{parent_path}/touch"),
-            };
+            let name =
+                match p.sub_mode {
+                    DpadSubMode::Click => if use_force {
+                        format!("{parent_path}/force")
+                    } else {
+                        format!("{parent_path}/click")
+                    },
+                    DpadSubMode::Touch => format!("{parent_path}/touch"),
+                };
             string_to_path(&name).map(|p| (name, p))
         })
         .unzip();
@@ -1255,6 +1276,7 @@ fn handle_sources(
     sources: &[ActionBinding],
     bindings_parsed: &mut HashMap<String, Vec<BindingData>>,
     hands: [xr::Path; 2],
+    controller_type: &ControllerType,
 ) -> Vec<(String, xr::Path)> {
     let bindings: RefCell<Vec<(String, xr::Path)>> = RefCell::new(Vec::new());
 
@@ -1385,6 +1407,7 @@ fn handle_sources(
                     inputs,
                     parameters.as_ref(),
                     bindings_parsed,
+                    controller_type,
                 );
 
                 bindings.borrow_mut().extend(data);
