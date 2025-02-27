@@ -1,5 +1,7 @@
 use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, StringToPath};
 use crate::input::legacy::LegacyBindings;
+use crate::input::action_manifest::ControllerType;
+
 pub struct Touch;
 
 impl InteractionProfile for Touch {
@@ -106,6 +108,10 @@ impl InteractionProfile for Touch {
         });
 
         left_only.chain(right_only).chain(both).collect()
+    }
+
+    fn controller_type(&self) -> ControllerType {
+        ControllerType::OculusTouch
     }
 }
 

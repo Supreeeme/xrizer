@@ -1,5 +1,6 @@
 use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, StringToPath};
 use crate::input::legacy::LegacyBindings;
+use crate::input::action_manifest::ControllerType;
 
 pub struct ViveWands;
 
@@ -75,6 +76,10 @@ impl InteractionProfile for ViveWands {
             app_menu: stp.leftright("input/menu/click"),
             squeeze: stp.leftright("input/squeeze/click"),
         }
+    }
+
+    fn controller_type(&self) -> ControllerType {
+        ControllerType::ViveController
     }
 }
 

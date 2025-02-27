@@ -1,5 +1,6 @@
 use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, StringToPath};
 use crate::input::legacy::LegacyBindings;
+use crate::input::action_manifest::ControllerType;
 
 pub struct SimpleController;
 
@@ -58,5 +59,9 @@ impl InteractionProfile for SimpleController {
             ]
         })
         .collect()
+    }
+
+    fn controller_type(&self) -> ControllerType {
+        ControllerType::SimpleController
     }
 }
