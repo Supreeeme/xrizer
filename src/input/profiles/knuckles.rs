@@ -36,7 +36,7 @@ impl InteractionProfile for Knuckles {
             },
             PathTranslation {
                 from: "squeeze/click",
-                to: "squeeze/force",
+                to: "squeeze/value",
                 stop: true,
             },
             PathTranslation {

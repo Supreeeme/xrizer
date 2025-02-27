@@ -126,7 +126,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
     }
 
-    fn state_from_bindings(&self, action: vr::VRActionHandle_t, restrict_to_device: vr::VRInputValueHandle_t) -> Option<xr::ActionState<bool>> {
+    fn state_from_bindings(&self, action: vr::VRActionHandle_t, restrict_to_device: vr::VRInputValueHandle_t) -> Option<(xr::ActionState<bool>, vr::VRInputValueHandle_t)> {
         let subaction = self.subaction_path_from_handle(restrict_to_device)?;
         if subaction == xr::Path::NULL {
             debug_assert!(self.left_hand_key.0.as_ffi() != 0);
@@ -135,14 +135,14 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             return match left_state {
                 None => self.state_from_bindings(action, self.right_hand_key.0.as_ffi()),
-                Some(left) => {
+                Some((left, _)) => {
                     if left.is_active && left.current_state {
                         return left_state
                     }
                     let right_state = self.state_from_bindings(action, self.right_hand_key.0.as_ffi());
                     match right_state {
                         None => left_state,
-                        Some(right) => {
+                        Some((right, _)) => {
                             if right.is_active && right.current_state {
                                 return right_state
                             }
@@ -177,7 +177,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
         }
 
-        best_state
+        best_state.map(|x| (x, restrict_to_device))
     }
 }
 
@@ -772,13 +772,14 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         get_action_from_handle!(self, handle, session_data, action, loaded);
         let subaction_path = get_subaction_path!(self, restrict_to_device, action_data);
 
+        let mut active_hand = restrict_to_device;
         let (state, delta) = match action {
             ActionData::Vector1 { action, last_value } => {
                 let mut state = action.state(&session_data.session, subaction_path).unwrap();
 
                 // It's generally not clear how SteamVR handles float actions with multiple bindings;
                 //   so emulate OpenXR, which takes maximum among active actions
-                if let Some(binding_state) = self.state_from_bindings(handle, restrict_to_device) {
+                if let Some((binding_state, binding_source)) = self.state_from_bindings(handle, restrict_to_device) {
                     if binding_state.is_active && (binding_state.current_state && state.current_state != 1.0 || !state.is_active) {
                         state = xr::ActionState {
                             current_state: if binding_state.current_state { 1.0 } else { 0.0 },
@@ -786,6 +787,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                             changed_since_last_sync: binding_state.changed_since_last_sync,
                             last_change_time: binding_state.last_change_time,
                         };
+                        active_hand = binding_source;
                     }
                 }
 
@@ -819,7 +821,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         *out.value = vr::InputAnalogActionData_t {
             bActive: state.is_active,
-            activeOrigin: 0,
+            activeOrigin: active_hand,
             x: state.current_state.x,
             deltaX: delta.x,
             y: state.current_state.y,
@@ -852,16 +854,18 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         let mut state = action.state(&session_data.session, subaction_path).unwrap();
 
-        if let Some(binding_state) = self.state_from_bindings(handle, restrict_to_device) {
+        let mut active_hand = restrict_to_device;
+        if let Some((binding_state, binding_source)) = self.state_from_bindings(handle, restrict_to_device) {
             if binding_state.is_active && (binding_state.current_state > state.current_state || !state.is_active) {
                 state = binding_state;
+                active_hand = binding_source;
             }
         }
 
         *out.value = vr::InputDigitalActionData_t {
             bActive: state.is_active,
             bState: state.current_state,
-            activeOrigin: restrict_to_device, // TODO
+            activeOrigin: active_hand,
             bChanged: state.changed_since_last_sync,
             fUpdateTime: 0.0, // TODO
         };
