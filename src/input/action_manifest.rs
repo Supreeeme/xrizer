@@ -1351,6 +1351,7 @@ fn handle_sources(
 
                     let name_only = output.rsplit_once('/').unwrap().1;
                     let toggle_name = format!("{name_only}_tgl");
+                    let as_name = format!("{}/{}", action_set_name, toggle_name);
 
                     let mut extra_data = extra_actions.remove(&output.to_lowercase()).unwrap_or_default();
 
@@ -1360,7 +1361,7 @@ fn handle_sources(
                             .create_action(&toggle_name, &localized, &hands)
                             .unwrap();
 
-                        actions.insert(toggle_name.clone(), Bool(action.clone()));
+                        actions.insert(as_name.clone(), Bool(action.clone()));
 
                         extra_data.toggle_action = Some(action);
                     }
@@ -1368,7 +1369,7 @@ fn handle_sources(
 
                     trace!("suggesting {translated} for {output} (toggle)");
                     bindings.borrow_mut().push((
-                        toggle_name.clone(),
+                        as_name,
                         instance.string_to_path(&translated).unwrap(),
                     ));
 
@@ -1580,6 +1581,9 @@ fn handle_sources(
                 let force_name = format!("{name_only}_grabactionf");
                 let value_name = format!("{name_only}_grabactionv");
 
+                let force_full_name = format!("{}/{}", action_set_name, force_name);
+                let value_full_name = format!("{}/{}", action_set_name, value_name);
+
                 let mut data = extra_actions.remove(&output.0).unwrap_or_default();
                 if data.grab_action.is_none() {
                     let localized = format!("{name_only} grab action (force)");
@@ -1591,8 +1595,8 @@ fn handle_sources(
                         .create_action(&value_name, &localizedv, &hands)
                         .unwrap();
 
-                    actions.insert(force_name.clone(), Vector1 { action: force_action.clone(), last_value: Default::default() });
-                    actions.insert(value_name.clone(), Vector1 { action: value_action.clone(), last_value: Default::default() });
+                    actions.insert(force_full_name.clone(), Vector1 { action: force_action.clone(), last_value: Default::default() });
+                    actions.insert(value_full_name.clone(), Vector1 { action: value_action.clone(), last_value: Default::default() });
 
                     data.grab_action = Some(GrabActions {
                         force_action,
@@ -1617,11 +1621,11 @@ fn handle_sources(
 
                 trace!("suggesting {translated_force} and {translated_value} for {force_name} (grab binding)");
                 bindings.borrow_mut().push((
-                    force_name.clone(),
+                    force_full_name.clone(),
                     instance.string_to_path(&translated_force).unwrap(),
                 ));
                 bindings.borrow_mut().push((
-                    value_name.clone(),
+                    value_full_name.clone(),
                     instance.string_to_path(&translated_value).unwrap(),
                 ));
             }
