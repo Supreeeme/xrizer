@@ -161,8 +161,6 @@ mod tests {
                 "/user/hand/right/input/a/click".into(),
                 "/user/hand/left/input/b/click".into(),
                 "/user/hand/right/input/b/click".into(),
-                "/user/hand/left/input/trigger/click".into(),
-                "/user/hand/right/input/trigger/click".into(),
                 "/user/hand/left/input/trigger/touch".into(),
                 "/user/hand/right/input/trigger/touch".into(),
                 "/user/hand/left/input/thumbstick/click".into(),
@@ -170,7 +168,16 @@ mod tests {
                 "/user/hand/left/input/thumbstick/touch".into(),
                 "/user/hand/right/input/thumbstick/touch".into(),
                 "/user/hand/right/input/trackpad/touch".into(),
-                "/user/hand/left/input/squeeze/force".into(),
+            ],
+        );
+
+        f.verify_bindings::<f32>(
+            path,
+            c"/actions/set1/boolact_asfloat",
+            [
+                "/user/hand/left/input/trigger/value".into(),
+                "/user/hand/right/input/trigger/value".into(),
+                "/user/hand/left/input/squeeze/value".into(),
                 "/user/hand/left/input/trackpad/force".into(),
                 "/user/hand/right/input/trackpad/force".into(),
             ],

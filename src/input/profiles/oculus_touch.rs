@@ -192,11 +192,18 @@ mod tests {
                 "/user/hand/left/input/y/click".into(),
                 "/user/hand/right/input/a/click".into(),
                 "/user/hand/right/input/b/click".into(),
-                "/user/hand/left/input/squeeze/value".into(),
-                "/user/hand/right/input/squeeze/value".into(),
                 "/user/hand/right/input/thumbstick/click".into(),
                 "/user/hand/right/input/thumbstick/touch".into(),
                 "/user/hand/left/input/menu/click".into(),
+            ],
+        );
+
+        f.verify_bindings::<f32>(
+            path,
+            c"/actions/set1/boolact_asfloat",
+            [
+                "/user/hand/left/input/squeeze/value".into(),
+                "/user/hand/right/input/squeeze/value".into(),
                 "/user/hand/left/input/trigger/value".into(),
                 "/user/hand/right/input/trigger/value".into(),
             ],

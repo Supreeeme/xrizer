@@ -124,10 +124,18 @@ mod tests {
                 "/user/hand/left/input/menu/click".into(),
                 "/user/hand/right/input/menu/click".into(),
                 // Suggesting float paths for boolean inputs is legal
-                "/user/hand/left/input/trigger/value".into(),
-                "/user/hand/right/input/trigger/value".into(),
                 "/user/hand/left/input/trackpad/click".into(),
                 "/user/hand/left/input/trackpad/touch".into(),
+            ],
+        );
+
+        // bindings for boolact reading from float inputs
+        f.verify_bindings::<f32>(
+            path,
+            c"/actions/set1/boolact_asfloat",
+            [
+                "/user/hand/left/input/trigger/value".into(),
+                "/user/hand/right/input/trigger/value".into(),
             ],
         );
 

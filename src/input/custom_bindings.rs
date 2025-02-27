@@ -216,6 +216,53 @@ impl ToggleData {
     }
 }
 
+pub struct ThresholdBindingData {
+    pub click_threshold: f32,
+    pub release_threshold: f32,
+    last_state: AtomicBool,
+}
+
+impl ThresholdBindingData {
+    const DEFAULT_CLICK_THRESHOLD: f32 = 0.25;
+    const DEFAULT_RELEASE_THRESHOLD: f32 = 0.20;
+
+    pub fn new(click_threshold: Option<f32>, release_threshold: Option<f32>) -> Self {
+        Self {
+            click_threshold: click_threshold.unwrap_or(Self::DEFAULT_CLICK_THRESHOLD),
+            release_threshold: release_threshold.unwrap_or(Self::DEFAULT_RELEASE_THRESHOLD),
+            last_state: false.into(),
+        }
+    }
+
+    fn state<G>(&self,
+                extra_action: &ExtraActionData,
+                session: &xr::Session<G>,
+                subaction_path: xr::Path) -> xr::Result<Option<xr::ActionState<bool>>> {
+        let Some(action_to_read) = &extra_action.analog_action else {
+            return Ok(None)
+        };
+        let state = action_to_read.state(session, subaction_path)?;
+        if !state.is_active {
+            return Ok(None);
+        }
+
+        let s = self.last_state.load(Ordering::Relaxed);
+        let threshold = if s { self.release_threshold } else { self.click_threshold };
+        let current_state = state.current_state >= threshold;
+
+        let changed_since_last_sync = self.last_state
+            .compare_exchange(!current_state, current_state, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok();
+
+        Ok(Some(xr::ActionState {
+            current_state,
+            changed_since_last_sync,
+            last_change_time: state.last_change_time,
+            is_active: true,
+        }))
+    }
+}
+
 pub enum BindingData {
     // For all cases where the action can be read directly, such as matching type or bool-to-float conversion,
     //  the xr::Action is read from ActionData
@@ -224,6 +271,7 @@ pub enum BindingData {
     Dpad(DpadData, xr::Path),
     Toggle(ToggleData, xr::Path),
     Grab(GrabBindingData, xr::Path),
+    Threshold(ThresholdBindingData, xr::Path),
 }
 
 impl BindingData {
@@ -233,6 +281,7 @@ impl BindingData {
             BindingData::Dpad(dpad, x) if x == &subaction_path => { dpad.state(extra_data, &session.session, subaction_path) }
             BindingData::Toggle(toggle, x) if x == &subaction_path => { toggle.state(extra_data, &session.session, subaction_path) }
             BindingData::Grab(grab, x) if x == &subaction_path => { grab.grabbed(extra_data, &session.session, subaction_path) }
+            BindingData::Threshold(threshold, x) if x == &subaction_path => { threshold.state(extra_data, &session.session, subaction_path) }
             _ => Ok(None),
         }
     }

@@ -1,6 +1,6 @@
 use super::{
     custom_bindings::{
-        DpadData, DpadDirection, BindingData, DpadActions, GrabActions, GrabBindingData
+        DpadData, DpadDirection, BindingData, DpadActions, GrabActions, GrabBindingData, ThresholdBindingData
     },
     legacy::{LegacyActionData, LegacyActions},
     profiles::{InteractionProfile, PathTranslation, Profiles},
@@ -666,6 +666,7 @@ impl<'de, T: Deserialize<'de> + FromStr> Deserialize<'de> for FromString<T> {
 
 #[derive(Deserialize)]
 struct ButtonInput {
+    touch: Option<ActionBindingOutput>,
     click: Option<ActionBindingOutput>,
     double: Option<ActionBindingOutput>,
 }
@@ -1318,10 +1319,24 @@ fn handle_sources(
             );
         };
 
+        let bind_button_touch = |path: &String, inputs: &ButtonInput| {
+            if let Some(ActionBindingOutput { output }) = &inputs.touch {
+                let Ok(translated) = path_translator(&format!("{path}/touch"))
+                    .inspect_err(translate_warn(output))
+                else {
+                    return;
+                };
+
+                // Touch is always directly bindable
+                try_get_bool_binding(output.to_string(), translated);
+            }
+        };
+
         match mode {
             ActionBinding::None(_) => {}
-            ActionBinding::Button { path, inputs, .. }
-            | ActionBinding::ToggleButton { path, inputs } => {
+            ActionBinding::ToggleButton { path, inputs } => {
+                bind_button_touch(path, inputs);
+
                 if let Some(ActionBindingOutput { output }) = &inputs.click {
                     let Ok(translated) = path_translator(&format!("{path}/click"))
                         .inspect_err(translate_warn(output))
@@ -1329,44 +1344,103 @@ fn handle_sources(
                         continue;
                     };
 
-                    if matches!(mode, ActionBinding::Button { .. }) {
+                    let mut actions = actions.borrow_mut();
+                    if !find_action(&actions, output) {
+                        continue;
+                    }
+
+                    let name_only = output.rsplit_once('/').unwrap().1;
+                    let toggle_name = format!("{name_only}_tgl");
+
+                    let mut extra_data = extra_actions.remove(&output.to_lowercase()).unwrap_or_default();
+
+                    if extra_data.toggle_action.is_none() {
+                        let localized = format!("{name_only} toggle");
+                        let action = action_set
+                            .create_action(&toggle_name, &localized, &hands)
+                            .unwrap();
+
+                        actions.insert(toggle_name.clone(), Bool(action.clone()));
+
+                        extra_data.toggle_action = Some(action);
+                    }
+                    extra_actions.insert(output.to_lowercase(), extra_data);
+
+                    trace!("suggesting {translated} for {output} (toggle)");
+                    bindings.borrow_mut().push((
+                        toggle_name.clone(),
+                        instance.string_to_path(&translated).unwrap(),
+                    ));
+
+                    if let Some(binding_hand) = parse_hand_from_path(instance, &translated) {
+                        bindings_parsed.entry(output.to_lowercase()).or_insert_with(Vec::new)
+                            .push(BindingData::Toggle(Default::default(), binding_hand));
+                    } else {
+                        info!("Binding on {} has unknown hand path, it will be ignored", &translated)
+                    }
+
+                }
+            }
+            ActionBinding::Button { path, inputs, parameters } => {
+                bind_button_touch(path, inputs);
+
+                if let Some(ActionBindingOutput { output }) = &inputs.click {
+                    let parameters = parameters.as_ref();
+                    let target = parameters
+                        .and_then(|x| x.force_input.as_ref())
+                        .map(|x| x.as_str())
+                        .unwrap_or("value");
+                    // TODO: ^ for button bindings on clicky triggers, it's unclear how to choose between /value and /click without hints
+                    // Clicking feels bad for a lot of interaction tho, so prefer /value for now
+
+                    let translated = if let Ok(translated) = path_translator(&format!("{path}/{target}"))
+                        .inspect_err(|e| debug!("Falling back to click for {output} ({})", e.0)) {
+                        translated
+                    } else if let Ok(translated) = path_translator(&format!("{path}/click"))
+                        .inspect_err(translate_warn(output)) {
+                        translated
+                    } else {
+                        continue;
+                    };
+
+                    // These two sources are typically bool, so bind directly
+                    if translated.ends_with("/click") || translated.ends_with("/touch") {
                         try_get_bool_binding(output.to_string(), translated);
                     } else {
+                        // for everything actually binding to /value or /force, use custom thresholds
                         let mut actions = actions.borrow_mut();
-                        if !find_action(&actions, output) {
-                            continue;
-                        }
-
-                        let name_only = output.rsplit_once('/').unwrap().1;
-                        let toggle_name = format!("{name_only}_tgl");
 
                         let mut extra_data = extra_actions.remove(&output.to_lowercase()).unwrap_or_default();
-
-                        if extra_data.toggle_action.is_none() {
-                            let localized = format!("{name_only} toggle");
-                            let action = action_set
-                                .create_action(&toggle_name, &localized, &hands)
+                        let name_only = output.rsplit_once('/').unwrap().1;
+                        let float_name = format!("{name_only}_asfloat");
+                        let float_name_with_as = format!("{action_set_name}/{float_name}");
+                        if extra_data.analog_action.is_none() {
+                            let localized = format!("{name_only} from float");
+                            let float_action = action_set
+                                .create_action(&float_name, &localized, &hands)
                                 .unwrap();
 
-                            actions.insert(toggle_name.clone(), Bool(action.clone()));
 
-                            extra_data.toggle_action = Some(action);
+                            actions.insert(float_name_with_as.clone(), Vector1 { action: float_action.clone(), last_value: 0.0.into() });
+
+                            extra_data.analog_action = Some(float_action);
                         }
                         extra_actions.insert(output.to_lowercase(), extra_data);
 
-                        trace!("suggesting {translated} for {output} (toggle)");
-                        bindings.borrow_mut().push((
-                            toggle_name.clone(),
-                            instance.string_to_path(&translated).unwrap(),
-                        ));
+                        bindings.borrow_mut().push((float_name_with_as, instance.string_to_path(&translated).unwrap()));
 
                         if let Some(binding_hand) = parse_hand_from_path(instance, &translated) {
-                            bindings_parsed.entry(output.to_lowercase()).or_insert_with(Vec::new)
-                                .push(BindingData::Toggle(Default::default(), binding_hand));
+                            let thresholds = parameters.map(|x| &x.click_threshold);
+                            bindings_parsed.entry(output.to_lowercase()).or_insert_with(Vec::new).push(BindingData::Threshold(
+                                ThresholdBindingData::new(
+                                    thresholds.and_then(|x| x.click_activate_threshold.as_ref()).map(|x| x.0),
+                                    thresholds.and_then(|x| x.click_deactivate_threshold.as_ref()).map(|x| x.0),
+                                ),
+                                binding_hand,
+                            ));
                         } else {
                             info!("Binding on {} has unknown hand path, it will be ignored", &translated)
                         }
-
                     }
                 }
 
