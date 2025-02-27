@@ -1,6 +1,7 @@
 use openxr as xr;
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::sync::atomic::{AtomicBool, Ordering};
+use openxr::{Haptic, HapticVibration};
 use crate::input::{ExtraActionData};
 use crate::openxr_data::SessionData;
 
@@ -16,6 +17,7 @@ pub(super) enum DpadDirection {
 pub(super) struct DpadActions {
     pub xy: xr::Action<xr::Vector2f>,
     pub click_or_touch: Option<xr::Action<f32>>,
+    pub haptic: Option<xr::Action<Haptic>>,
 }
 
 pub(super) struct DpadData {
@@ -25,7 +27,11 @@ pub(super) struct DpadData {
 
 impl DpadData {
     const CENTER_ZONE: f32 = 0.5;
-    fn state<G>(&self, extras: &ExtraActionData, session: &xr::Session<G>) -> xr::Result<Option<xr::ActionState<bool>>> {
+
+    // Thresholds for force-activated dpads, experimentally chosen to match SteamVR
+    const DPAD_CLICK_THRESHOLD: f32 = 0.33;
+    const DPAD_RELEASE_THRESHOLD: f32 = 0.2;
+    fn state<G>(&self, extras: &ExtraActionData, session: &xr::Session<G>, subaction_path: xr::Path) -> xr::Result<Option<xr::ActionState<bool>>> {
         let Some(action) = extras.dpad_actions.as_ref() else {
             return Ok(None);
         };
@@ -37,6 +43,9 @@ impl DpadData {
             is_active: parent_state.is_active,
         };
 
+        let last_active = self.last_state.load(Ordering::Relaxed);
+        let active_threshold = if last_active { Self::DPAD_RELEASE_THRESHOLD } else { Self::DPAD_CLICK_THRESHOLD };
+
         let active = action
             .click_or_touch
             .as_ref()
@@ -45,11 +54,12 @@ impl DpadData {
                 // is_active will be false - in this case, it's probably a joystick touch dpad, in
                 // which case we still want to read the current state.
                 a.state(session, xr::Path::NULL)
-                    .map(|s| !s.is_active || s.current_state > 0.5) // TODO: proper threshold
+                    .map(|s| !s.is_active || s.current_state > active_threshold)
             })
             .unwrap_or(Ok(true))?;
 
         if !active {
+            self.last_state.store(false, Ordering::Relaxed);
             return Ok(None);
         }
 
@@ -85,6 +95,13 @@ impl DpadData {
             .is_ok()
         {
             ret_state.changed_since_last_sync = true;
+            if in_bounds {
+                let haptic_event = HapticVibration::new()
+                    .amplitude(0.25)
+                    .duration(xr::Duration::MIN_HAPTIC)
+                    .frequency(xr::FREQUENCY_UNSPECIFIED);
+                action.haptic.as_ref().and_then(|haptic| haptic.apply_feedback(session, subaction_path, &haptic_event).ok());
+            }
         }
 
         Ok(Some(ret_state))
@@ -120,8 +137,8 @@ impl GrabBindingData {
     /// Returns None if the grab data is not active.
     fn grabbed<G>(
         &self,
-        session: &xr::Session<G>,
         extra_action: &ExtraActionData,
+        session: &xr::Session<G>,
         subaction_path: xr::Path,
     ) -> xr::Result<Option<xr::ActionState<bool>>> {
         // FIXME: the way this function calculates changed_since_last_sync is incorrect, as it will
@@ -137,6 +154,7 @@ impl GrabBindingData {
         let force_state = grabs.force_action.state(session, subaction_path)?;
         let value_state = grabs.value_action.state(session, subaction_path)?;
         if !force_state.is_active || !value_state.is_active {
+            self.last_state.store(false, Ordering::Relaxed);
             Ok(None)
         } else {
             let prev_grabbed = self.last_state.load(Ordering::Relaxed);
@@ -210,10 +228,11 @@ pub enum BindingData {
 
 impl BindingData {
     pub fn state(&self, session: &SessionData, extra_data: &ExtraActionData, subaction_path: xr::Path) -> xr::Result<Option<xr::ActionState<bool>>> {
+        assert_ne!(subaction_path, xr::Path::NULL);
         match self {
-            BindingData::Dpad(dpad, x) if x == &subaction_path => { dpad.state(extra_data, &session.session) }
+            BindingData::Dpad(dpad, x) if x == &subaction_path => { dpad.state(extra_data, &session.session, subaction_path) }
             BindingData::Toggle(toggle, x) if x == &subaction_path => { toggle.state(extra_data, &session.session, subaction_path) }
-            BindingData::Grab(grab, x) if x == &subaction_path => { grab.grabbed(&session.session, extra_data, subaction_path) }
+            BindingData::Grab(grab, x) if x == &subaction_path => { grab.grabbed(extra_data, &session.session, subaction_path) }
             _ => Ok(None),
         }
     }
