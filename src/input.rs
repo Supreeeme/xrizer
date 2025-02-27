@@ -470,6 +470,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         _: vr::EVRSummaryType,
         data: *mut vr::VRSkeletalSummaryData_t,
     ) -> vr::EVRInputError {
+        crate::warn_unimplemented!("GetSkeletalSummaryData");
         get_action_from_handle!(self, action, session_data, _action);
         unsafe {
             data.write(vr::VRSkeletalSummaryData_t {
