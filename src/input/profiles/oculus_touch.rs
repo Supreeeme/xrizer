@@ -36,6 +36,11 @@ impl InteractionProfile for Touch {
                 stop: true,
             },
             PathTranslation {
+                from: "grip/pull",
+                to: "squeeze/value",
+                stop: true,
+            },
+            PathTranslation {
                 from: "trigger/pull",
                 to: "trigger/value",
                 stop: true,
