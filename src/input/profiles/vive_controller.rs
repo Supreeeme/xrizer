@@ -1,5 +1,10 @@
-use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, StringToPath};
+use super::{
+    InteractionProfile, PathTranslation, ProfileProperties, Property, SkeletalInputBindings,
+    StringToPath,
+};
 use crate::input::legacy::LegacyBindings;
+use crate::openxr_data::Hand;
+use glam::Mat4;
 
 pub struct ViveWands;
 
@@ -75,6 +80,23 @@ impl InteractionProfile for ViveWands {
             app_menu: stp.leftright("input/menu/click"),
             squeeze: stp.leftright("input/squeeze/click"),
         }
+    }
+
+    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+        SkeletalInputBindings {
+            thumb_touch: stp
+                .leftright("input/trackpad/click")
+                .into_iter()
+                .chain(stp.leftright("input/trackpad/touch"))
+                .collect(),
+            index_touch: stp.leftright("input/trigger/click"),
+            index_curl: stp.leftright("input/trigger/value"),
+            rest_curl: stp.leftright("input/squeeze/click"),
+        }
+    }
+
+    fn offset_grip_pose(&self, _: Hand) -> Mat4 {
+        Mat4::IDENTITY
     }
 }
 

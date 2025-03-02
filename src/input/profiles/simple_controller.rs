@@ -1,5 +1,11 @@
-use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, StringToPath};
+use glam::Mat4;
+
+use super::{
+    InteractionProfile, PathTranslation, ProfileProperties, Property, SkeletalInputBindings,
+    StringToPath,
+};
 use crate::input::legacy::LegacyBindings;
+use crate::openxr_data::Hand;
 
 pub struct SimpleController;
 
@@ -42,6 +48,15 @@ impl InteractionProfile for SimpleController {
         }
     }
 
+    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+        SkeletalInputBindings {
+            thumb_touch: Vec::new(),
+            index_touch: stp.leftright("input/select/click"),
+            index_curl: stp.leftright("input/select/click"),
+            rest_curl: stp.leftright("input/menu/click"),
+        }
+    }
+
     fn legal_paths(&self) -> Box<[String]> {
         [
             "input/select/click",
@@ -58,5 +73,9 @@ impl InteractionProfile for SimpleController {
             ]
         })
         .collect()
+    }
+
+    fn offset_grip_pose(&self, _: Hand) -> Mat4 {
+        Mat4::IDENTITY
     }
 }
