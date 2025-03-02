@@ -857,6 +857,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                         if let Some(bindings) = bindings.as_ref() {
                             self.load_bindings_for_profile(
                                 profile,
+                                other,
                                 action_sets,
                                 actions,
                                 extra_actions,
@@ -885,6 +886,7 @@ impl<C: openxr_data::Compositor> Input<C> {
     fn load_bindings_for_profile(
         &self,
         profile: &dyn InteractionProfile,
+        controller_type: &ControllerType,
         action_sets: &HashMap<String, xr::ActionSet>,
         actions: &mut LoadedActionDataMap,
         extra_actions: &mut HashMap<String, ExtraActionData>,
@@ -951,8 +953,6 @@ impl<C: openxr_data::Compositor> Input<C> {
             if let Some(bindings) = &bindings.skeleton {
                 handle_skeleton_bindings(actions, bindings);
             }
-
-            let controller_type = profile.controller_type();
 
             xr_bindings.extend(handle_sources(
                 &self.openxr.instance,
