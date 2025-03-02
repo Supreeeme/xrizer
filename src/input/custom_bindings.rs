@@ -1,6 +1,7 @@
 use openxr as xr;
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::sync::atomic::{AtomicBool, Ordering};
+use log::error;
 use openxr::{Haptic, HapticVibration};
 use crate::input::{ExtraActionData};
 use crate::openxr_data::SessionData;
@@ -96,11 +97,14 @@ impl DpadData {
         {
             ret_state.changed_since_last_sync = true;
             if in_bounds {
-                let haptic_event = HapticVibration::new()
-                    .amplitude(0.25)
-                    .duration(xr::Duration::MIN_HAPTIC)
-                    .frequency(xr::FREQUENCY_UNSPECIFIED);
-                action.haptic.as_ref().and_then(|haptic| haptic.apply_feedback(session, subaction_path, &haptic_event).ok());
+                if let Some(haptic) = &action.haptic {
+                    let haptic_event = HapticVibration::new()
+                        .amplitude(0.25)
+                        .duration(xr::Duration::MIN_HAPTIC)
+                        .frequency(xr::FREQUENCY_UNSPECIFIED);
+                    let _ = haptic.apply_feedback(session, subaction_path, &haptic_event)
+                        .inspect_err(|e| error!("Couldn't activate dpad haptic: {e}"));
+                }
             }
         }
 
