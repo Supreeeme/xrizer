@@ -1379,8 +1379,7 @@ fn handle_sources(
                 if let Some(ActionBindingOutput { output }) = &inputs.click {
                     let parameters = parameters.as_ref();
                     let target = parameters
-                        .map(|x| x.force_input.as_ref())
-                        .flatten()
+                        .and_then(|x| x.force_input.as_ref())
                         .map(|x| x.as_str())
                         .unwrap_or("value");
                     // TODO: ^ for button bindings on clicky triggers, it's unclear how to choose between /value and /click without hints
@@ -1389,12 +1388,11 @@ fn handle_sources(
                     let translated = if let Ok(translated) = path_translator(&format!("{path}/{target}"))
                         .inspect_err(|e| info!("Falling back to click for {output} ({})", e.0)) {
                         translated
-                    } else {
-                        let Ok(translated) = path_translator(&format!("{path}/click"))
-                            .inspect_err(translate_warn(output)) else {
-                            continue;
-                        };
+                    } else if let Ok(translated) = path_translator(&format!("{path}/click"))
+                        .inspect_err(translate_warn(output)) {
                         translated
+                    } else {
+                        continue;
                     };
 
                     // These two sources are typically bool, so bind directly
@@ -1427,8 +1425,8 @@ fn handle_sources(
                             let thresholds = parameters.map(|x| &x.click_threshold);
                             bindings_parsed.entry(output.to_lowercase()).or_insert_with(Vec::new).push(BindingData::Threshold(
                                 ThresholdBindingData::new(
-                                    thresholds.map(|x| x.click_activate_threshold.as_ref()).flatten().map(|x| x.0),
-                                    thresholds.map(|x| x.click_deactivate_threshold.as_ref()).flatten().map(|x| x.0),
+                                    thresholds.and_then(|x| x.click_activate_threshold.as_ref()).map(|x| x.0),
+                                    thresholds.and_then(|x| x.click_deactivate_threshold.as_ref()).map(|x| x.0),
                                 ),
                                 binding_hand,
                             ));
