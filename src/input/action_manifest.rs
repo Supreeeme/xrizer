@@ -843,7 +843,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
                 ref other => {
                     let Some(interaction_profile) = controller_types.get(&other) else {
-                        info!("Controller type {other:?} has no OpenXR path supported?");
+                        warn!("Controller type {other:?} has no OpenXR path supported?");
                         continue;
                     };
                     let profiles = Profiles::get()
@@ -859,8 +859,8 @@ impl<C: openxr_data::Compositor> Input<C> {
                                 action_sets,
                                 actions,
                                 extra_actions,
-                                per_profile_bindings.entry(*interaction_profile).or_insert_with(HashMap::new),
-                                per_profile_pose_bindings.entry(*interaction_profile).or_insert_with(Default::default),
+                                per_profile_bindings.entry(*interaction_profile).or_default(),
+                                per_profile_pose_bindings.entry(*interaction_profile).or_default(),
                                 legacy_actions,
                                 info_action,
                                 bindings,
@@ -1106,13 +1106,13 @@ fn handle_dpad_binding(
         }
 
         if let Some(binding_hand) = parse_hand_from_path(instance, parent_path) {
-            parsed_bindings.entry(action_name.to_string()).or_insert_with(Vec::new)
+            parsed_bindings.entry(action_name.to_string()).or_default()
             .push(BindingData::Dpad(DpadData {
                 direction,
                 last_state: false.into(),
             }, binding_hand));
         } else {
-            info!("Binding on {} has unknown hand path, it will be ignored", parent_path)
+            warn!("Binding on {} has unknown hand path, it will be ignored", parent_path)
         }
 
 
@@ -1366,7 +1366,7 @@ fn handle_sources(
                         bindings_parsed.entry(output.to_lowercase()).or_insert_with(Vec::new)
                             .push(BindingData::Toggle(Default::default(), binding_hand));
                     } else {
-                        info!("Binding on {} has unknown hand path, it will be ignored", &translated)
+                        warn!("Binding on {} has unknown hand path, it will be ignored", &translated)
                     }
 
                 }
@@ -1729,7 +1729,7 @@ fn handle_pose_bindings(
                 "Expected pose action for pose binding on {output}"
         );
 
-        let bound = pose_bindings.entry(output.0.clone()).or_insert(Default::default());
+        let bound = pose_bindings.entry(output.0.clone()).or_default();
 
         let b = match hand {
             Hand::Left => &mut bound.left,
