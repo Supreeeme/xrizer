@@ -1248,7 +1248,7 @@ fn parse_hand_from_path(instance: &xr::Instance, path: &str) -> Option<xr::Path>
     };
 
     let path = instance.string_to_path(hand_prefix).ok();
-    path.map(|x| if x == xr::Path::NULL { None } else { Some(x) }).flatten()
+    path.and_then(|x| if x == xr::Path::NULL { None } else { Some(x) })
 }
 
 fn handle_sources(
@@ -1601,10 +1601,12 @@ fn handle_sources(
                 if let Some(binding_hand) = parse_hand_from_path(instance, &translated_force) {
                     bindings_parsed.entry(output.to_lowercase()).or_insert_with(Vec::new)
                         .push(BindingData::Grab(GrabBindingData::new(
-                            parameters.as_ref().map(|x| x.value_hold_threshold.as_ref())
-                                .flatten().map(|x| x.0),
-                            parameters.as_ref().map(|x| x.value_release_threshold.as_ref())
-                                .flatten().map(|x| x.0),
+                            parameters.as_ref()
+                                .and_then(|x| x.value_hold_threshold.as_ref())
+                                .map(|x| x.0),
+                            parameters.as_ref()
+                                .and_then(|x| x.value_release_threshold.as_ref())
+                                .map(|x| x.0),
                         ), binding_hand));
                 } else {
                     info!("Binding on {} has unknown hand path, it will be ignored", &translated_force)

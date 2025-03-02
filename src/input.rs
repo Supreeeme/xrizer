@@ -126,34 +126,38 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
     }
 
+    fn state_from_bindings_left_right(&self, action: vr::VRActionHandle_t) -> Option<(xr::ActionState<bool>, vr::VRInputValueHandle_t)> {
+        debug_assert!(self.left_hand_key.0.as_ffi() != 0);
+        debug_assert!(self.right_hand_key.0.as_ffi() != 0);
+        let left_state = self.state_from_bindings(action, self.left_hand_key.0.as_ffi());
+
+        match left_state {
+            None => self.state_from_bindings(action, self.right_hand_key.0.as_ffi()),
+            Some((left, _)) => {
+                if left.is_active && left.current_state {
+                    return left_state
+                }
+                let right_state = self.state_from_bindings(action, self.right_hand_key.0.as_ffi());
+                match right_state {
+                    None => left_state,
+                    Some((right, _)) => {
+                        if right.is_active && right.current_state {
+                            return right_state
+                        }
+                        if left.is_active {
+                            return left_state
+                        }
+                        right_state
+                    }
+                }
+            }
+        }
+    }
+
     fn state_from_bindings(&self, action: vr::VRActionHandle_t, restrict_to_device: vr::VRInputValueHandle_t) -> Option<(xr::ActionState<bool>, vr::VRInputValueHandle_t)> {
         let subaction = self.subaction_path_from_handle(restrict_to_device)?;
         if subaction == xr::Path::NULL {
-            debug_assert!(self.left_hand_key.0.as_ffi() != 0);
-            debug_assert!(self.right_hand_key.0.as_ffi() != 0);
-            let left_state = self.state_from_bindings(action, self.left_hand_key.0.as_ffi());
-
-            return match left_state {
-                None => self.state_from_bindings(action, self.right_hand_key.0.as_ffi()),
-                Some((left, _)) => {
-                    if left.is_active && left.current_state {
-                        return left_state
-                    }
-                    let right_state = self.state_from_bindings(action, self.right_hand_key.0.as_ffi());
-                    match right_state {
-                        None => left_state,
-                        Some((right, _)) => {
-                            if right.is_active && right.current_state {
-                                return right_state
-                            }
-                            if left.is_active {
-                                return left_state
-                            }
-                            right_state
-                        }
-                    }
-                }
-            };
+            return self.state_from_bindings_left_right(action);
         }
 
         let session = self.openxr.session_data.get();
@@ -172,8 +176,11 @@ impl<C: openxr_data::Compositor> Input<C> {
                 continue;
             };
 
-            if state.is_active && (!best_state.map(|x| x.is_active).unwrap_or(false) || state.current_state && !best_state.map(|x| x.current_state).unwrap_or(false)) {
+            if state.is_active && (!best_state.is_some_and(|x| x.is_active) || state.current_state && !best_state.is_some_and(|x| x.current_state)) {
                 best_state = Some(state);
+                if state.current_state {
+                    break;
+                }
             }
         }
 
@@ -236,15 +243,7 @@ enum BoundPoseType {
 
 macro_rules! get_action_from_handle {
     ($self:expr, $handle:expr, $session_data:ident, $action:ident) => {
-        let $session_data = $self.openxr.session_data.get();
-        let Some(loaded) = $session_data.input_data.get_loaded_actions() else {
-            return vr::EVRInputError::InvalidHandle;
-        };
-
-        let $action = match loaded.try_get_action($handle) {
-            Ok(action) => action,
-            Err(e) => return e,
-        };
+        get_action_from_handle!($self, $handle, $session_data, $action, loaded)
     };
 
     ($self:expr, $handle:expr, $session_data:ident, $action:ident, $loaded:ident) => {

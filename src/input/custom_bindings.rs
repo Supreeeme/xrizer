@@ -483,6 +483,60 @@ mod tests {
     }
 
     #[test]
+    fn grab_per_hand() {
+        let f = Fixture::new();
+        let set1 = f.get_action_set_handle(c"/actions/set1");
+        let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+
+        let left = f.get_input_source_handle(c"/user/hand/left");
+        let right = f.get_input_source_handle(c"/user/hand/right");
+
+        f.load_actions(c"actions_dpad_mixed.json");
+
+        get_grab_action!(f, set1, grab_data);
+
+        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile(&Knuckles, RightHand);
+
+        let value_state_check = |force, value, hand, state, changed, line| {
+            fakexr::set_action_state(
+                grab_data.force_action.as_raw(),
+                fakexr::ActionState::Float(force),
+                hand,
+            );
+            fakexr::set_action_state(
+                grab_data.value_action.as_raw(),
+                fakexr::ActionState::Float(value),
+                hand,
+            );
+            f.sync(vr::VRActiveActionSet_t {
+                ulActionSet: set1,
+                ..Default::default()
+            });
+
+            let restrict = match hand {
+                LeftHand => left,
+                RightHand => right,
+            };
+            let s = f.get_bool_state_hand(boolact, restrict).unwrap();
+            assert_eq!(s.bState, state, "State wrong (line {line})");
+            assert!(s.bActive, "Active wrong (line {line})");
+            assert_eq!(s.bChanged, changed, "Changed wrong (line {line})");
+        };
+
+        let grab = GrabBindingData::DEFAULT_GRAB_THRESHOLD;
+        let release = GrabBindingData::DEFAULT_RELEASE_THRESHOLD;
+        value_state_check(0.0, grab - 0.1, LeftHand, false, false, line!());
+        value_state_check(0.0, grab - 0.1, RightHand, false, false, line!());
+
+        value_state_check(0.0, grab, LeftHand, true, true, line!());
+        value_state_check(0.0, grab, RightHand, true, true, line!());
+
+        value_state_check(0.0, release, LeftHand, false, true, line!());
+        value_state_check(0.0, 1.0, RightHand, true, false, line!());
+    }
+
+    #[test]
     fn grab_binding_custom_threshold() {
         let f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
