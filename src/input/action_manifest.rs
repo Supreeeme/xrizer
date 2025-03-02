@@ -228,8 +228,7 @@ pub(super) enum ControllerType {
     ViveController,
     Knuckles,
     OculusTouch,
-    // AFAIK there's no bindings for it, but also there's no reason to suggest bindings for it
-    SimpleController,
+    KhrSimpleController,
     #[serde(untagged)]
     Unknown(String),
 }
