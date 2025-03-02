@@ -2,7 +2,6 @@ use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, St
 use crate::input::legacy::LegacyBindings;
 use openxr as xr;
 use std::f32::consts::FRAC_PI_6;
-use crate::input::action_manifest::ControllerType;
 
 pub struct Knuckles;
 
@@ -109,10 +108,6 @@ impl InteractionProfile for Knuckles {
             w: rot.w,
         };
         pose
-    }
-
-    fn controller_type(&self) -> ControllerType {
-        ControllerType::Knuckles
     }
 }
 

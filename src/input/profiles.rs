@@ -23,7 +23,6 @@ pub trait InteractionProfile: Sync + Send {
     fn offset_grip_pose(&self, pose: xr::Posef) -> xr::Posef {
         pose
     }
-    fn controller_type(&self) -> ControllerType;
 }
 
 pub enum Property<T> {
