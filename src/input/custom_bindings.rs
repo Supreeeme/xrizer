@@ -96,11 +96,14 @@ impl DpadData {
         {
             ret_state.changed_since_last_sync = true;
             if in_bounds {
+            if let Some(haptic) = &action.haptic {
                 let haptic_event = HapticVibration::new()
                     .amplitude(0.25)
                     .duration(xr::Duration::MIN_HAPTIC)
                     .frequency(xr::FREQUENCY_UNSPECIFIED);
-                action.haptic.as_ref().and_then(|haptic| haptic.apply_feedback(session, subaction_path, &haptic_event).ok());
+                   let _ = haptic.apply_feedback(session, subaction_path, &haptic_event)
+                               .inspect_err(|e| error!("Couldn't activate dpad haptic: {e}");
+           }
             }
         }
 
