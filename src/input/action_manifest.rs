@@ -1100,19 +1100,11 @@ fn handle_dpad_binding(
         let mut data = extra_actions.remove(action_name).unwrap_or_default();
 
         if data.dpad_actions.is_none() {
-            // FIXME: this steals a random action from app's action set for haptic feedback; there might be none
-            let haptic = if matches!(controller_type, ControllerType::Knuckles) && parent_path.ends_with("trackpad") {
-                let actions = actions.borrow();
-                actions.iter().filter_map(|(_, a)| if let ActionData::Haptic(h) = a { Some(h) } else { None }).find(|_| true).map(|x| x.clone())
-            } else {
-                None
-            };
-
-            let (parent_action, click_or_touch) = LazyCell::force(&created_actions);
+            let (parent_action, click_or_touch, haptic) = LazyCell::force(&created_actions);
             data.dpad_actions = Some(DpadActions {
                 xy: parent_action.clone(),
                 click_or_touch: click_or_touch.as_ref().map(|d| d.action.clone()),
-                haptic,
+                haptic: haptic.as_ref().map(|x| x.action.clone()),
             })
         }
 
@@ -1135,8 +1127,15 @@ fn handle_dpad_binding(
         .1
         .as_ref()
         .map(|DpadActivatorData { key, binding, .. }| (key.clone(), *binding));
+    let haptic_binding = created_actions
+        .2
+        .as_ref()
+        .map(|DpadHapticData { key, binding, .. }| (key.clone(), *binding));
     let mut ret = vec![(parent_action_key, string_to_path(parent_path).unwrap())];
     if let Some(b) = activator_binding {
+        ret.push(b);
+    }
+    if let Some(b) = haptic_binding {
         ret.push(b);
     }
     ret
@@ -1145,6 +1144,12 @@ fn handle_dpad_binding(
 struct DpadActivatorData {
     key: String,
     action: xr::Action<f32>,
+    binding: xr::Path,
+}
+
+struct DpadHapticData {
+    key: String,
+    action: xr::Action<xr::Haptic>,
     binding: xr::Path,
 }
 
@@ -1157,7 +1162,7 @@ fn get_dpad_parent(
     actions: &RefCell<&mut LoadedActionDataMap>,
     parameters: Option<&DpadParameters>,
     controller_type: &ControllerType,
-) -> (xr::Action<xr::Vector2f>, Option<DpadActivatorData>) {
+) -> (xr::Action<xr::Vector2f>, Option<DpadActivatorData>, Option<DpadHapticData>) {
     let mut actions = actions.borrow_mut();
     // Share parent actions that use the same action set and same bound path
     let parent_action = actions
@@ -1231,6 +1236,32 @@ fn get_dpad_parent(
     // Remove lifetime
     let click_or_touch = activator_action.cloned();
 
+    let haptic_data = if use_force { // the need for haptic coincides with force-using dpads for now
+        let hand_path = get_hand_prefix(parent_path).and_then(|x| string_to_path(&format!("{x}/output/haptic")));
+        let haptic_key = format!("{parent_path}-{action_set_name}-haptic");
+        hand_path.map(|hand_path| {
+            let action = actions.entry(haptic_key.clone()).or_insert_with(|| {
+                let haptic_name = format!("xrizer-dpad-haptic{len}");
+                let localized = format!("XRizer dpad haptic ({len})");
+
+                ActionData::Haptic(action_set
+                        .create_action(&haptic_name, &localized, &[])
+                        .unwrap())
+            });
+
+            let ActionData::Haptic(action) = action else {
+                unreachable!();
+            };
+            DpadHapticData {
+                action: action.clone(),
+                key: haptic_key,
+                binding: hand_path,
+            }
+        })
+    } else {
+        None
+    };
+
     (
         parent_action,
         click_or_touch.map(|action| DpadActivatorData {
@@ -1238,6 +1269,7 @@ fn get_dpad_parent(
             action,
             binding: activator_binding_path.unwrap(),
         }),
+        haptic_data,
     )
 }
 
@@ -1247,14 +1279,18 @@ fn translate_warn(action: &str) -> impl FnOnce(&InvalidActionPath) + '_ {
 
 struct InvalidActionPath(String);
 
-fn parse_hand_from_path(instance: &xr::Instance, path: &str) -> Option<xr::Path> {
-    let hand_prefix = if path.starts_with("/user/hand/left") {
-        "/user/hand/left"
+fn get_hand_prefix(path: &str) -> Option<&str> {
+    if path.starts_with("/user/hand/left") {
+        Some("/user/hand/left")
     } else if path.starts_with("/user/hand/right") {
-        "/user/hand/right"
+        Some("/user/hand/right")
     } else {
-        return None;
-    };
+        None
+    }
+}
+
+fn parse_hand_from_path(instance: &xr::Instance, path: &str) -> Option<xr::Path> {
+    let hand_prefix = get_hand_prefix(path)?;
 
     let path = instance.string_to_path(hand_prefix).ok();
     path.and_then(|x| if x == xr::Path::NULL { None } else { Some(x) })
