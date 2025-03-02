@@ -14,7 +14,7 @@ use serde::{
     de::{Error, IgnoredAny, Unexpected},
     Deserialize,
 };
-use slotmap::SecondaryMap;
+use slotmap::{SecondaryMap, SlotMap};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -24,22 +24,20 @@ use std::{
     env::current_dir,
 };
 
+fn action_map_to_secondary<T>(act_guard: &mut SlotMap<ActionKey, super::Action>, map: HashMap<String, T>) -> SecondaryMap<ActionKey, T> {
+    map.into_iter()
+        .map(|(name, action)| {
+            let key = act_guard
+                .iter()
+                .find_map(|(key, super::Action { path })| (*path == name).then_some(key))
+                .unwrap_or_else(|| act_guard.insert(super::Action { path: name }));
+
+            (key, action)
+        })
+        .collect()
+}
+
 impl<C: openxr_data::Compositor> Input<C> {
-    fn action_map_to_secondary<T>(&self, map: HashMap<String, T>) -> SecondaryMap<ActionKey, T> {
-        let mut act_guard = self.action_map.write().unwrap();
-
-        map.into_iter()
-            .map(|(name, action)| {
-                let key = act_guard
-                    .iter()
-                    .find_map(|(key, super::Action { path })| (*path == name).then_some(key))
-                    .unwrap_or_else(|| act_guard.insert(super::Action { path: name }));
-
-                (key, action)
-            })
-            .collect()
-    }
-
     pub(super) fn load_action_manifest(
         &self,
         session_data: &SessionData,
@@ -162,17 +160,18 @@ impl<C: openxr_data::Compositor> Input<C> {
             })
             .collect();
 
-        let actions = self.action_map_to_secondary(actions);
-        let extra_actions = self.action_map_to_secondary(extra_actions);
+        let mut act_guard = self.action_map.write().unwrap();
+        let actions = action_map_to_secondary(&mut act_guard, actions);
+        let extra_actions = action_map_to_secondary(&mut act_guard, extra_actions);
 
         let per_profile_bindings = per_profile_bindings
             .into_iter()
-            .map(|(k, v)| (k, self.action_map_to_secondary(v)))
+            .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
             .collect();
 
         let per_profile_pose_bindings = per_profile_pose_bindings
             .into_iter()
-            .map(|(k, v)| (k, self.action_map_to_secondary(v)))
+            .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
             .collect();
 
         let loaded = super::LoadedActions {
