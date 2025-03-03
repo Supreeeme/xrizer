@@ -1,5 +1,6 @@
 use super::{Input, Profiles};
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
+use glam::Quat;
 use log::{debug, trace, warn};
 use openvr as vr;
 use openxr as xr;
@@ -109,12 +110,7 @@ pub(super) struct LegacyActionData {
 }
 
 impl LegacyActionData {
-    pub fn new<'a>(
-        instance: &'a xr::Instance,
-        session: &'a xr::Session<xr::AnyGraphics>,
-        left_hand: xr::Path,
-        right_hand: xr::Path,
-    ) -> Self {
+    pub fn new<'a>(instance: &'a xr::Instance, left_hand: xr::Path, right_hand: xr::Path) -> Self {
         debug!("creating legacy actions");
         let leftright = [left_hand, right_hand];
         let set = instance
@@ -143,12 +139,6 @@ impl LegacyActionData {
             HandSpaces {
                 hand,
                 hand_path,
-                grip: grip_pose
-                    .create_space(session, hand_path, xr::Posef::IDENTITY)
-                    .unwrap(),
-                aim: aim_pose
-                    .create_space(session, hand_path, xr::Posef::IDENTITY)
-                    .unwrap(),
                 raw: OnceLock::new(),
             }
         };
@@ -207,14 +197,8 @@ pub fn setup_legacy_bindings(
 pub(super) struct HandSpaces {
     hand: Hand,
     hand_path: xr::Path,
-    grip: xr::Space,
-    aim: xr::Space,
 
     /// Based on the controller jsons in SteamVR, the "raw" pose
-    /// (which seems to be equivalent to the pose returned by WaitGetPoses)
-    /// is actually the grip pose, but in the same position as the aim pose.
-    /// Using this pose instead of the grip fixes strange controller rotation in
-    /// I Expect You To Die 3.
     /// This is stored as a space so we can locate hand joints relative to it for skeletal data.
     raw: OnceLock<xr::Space>,
 }
@@ -225,20 +209,9 @@ impl HandSpaces {
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
         actions: &LegacyActions,
-        time: xr::Time,
     ) -> Option<&xr::Space> {
         if let Some(raw) = self.raw.get() {
             return Some(raw);
-        }
-
-        // This offset between grip and aim poses should be static,
-        // so it should be fine to only grab it once.
-        let aim_loc = self.aim.locate(&self.grip, time).unwrap();
-        if !aim_loc.location_flags.contains(
-            xr::SpaceLocationFlags::POSITION_VALID | xr::SpaceLocationFlags::ORIENTATION_VALID,
-        ) {
-            trace!("couldn't locate aim pose, no raw space will be created");
-            return None;
         }
 
         let hand_profile = match self.hand {
@@ -252,96 +225,33 @@ impl HandSpaces {
             return None;
         };
 
+        let offset = profile.offset_grip_pose(self.hand);
+        let translation = offset.w_axis.truncate();
+        let rotation = Quat::from_mat4(&offset);
+
+        let offset_pose = xr::Posef {
+            orientation: xr::Quaternionf {
+                x: rotation.x,
+                y: rotation.y,
+                z: rotation.z,
+                w: rotation.w,
+            },
+            position: xr::Vector3f {
+                x: translation.x,
+                y: translation.y,
+                z: translation.z,
+            },
+        };
+
         self.raw
             .set(
                 actions
                     .grip_pose
-                    .create_space(
-                        &session_data.session,
-                        self.hand_path,
-                        profile.offset_grip_pose(xr::Posef {
-                            orientation: xr::Quaternionf::IDENTITY,
-                            position: aim_loc.pose.position,
-                        }),
-                    )
+                    .create_space(&session_data.session, self.hand_path, offset_pose)
                     .unwrap(),
             )
             .unwrap_or_else(|_| unreachable!());
 
         self.raw.get()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::input::{
-        profiles::simple_controller::SimpleController,
-        tests::{compare_pose, Fixture},
-    };
-    use fakexr::UserPath::*;
-    use glam::Quat;
-    use openvr as vr;
-    use openxr as xr;
-    use std::f32::consts::FRAC_PI_4;
-
-    #[test]
-    fn raw_pose_is_grip_at_aim() {
-        let f = Fixture::new();
-
-        let set1 = f.get_action_set_handle(c"/actions/set1");
-        let pose_handle = f.get_action_handle(c"/actions/set1/in/pose");
-        let left_hand = f.get_input_source_handle(c"/user/hand/left");
-        f.load_actions(c"actions.json");
-        f.set_interaction_profile(&SimpleController, LeftHand);
-
-        let grip_rot = Quat::from_rotation_x(-FRAC_PI_4);
-        let grip = xr::Posef {
-            position: xr::Vector3f {
-                x: 0.5,
-                y: 0.5,
-                z: 0.5,
-            },
-            orientation: xr::Quaternionf {
-                x: grip_rot.x,
-                y: grip_rot.y,
-                z: grip_rot.z,
-                w: grip_rot.w,
-            },
-        };
-
-        fakexr::set_grip(f.raw_session(), LeftHand, grip);
-
-        let aim = xr::Posef {
-            position: xr::Vector3f {
-                x: 0.7,
-                y: 0.6,
-                z: 1.0,
-            },
-            orientation: xr::Quaternionf::IDENTITY,
-        };
-
-        fakexr::set_aim(f.raw_session(), LeftHand, aim);
-
-        f.sync(vr::VRActiveActionSet_t {
-            ulActionSet: set1,
-            ..Default::default()
-        });
-        let data = f.get_pose(pose_handle, left_hand).unwrap();
-
-        assert!(data.bActive);
-        assert_eq!(data.activeOrigin, left_hand);
-
-        let pose = data.pose;
-        assert!(pose.bDeviceIsConnected);
-        assert!(pose.bPoseIsValid);
-        assert_eq!(pose.eTrackingResult, vr::ETrackingResult::Running_OK);
-
-        compare_pose(
-            xr::Posef {
-                position: aim.position,
-                orientation: grip.orientation,
-            },
-            pose.mDeviceToAbsoluteTracking.into(),
-        );
     }
 }

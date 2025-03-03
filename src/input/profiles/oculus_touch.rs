@@ -1,5 +1,11 @@
-use super::{InteractionProfile, PathTranslation, ProfileProperties, Property, StringToPath};
+use super::{
+    InteractionProfile, PathTranslation, ProfileProperties, Property, SkeletalInputBindings,
+    StringToPath,
+};
 use crate::input::legacy::LegacyBindings;
+use crate::openxr_data::Hand;
+use glam::{EulerRot, Mat4, Quat, Vec3};
+
 pub struct Touch;
 
 impl InteractionProfile for Touch {
@@ -64,6 +70,23 @@ impl InteractionProfile for Touch {
         }
     }
 
+    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+        SkeletalInputBindings {
+            thumb_touch: stp
+                .leftright("input/thumbstick/touch")
+                .into_iter()
+                .chain(stp.left("input/x/touch"))
+                .chain(stp.left("input/y/touch"))
+                .chain(stp.right("input/a/touch"))
+                .chain(stp.right("input/b/touch"))
+                .chain(stp.leftright("input/thumbrest/touch"))
+                .collect(),
+            index_touch: stp.leftright("input/trigger/touch"),
+            index_curl: stp.leftright("input/trigger/value"),
+            rest_curl: stp.leftright("input/squeeze/value"),
+        }
+    }
+
     fn legal_paths(&self) -> Box<[String]> {
         let left_only = [
             "input/x/click",
@@ -106,6 +129,31 @@ impl InteractionProfile for Touch {
         });
 
         left_only.chain(right_only).chain(both).collect()
+    }
+
+    fn offset_grip_pose(&self, hand: Hand) -> Mat4 {
+        match hand {
+            Hand::Left => Mat4::from_rotation_translation(
+                Quat::from_euler(
+                    EulerRot::XYZ,
+                    20.6_f32.to_radians(),
+                    0.0_f32.to_radians(),
+                    0.0_f32.to_radians(),
+                ),
+                Vec3::new(0.007, -0.00182941, 0.1019482),
+            )
+            .inverse(),
+            Hand::Right => Mat4::from_rotation_translation(
+                Quat::from_euler(
+                    EulerRot::XYZ,
+                    20.6_f32.to_radians(),
+                    0.0_f32.to_radians(),
+                    0.0_f32.to_radians(),
+                ),
+                Vec3::new(-0.007, -0.00182941, 0.1019482),
+            )
+            .inverse(),
+        }
     }
 }
 
