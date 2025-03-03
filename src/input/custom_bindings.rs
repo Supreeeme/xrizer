@@ -1,10 +1,10 @@
+use crate::input::ExtraActionData;
+use crate::openxr_data::SessionData;
+use log::error;
 use openxr as xr;
+use openxr::{Haptic, HapticVibration};
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::sync::atomic::{AtomicBool, Ordering};
-use log::error;
-use openxr::{Haptic, HapticVibration};
-use crate::input::{ExtraActionData};
-use crate::openxr_data::SessionData;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum DpadDirection {
@@ -32,7 +32,12 @@ impl DpadData {
     // Thresholds for force-activated dpads, experimentally chosen to match SteamVR
     const DPAD_CLICK_THRESHOLD: f32 = 0.33;
     const DPAD_RELEASE_THRESHOLD: f32 = 0.2;
-    fn state<G>(&self, extras: &ExtraActionData, session: &xr::Session<G>, subaction_path: xr::Path) -> xr::Result<Option<xr::ActionState<bool>>> {
+    fn state<G>(
+        &self,
+        extras: &ExtraActionData,
+        session: &xr::Session<G>,
+        subaction_path: xr::Path,
+    ) -> xr::Result<Option<xr::ActionState<bool>>> {
         let Some(action) = extras.dpad_actions.as_ref() else {
             return Ok(None);
         };
@@ -45,7 +50,11 @@ impl DpadData {
         };
 
         let last_active = self.last_state.load(Ordering::Relaxed);
-        let active_threshold = if last_active { Self::DPAD_RELEASE_THRESHOLD } else { Self::DPAD_CLICK_THRESHOLD };
+        let active_threshold = if last_active {
+            Self::DPAD_RELEASE_THRESHOLD
+        } else {
+            Self::DPAD_CLICK_THRESHOLD
+        };
 
         let active = action
             .click_or_touch
@@ -102,7 +111,8 @@ impl DpadData {
                         .amplitude(0.25)
                         .duration(xr::Duration::MIN_HAPTIC)
                         .frequency(xr::FREQUENCY_UNSPECIFIED);
-                    let _ = haptic.apply_feedback(session, subaction_path, &haptic_event)
+                    let _ = haptic
+                        .apply_feedback(session, subaction_path, &haptic_event)
                         .inspect_err(|e| error!("Couldn't activate dpad haptic: {e}"));
                 }
             }
@@ -162,7 +172,11 @@ impl GrabBindingData {
             Ok(None)
         } else {
             let prev_grabbed = self.last_state.load(Ordering::Relaxed);
-            let value = if force_state.current_state > 0.0 { force_state.current_state + 1.0 } else { value_state.current_state };
+            let value = if force_state.current_state > 0.0 {
+                force_state.current_state + 1.0
+            } else {
+                value_state.current_state
+            };
 
             let grabbed = (prev_grabbed && value > self.release_threshold)
                 || (!prev_grabbed && value >= self.hold_threshold);
@@ -193,7 +207,7 @@ impl ToggleData {
         subaction_path: xr::Path,
     ) -> xr::Result<Option<xr::ActionState<bool>>> {
         let Some(action_to_read) = &extra_action.toggle_action else {
-            return Ok(None)
+            return Ok(None);
         };
         let state = action_to_read.state(session, subaction_path)?;
         if !state.is_active {
@@ -207,8 +221,14 @@ impl ToggleData {
             s
         };
 
-        let changed_since_last_sync = self.last_state
-            .compare_exchange(!current_state, current_state, Ordering::Relaxed, Ordering::Relaxed)
+        let changed_since_last_sync = self
+            .last_state
+            .compare_exchange(
+                !current_state,
+                current_state,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            )
             .is_ok();
 
         Ok(Some(xr::ActionState {
@@ -238,12 +258,14 @@ impl ThresholdBindingData {
         }
     }
 
-    fn state<G>(&self,
-                extra_action: &ExtraActionData,
-                session: &xr::Session<G>,
-                subaction_path: xr::Path) -> xr::Result<Option<xr::ActionState<bool>>> {
+    fn state<G>(
+        &self,
+        extra_action: &ExtraActionData,
+        session: &xr::Session<G>,
+        subaction_path: xr::Path,
+    ) -> xr::Result<Option<xr::ActionState<bool>>> {
         let Some(action_to_read) = &extra_action.analog_action else {
-            return Ok(None)
+            return Ok(None);
         };
         let state = action_to_read.state(session, subaction_path)?;
         if !state.is_active {
@@ -251,11 +273,21 @@ impl ThresholdBindingData {
         }
 
         let s = self.last_state.load(Ordering::Relaxed);
-        let threshold = if s { self.release_threshold } else { self.click_threshold };
+        let threshold = if s {
+            self.release_threshold
+        } else {
+            self.click_threshold
+        };
         let current_state = state.current_state >= threshold;
 
-        let changed_since_last_sync = self.last_state
-            .compare_exchange(!current_state, current_state, Ordering::Relaxed, Ordering::Relaxed)
+        let changed_since_last_sync = self
+            .last_state
+            .compare_exchange(
+                !current_state,
+                current_state,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            )
             .is_ok();
 
         Ok(Some(xr::ActionState {
@@ -271,7 +303,6 @@ pub enum BindingData {
     // For all cases where the action can be read directly, such as matching type or bool-to-float conversion,
     //  the xr::Action is read from ActionData
     // This can include actions where behavior is customized via OXR extensions
-
     Dpad(DpadData, xr::Path),
     Toggle(ToggleData, xr::Path),
     Grab(GrabBindingData, xr::Path),
@@ -279,13 +310,26 @@ pub enum BindingData {
 }
 
 impl BindingData {
-    pub fn state(&self, session: &SessionData, extra_data: &ExtraActionData, subaction_path: xr::Path) -> xr::Result<Option<xr::ActionState<bool>>> {
+    pub fn state(
+        &self,
+        session: &SessionData,
+        extra_data: &ExtraActionData,
+        subaction_path: xr::Path,
+    ) -> xr::Result<Option<xr::ActionState<bool>>> {
         assert_ne!(subaction_path, xr::Path::NULL);
         match self {
-            BindingData::Dpad(dpad, x) if x == &subaction_path => { dpad.state(extra_data, &session.session, subaction_path) }
-            BindingData::Toggle(toggle, x) if x == &subaction_path => { toggle.state(extra_data, &session.session, subaction_path) }
-            BindingData::Grab(grab, x) if x == &subaction_path => { grab.grabbed(extra_data, &session.session, subaction_path) }
-            BindingData::Threshold(threshold, x) if x == &subaction_path => { threshold.state(extra_data, &session.session, subaction_path) }
+            BindingData::Dpad(dpad, x) if x == &subaction_path => {
+                dpad.state(extra_data, &session.session, subaction_path)
+            }
+            BindingData::Toggle(toggle, x) if x == &subaction_path => {
+                toggle.state(extra_data, &session.session, subaction_path)
+            }
+            BindingData::Grab(grab, x) if x == &subaction_path => {
+                grab.grabbed(extra_data, &session.session, subaction_path)
+            }
+            BindingData::Threshold(threshold, x) if x == &subaction_path => {
+                threshold.state(extra_data, &session.session, subaction_path)
+            }
             _ => Ok(None),
         }
     }
@@ -294,18 +338,17 @@ impl BindingData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::{tests::Fixture};
-    use fakexr::UserPath::*;
-    use openvr as vr;
     use crate::input::profiles::knuckles::Knuckles;
     use crate::input::profiles::vive_controller::ViveWands;
+    use crate::input::tests::Fixture;
+    use fakexr::UserPath::*;
+    use openvr as vr;
 
     macro_rules! get_toggle_action {
         ($fixture:expr, $handle:expr, $toggle_data:ident) => {
             let data = $fixture.input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
-            let ExtraActionData { toggle_action, .. } =
-                actions.try_get_extra($handle).unwrap();
+            let ExtraActionData { toggle_action, .. } = actions.try_get_extra($handle).unwrap();
 
             let $toggle_data = toggle_action.as_ref().unwrap();
         };
@@ -315,8 +358,7 @@ mod tests {
         ($fixture:expr, $handle:expr, $dpad_data:ident) => {
             let data = $fixture.input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
-            let ExtraActionData { dpad_actions, ..} =
-                actions.try_get_extra($handle).unwrap();
+            let ExtraActionData { dpad_actions, .. } = actions.try_get_extra($handle).unwrap();
 
             let $dpad_data = dpad_actions.as_ref().unwrap();
         };
@@ -326,8 +368,7 @@ mod tests {
         ($fixture:expr, $handle:expr, $grab_data:ident) => {
             let data = $fixture.input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
-            let ExtraActionData { grab_action, .. } =
-                actions.try_get_extra($handle).unwrap();
+            let ExtraActionData { grab_action, .. } = actions.try_get_extra($handle).unwrap();
 
             let $grab_data = grab_action.as_ref().unwrap();
         };
