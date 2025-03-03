@@ -35,7 +35,13 @@ impl InteractionProfile for Knuckles {
             },
             PathTranslation {
                 from: "squeeze/click",
-                to: "squeeze/force",
+                to: "squeeze/value",
+                stop: true,
+            },
+            PathTranslation {
+                // button bindings
+                from: "squeeze/touch",
+                to: "squeeze/value",
                 stop: true,
             },
             PathTranslation {
@@ -126,8 +132,6 @@ mod tests {
                 "/user/hand/right/input/a/click".into(),
                 "/user/hand/left/input/b/click".into(),
                 "/user/hand/right/input/b/click".into(),
-                "/user/hand/left/input/trigger/click".into(),
-                "/user/hand/right/input/trigger/click".into(),
                 "/user/hand/left/input/trigger/touch".into(),
                 "/user/hand/right/input/trigger/touch".into(),
                 "/user/hand/left/input/thumbstick/click".into(),
@@ -135,7 +139,16 @@ mod tests {
                 "/user/hand/left/input/thumbstick/touch".into(),
                 "/user/hand/right/input/thumbstick/touch".into(),
                 "/user/hand/right/input/trackpad/touch".into(),
-                "/user/hand/left/input/squeeze/force".into(),
+            ],
+        );
+
+        f.verify_bindings::<f32>(
+            path,
+            c"/actions/set1/boolact_asfloat",
+            [
+                "/user/hand/left/input/trigger/value".into(),
+                "/user/hand/right/input/trigger/value".into(),
+                "/user/hand/left/input/squeeze/value".into(),
                 "/user/hand/left/input/trackpad/force".into(),
                 "/user/hand/right/input/trackpad/force".into(),
             ],
@@ -145,12 +158,13 @@ mod tests {
         let data = f.input.openxr.session_data.get();
         let actions = data.input_data.get_loaded_actions().unwrap();
         let action = actions.try_get_action(handle).unwrap();
+        let extra = actions.try_get_extra(handle).unwrap();
 
-        let ActionData::Bool(a) = action else {
+        let ActionData::Bool(_) = action else {
             panic!("no");
         };
 
-        let grab_data = a.grab_data.as_ref().unwrap();
+        let grab_data = extra.grab_action.as_ref().unwrap();
         let p = f.input.openxr.instance.string_to_path(path).unwrap();
         let suggested = fakexr::get_suggested_bindings(grab_data.force_action.as_raw(), p);
         assert!(suggested.contains(&"/user/hand/right/input/squeeze/force".to_string()));

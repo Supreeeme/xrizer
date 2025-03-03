@@ -275,7 +275,7 @@ impl HandSpaces {
 #[cfg(test)]
 mod tests {
     use crate::input::{
-        profiles::simple_controller::SimpleController,
+        profiles::vive_controller::ViveWands,
         tests::{compare_pose, Fixture},
     };
     use fakexr::UserPath::*;
@@ -292,7 +292,7 @@ mod tests {
         let pose_handle = f.get_action_handle(c"/actions/set1/in/pose");
         let left_hand = f.get_input_source_handle(c"/user/hand/left");
         f.load_actions(c"actions.json");
-        f.set_interaction_profile(&SimpleController, LeftHand);
+        f.set_interaction_profile(&ViveWands, LeftHand);
 
         let grip_rot = Quat::from_rotation_x(-FRAC_PI_4);
         let grip = xr::Posef {
