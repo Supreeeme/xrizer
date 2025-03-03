@@ -107,12 +107,6 @@ impl<C: openxr_data::Compositor> Input<C> {
             .create_action::<bool>("xrizer-info-action", "XRizer info action", &[])
             .unwrap();
 
-        let controller_type_paths: HashMap<ControllerType, xr::Path> = Profiles::get().list.iter()
-            .filter_map(|(ct, p)|
-                session_data.session.instance().string_to_path(p.profile_path()).ok().map(|v| (ct.clone(), v))
-            )
-            .collect();
-
         let mut per_profile_bindings = HashMap::new();
         let mut per_profile_pose_bindings = HashMap::new();
         let mut extra_actions = HashMap::new();
@@ -124,7 +118,6 @@ impl<C: openxr_data::Compositor> Input<C> {
             &mut extra_actions,
             &mut per_profile_bindings,
             &mut per_profile_pose_bindings,
-            controller_type_paths,
             manifest.default_bindings,
             &legacy.actions,
             &info_action,
@@ -797,7 +790,6 @@ impl<C: openxr_data::Compositor> Input<C> {
         extra_actions: &mut HashMap<String, ExtraActionData>,
         per_profile_bindings: &mut HashMap<xr::Path, HashMap<String, Vec<BindingData>>>,
         per_profile_pose_bindings: &mut HashMap<xr::Path, HashMap<String, BoundPose>>,
-        controller_types: HashMap<ControllerType, xr::Path>,
         bindings: Vec<DefaultBindings>,
         legacy_actions: &LegacyActions,
         info_action: &xr::Action<bool>,
@@ -842,16 +834,16 @@ impl<C: openxr_data::Compositor> Input<C> {
                     info!("Ignoring bindings for unknown profile {other}")
                 }
                 ref other => {
-                    let Some(interaction_profile) = controller_types.get(&other) else {
-                        warn!("Controller type {other:?} has no OpenXR path supported?");
-                        continue;
-                    };
                     let profiles = Profiles::get()
                         .list
                         .iter()
                         .filter_map(|(ty, p)| (*ty == *other).then_some(*p));
                     let bindings = LazyCell::new(load_bindings);
                     for profile in profiles {
+                        let Ok(interaction_profile) = self.openxr.instance.string_to_path(profile.profile_path()) else {
+                            warn!("Controller type {other:?} has no OpenXR path supported?");
+                            continue;
+                        };
                         if let Some(bindings) = bindings.as_ref() {
                             self.load_bindings_for_profile(
                                 profile,
@@ -859,8 +851,8 @@ impl<C: openxr_data::Compositor> Input<C> {
                                 action_sets,
                                 actions,
                                 extra_actions,
-                                per_profile_bindings.entry(*interaction_profile).or_default(),
-                                per_profile_pose_bindings.entry(*interaction_profile).or_default(),
+                                per_profile_bindings.entry(interaction_profile).or_default(),
+                                per_profile_pose_bindings.entry(interaction_profile).or_default(),
                                 legacy_actions,
                                 info_action,
                                 bindings,
