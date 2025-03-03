@@ -41,7 +41,8 @@ impl InteractionProfile for Knuckles {
                 to: "squeeze/value",
                 stop: true,
             },
-            PathTranslation { // button bindings
+            PathTranslation {
+                // button bindings
                 from: "squeeze/touch",
                 to: "squeeze/value",
                 stop: true,

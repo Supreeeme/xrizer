@@ -140,7 +140,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
     }
 
-    fn state_from_bindings_left_right(&self, action: vr::VRActionHandle_t) -> Option<(xr::ActionState<bool>, vr::VRInputValueHandle_t)>{
+    fn state_from_bindings_left_right(
+        &self,
+        action: vr::VRActionHandle_t,
+    ) -> Option<(xr::ActionState<bool>, vr::VRInputValueHandle_t)> {
         debug_assert!(self.left_hand_key.0.as_ffi() != 0);
         debug_assert!(self.right_hand_key.0.as_ffi() != 0);
         let left_state = self.state_from_bindings(action, self.left_hand_key.0.as_ffi());
@@ -149,17 +152,17 @@ impl<C: openxr_data::Compositor> Input<C> {
             None => self.state_from_bindings(action, self.right_hand_key.0.as_ffi()),
             Some((left, _)) => {
                 if left.is_active && left.current_state {
-                    return left_state
+                    return left_state;
                 }
                 let right_state = self.state_from_bindings(action, self.right_hand_key.0.as_ffi());
                 match right_state {
                     None => left_state,
                     Some((right, _)) => {
                         if right.is_active && right.current_state {
-                            return right_state
+                            return right_state;
                         }
                         if left.is_active {
-                            return left_state
+                            return left_state;
                         }
                         right_state
                     }
@@ -168,7 +171,11 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
     }
 
-    fn state_from_bindings(&self, action: vr::VRActionHandle_t, restrict_to_device: vr::VRInputValueHandle_t) -> Option<(xr::ActionState<bool>, vr::VRInputValueHandle_t)> {
+    fn state_from_bindings(
+        &self,
+        action: vr::VRActionHandle_t,
+        restrict_to_device: vr::VRInputValueHandle_t,
+    ) -> Option<(xr::ActionState<bool>, vr::VRInputValueHandle_t)> {
         let subaction = self.subaction_path_from_handle(restrict_to_device)?;
         if subaction == xr::Path::NULL {
             return self.state_from_bindings_left_right(action);
@@ -179,8 +186,13 @@ impl<C: openxr_data::Compositor> Input<C> {
             return None;
         };
 
-        let interaction_profile = session.session.current_interaction_profile(subaction).ok()?;
-        let bindings = loaded_actions.try_get_bindings(action, interaction_profile).ok()?;
+        let interaction_profile = session
+            .session
+            .current_interaction_profile(subaction)
+            .ok()?;
+        let bindings = loaded_actions
+            .try_get_bindings(action, interaction_profile)
+            .ok()?;
         let extra_data = loaded_actions.try_get_extra(action).ok()?;
 
         let mut best_state: Option<xr::ActionState<bool>> = None;
@@ -190,7 +202,10 @@ impl<C: openxr_data::Compositor> Input<C> {
                 continue;
             };
 
-            if state.is_active && (!best_state.is_some_and(|x| x.is_active) || state.current_state && !best_state.is_some_and(|x| x.current_state)) {
+            if state.is_active
+                && (!best_state.is_some_and(|x| x.is_active)
+                    || state.current_state && !best_state.is_some_and(|x| x.current_state))
+            {
                 best_state = Some(state);
                 if state.current_state {
                     break;
@@ -238,7 +253,7 @@ struct ExtraActionData {
     pub dpad_actions: Option<DpadActions>,
     pub toggle_action: Option<xr::Action<bool>>,
     pub analog_action: Option<xr::Action<f32>>,
-    pub grab_action: Option<GrabActions>
+    pub grab_action: Option<GrabActions>,
 }
 
 #[derive(Debug, Default)]
@@ -699,7 +714,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 let get_first_bound_hand_profile = || {
                     loaded
                         .try_get_pose(action, self.openxr.left_hand.profile_path.load())
-                        .or_else(|_| loaded.try_get_pose(action, self.openxr.right_hand.profile_path.load()))
+                        .or_else(|_| {
+                            loaded.try_get_pose(action, self.openxr.right_hand.profile_path.load())
+                        })
                         .ok()
                 };
 
@@ -811,10 +828,19 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
                 // It's generally not clear how SteamVR handles float actions with multiple bindings;
                 //   so emulate OpenXR, which takes maximum among active actions
-                if let Some((binding_state, binding_source)) = self.state_from_bindings(handle, restrict_to_device) {
-                    if binding_state.is_active && (binding_state.current_state && state.current_state != 1.0 || !state.is_active) {
+                if let Some((binding_state, binding_source)) =
+                    self.state_from_bindings(handle, restrict_to_device)
+                {
+                    if binding_state.is_active
+                        && (binding_state.current_state && state.current_state != 1.0
+                            || !state.is_active)
+                    {
                         state = xr::ActionState {
-                            current_state: if binding_state.current_state { 1.0 } else { 0.0 },
+                            current_state: if binding_state.current_state {
+                                1.0
+                            } else {
+                                0.0
+                            },
                             is_active: binding_state.is_active,
                             changed_since_last_sync: binding_state.changed_since_last_sync,
                             last_change_time: binding_state.last_change_time,
@@ -887,8 +913,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let mut state = action.state(&session_data.session, subaction_path).unwrap();
 
         let mut active_hand = restrict_to_device;
-        if let Some((binding_state, binding_source)) = self.state_from_bindings(handle, restrict_to_device) {
-            if binding_state.is_active && (binding_state.current_state > state.current_state || !state.is_active) {
+        if let Some((binding_state, binding_source)) =
+            self.state_from_bindings(handle, restrict_to_device)
+        {
+            if binding_state.is_active
+                && (binding_state.current_state && !state.current_state || !state.is_active)
+            {
                 state = binding_state;
                 active_hand = binding_source;
             }
