@@ -1040,6 +1040,7 @@ fn handle_dpad_binding(
     parameters: Option<&DpadParameters>,
     parsed_bindings: &mut HashMap<String, Vec<BindingData>>,
     controller_type: &ControllerType,
+    hands: &[xr::Path; 2],
 ) -> Vec<(String, xr::Path)> {
     // Would love to use the dpad extension here, but it doesn't seem to
     // support touch trackpad dpads.
@@ -1094,6 +1095,7 @@ fn handle_dpad_binding(
             &actions,
             parameters,
             controller_type,
+            hands,
         )
     });
     for (action_name, direction) in bound_actions {
@@ -1170,6 +1172,7 @@ fn get_dpad_parent(
     actions: &RefCell<&mut LoadedActionDataMap>,
     parameters: Option<&DpadParameters>,
     controller_type: &ControllerType,
+    hands: &[xr::Path; 2],
 ) -> (
     xr::Action<xr::Vector2f>,
     Option<DpadActivatorData>,
@@ -1184,7 +1187,7 @@ fn get_dpad_parent(
             let parent_action_name = format!("xrizer-dpad-parent-{clean_parent_path}");
             let localized = format!("XRizer dpad parent ({parent_path})");
             let action = action_set
-                .create_action::<xr::Vector2f>(&parent_action_name, &localized, &[])
+                .create_action::<xr::Vector2f>(&parent_action_name, &localized, hands)
                 .unwrap();
 
             trace!("created new dpad parent ({parent_action_key})");
@@ -1236,7 +1239,7 @@ fn get_dpad_parent(
 
             ActionData::Vector1 {
                 action: action_set
-                    .create_action(&dpad_activator_name, &localized, &[])
+                    .create_action(&dpad_activator_name, &localized, hands)
                     .unwrap(),
                 last_value: Default::default(),
             }
@@ -1262,7 +1265,7 @@ fn get_dpad_parent(
 
                 ActionData::Haptic(
                     action_set
-                        .create_action(&haptic_name, &localized, &[])
+                        .create_action(&haptic_name, &localized, hands)
                         .unwrap(),
                 )
             });
@@ -1562,6 +1565,7 @@ fn handle_sources(
                     parameters.as_ref(),
                     bindings_parsed,
                     controller_type,
+                    &hands,
                 );
 
                 bindings.borrow_mut().extend(data);
