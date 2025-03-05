@@ -369,6 +369,40 @@ impl BindingsProfileLoadContext<'_> {
         float_name_with_as
     }
 
+    pub fn get_or_create_v2_extra_action(
+        &mut self,
+        output: &LowercaseActionPath,
+        action_set_name: &str,
+        action_set: &xr::ActionSet,
+    ) -> String {
+        let mut extra_data = self
+            .extra_actions
+            .remove(&output.to_lowercase())
+            .unwrap_or_default();
+        let name_only = output.rsplit_once('/').unwrap().1;
+        let float_name = format!("{name_only}_asfloat2");
+        let float_name_with_as = format!("{action_set_name}/{float_name}");
+        if extra_data.vector2_action.is_none() {
+            let localized = format!("{name_only} from float2");
+            let float_action = action_set
+                .create_action(&float_name, &localized, &self.hands)
+                .unwrap();
+
+            self.actions.insert(
+                float_name_with_as.clone(),
+                Vector2 {
+                    action: float_action.clone(),
+                    last_value: (0.0.into(), 0.0.into()),
+                },
+            );
+
+            extra_data.vector2_action = Some(float_action);
+        }
+        self.extra_actions.insert(output.to_lowercase(), extra_data);
+
+        float_name_with_as
+    }
+
     pub fn get_or_create_grip_action_pair(
         &mut self,
         output: &LowercaseActionPath,

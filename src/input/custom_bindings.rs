@@ -264,10 +264,22 @@ impl ThresholdBindingData {
         session: &xr::Session<G>,
         subaction_path: xr::Path,
     ) -> xr::Result<Option<xr::ActionState<bool>>> {
-        let Some(action_to_read) = &extra_action.analog_action else {
+        let state = if let Some(action_to_read) = &extra_action.analog_action {
+            action_to_read.state(session, subaction_path)?
+        } else if let Some(action_to_read) = &extra_action.vector2_action {
+            let state = action_to_read.state(session, subaction_path)?;
+            xr::ActionState {
+                is_active: state.is_active,
+                changed_since_last_sync: state.changed_since_last_sync,
+                last_change_time: state.last_change_time,
+                current_state: (state.current_state.x * state.current_state.x
+                    + state.current_state.y * state.current_state.y)
+                    .sqrt(),
+            }
+        } else {
             return Ok(None);
         };
-        let state = action_to_read.state(session, subaction_path)?;
+
         if !state.is_active {
             return Ok(None);
         }
