@@ -1135,9 +1135,20 @@ fn handle_sources(
                     // TODO: ^ for button bindings on clicky triggers, it's unclear how to choose between /value and /click without hints
                     // Clicking feels bad for a lot of interaction tho, so prefer /value for now
 
-                    let translated = if let Ok(translated) =
-                        path_translator(&format!("{path}/{target}"))
-                            .inspect_err(|e| debug!("Falling back to click for {output} ({})", e.0))
+                    let binding_to_2d = target == "position";
+                    let translated = if binding_to_2d {
+                        if let Ok(translated) = path_translator(path).inspect_err(|e| {
+                            warn!(
+                                "Button binding on {output} can't bind to joystick ({})",
+                                e.0
+                            )
+                        }) {
+                            translated
+                        } else {
+                            continue;
+                        }
+                    } else if let Ok(translated) = path_translator(&format!("{path}/{target}"))
+                        .inspect_err(|e| debug!("Falling back to click for {output} ({})", e.0))
                     {
                         translated
                     } else if let Ok(translated) = path_translator(&format!("{path}/click"))
@@ -1153,11 +1164,19 @@ fn handle_sources(
                         context.try_get_bool_binding(output.to_string(), translated);
                     } else {
                         // for everything actually binding to /value or /force, use custom thresholds
-                        let float_name_with_as = context.get_or_create_analog_extra_action(
-                            output,
-                            action_set_name,
-                            action_set,
-                        );
+                        let float_name_with_as = if binding_to_2d {
+                            context.get_or_create_v2_extra_action(
+                                output,
+                                action_set_name,
+                                action_set,
+                            )
+                        } else {
+                            context.get_or_create_analog_extra_action(
+                                output,
+                                action_set_name,
+                                action_set,
+                            )
+                        };
 
                         context.push_binding(
                             float_name_with_as,

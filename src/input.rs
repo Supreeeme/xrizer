@@ -254,6 +254,7 @@ struct ExtraActionData {
     pub dpad_actions: Option<DpadActions>,
     pub toggle_action: Option<xr::Action<bool>>,
     pub analog_action: Option<xr::Action<f32>>,
+    pub vector2_action: Option<xr::Action<xr::Vector2f>>,
     pub grab_action: Option<GrabActions>,
 }
 
