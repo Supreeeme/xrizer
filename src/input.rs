@@ -1,4 +1,5 @@
 mod action_manifest;
+mod action_manifest_helpers;
 mod custom_bindings;
 mod legacy;
 mod profiles;
