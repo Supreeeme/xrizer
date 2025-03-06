@@ -1,4 +1,5 @@
 mod action_manifest;
+mod action_manifest_helpers;
 mod custom_bindings;
 mod legacy;
 mod profiles;
@@ -15,7 +16,7 @@ use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span, AtomicF32,
 };
-use custom_bindings::{BoolActionData, FloatActionData};
+use custom_bindings::{BindingData, GrabActions};
 use legacy::{setup_legacy_bindings, LegacyActionData};
 use log::{debug, info, trace, warn};
 use openvr::{self as vr, space_relation_to_openvr_pose};
@@ -132,6 +133,82 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
         }
     }
+
+    fn state_from_bindings_left_right(
+        &self,
+        action: vr::VRActionHandle_t,
+    ) -> Option<(xr::ActionState<bool>, vr::VRInputValueHandle_t)> {
+        debug_assert!(self.left_hand_key.0.as_ffi() != 0);
+        debug_assert!(self.right_hand_key.0.as_ffi() != 0);
+        let left_state = self.state_from_bindings(action, self.left_hand_key.0.as_ffi());
+
+        match left_state {
+            None => self.state_from_bindings(action, self.right_hand_key.0.as_ffi()),
+            Some((left, _)) => {
+                if left.is_active && left.current_state {
+                    return left_state;
+                }
+                let right_state = self.state_from_bindings(action, self.right_hand_key.0.as_ffi());
+                match right_state {
+                    None => left_state,
+                    Some((right, _)) => {
+                        if right.is_active && right.current_state {
+                            return right_state;
+                        }
+                        if left.is_active {
+                            return left_state;
+                        }
+                        right_state
+                    }
+                }
+            }
+        }
+    }
+
+    fn state_from_bindings(
+        &self,
+        action: vr::VRActionHandle_t,
+        restrict_to_device: vr::VRInputValueHandle_t,
+    ) -> Option<(xr::ActionState<bool>, vr::VRInputValueHandle_t)> {
+        let subaction = self.subaction_path_from_handle(restrict_to_device)?;
+        if subaction == xr::Path::NULL {
+            return self.state_from_bindings_left_right(action);
+        }
+
+        let session = self.openxr.session_data.get();
+        let Ok(loaded_actions) = session.input_data.loaded_actions.get()?.read() else {
+            return None;
+        };
+
+        let interaction_profile = session
+            .session
+            .current_interaction_profile(subaction)
+            .ok()?;
+        let bindings = loaded_actions
+            .try_get_bindings(action, interaction_profile)
+            .ok()?;
+        let extra_data = loaded_actions.try_get_extra(action).ok()?;
+
+        let mut best_state: Option<xr::ActionState<bool>> = None;
+
+        for x in bindings.iter() {
+            let Ok(Some(state)) = x.state(&session, extra_data, subaction) else {
+                continue;
+            };
+
+            if state.is_active
+                && (!best_state.is_some_and(|x| x.is_active)
+                    || state.current_state && !best_state.is_some_and(|x| x.current_state))
+            {
+                best_state = Some(state);
+                if state.current_state {
+                    break;
+                }
+            }
+        }
+
+        best_state.map(|x| (x, restrict_to_device))
+    }
 }
 
 #[derive(Default)]
@@ -148,17 +225,16 @@ impl InputSessionData {
     }
 }
 enum ActionData {
-    Bool(BoolActionData),
-    Vector1(FloatActionData),
+    Bool(xr::Action<bool>),
+    Vector1 {
+        action: xr::Action<f32>,
+        last_value: AtomicF32,
+    },
     Vector2 {
         action: xr::Action<xr::Vector2f>,
         last_value: (AtomicF32, AtomicF32),
     },
-    Pose {
-        /// Maps an interaction profile path to whatever kind of pose was bound for this action for
-        /// that profile.
-        bindings: HashMap<xr::Path, BoundPose>,
-    },
+    Pose,
     Skeleton {
         hand: Hand,
         hand_tracker: Option<xr::HandTracker>,
@@ -166,7 +242,15 @@ enum ActionData {
     Haptic(xr::Action<xr::Haptic>),
 }
 
-#[derive(Debug)]
+#[derive(Default)]
+struct ExtraActionData {
+    pub toggle_action: Option<xr::Action<bool>>,
+    pub analog_action: Option<xr::Action<f32>>,
+    pub vector2_action: Option<xr::Action<xr::Vector2f>>,
+    pub grab_action: Option<GrabActions>,
+}
+
+#[derive(Debug, Default)]
 struct BoundPose {
     left: Option<BoundPoseType>,
     right: Option<BoundPoseType>,
@@ -183,12 +267,16 @@ enum BoundPoseType {
 
 macro_rules! get_action_from_handle {
     ($self:expr, $handle:expr, $session_data:ident, $action:ident) => {
+        get_action_from_handle!($self, $handle, $session_data, $action, loaded)
+    };
+
+    ($self:expr, $handle:expr, $session_data:ident, $action:ident, $loaded:ident) => {
         let $session_data = $self.openxr.session_data.get();
-        let Some(loaded) = $session_data.input_data.get_loaded_actions() else {
+        let Some($loaded) = $session_data.input_data.get_loaded_actions() else {
             return vr::EVRInputError::InvalidHandle;
         };
 
-        let $action = match loaded.try_get_action($handle) {
+        let $action = match $loaded.try_get_action($handle) {
             Ok(action) => action,
             Err(e) => return e,
         };
@@ -391,6 +479,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         _: vr::EVRSummaryType,
         data: *mut vr::VRSkeletalSummaryData_t,
     ) -> vr::EVRInputError {
+        crate::warn_unimplemented!("GetSkeletalSummaryData");
         get_action_from_handle!(self, action, session_data, _action);
         unsafe {
             data.write(vr::VRSkeletalSummaryData_t {
@@ -602,7 +691,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         }
         let subaction_path = get_subaction_path!(self, restrict_to_device, action_data);
         let (active_origin, hand) = match loaded.try_get_action(action) {
-            Ok(ActionData::Pose { bindings }) => {
+            Ok(ActionData::Pose) => {
                 let (mut hand, interaction_profile) = match subaction_path {
                     x if x == self.openxr.left_hand.subaction_path => (
                         Some(Hand::Left),
@@ -617,13 +706,16 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 };
 
                 let get_first_bound_hand_profile = || {
-                    bindings
-                        .get(&self.openxr.left_hand.profile_path.load())
-                        .or_else(|| bindings.get(&self.openxr.right_hand.profile_path.load()))
+                    loaded
+                        .try_get_pose(action, self.openxr.left_hand.profile_path.load())
+                        .or_else(|_| {
+                            loaded.try_get_pose(action, self.openxr.right_hand.profile_path.load())
+                        })
+                        .ok()
                 };
 
                 let Some(bound) = interaction_profile
-                    .and_then(|p| bindings.get(&p))
+                    .and_then(|p| loaded.try_get_pose(action, p).ok())
                     .or_else(get_first_bound_hand_profile)
                 else {
                     match hand {
@@ -720,14 +812,39 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         );
 
         let mut out = WriteOnDrop::new(action_data);
-        get_action_from_handle!(self, handle, session_data, action);
+        get_action_from_handle!(self, handle, session_data, action, loaded);
         let subaction_path = get_subaction_path!(self, restrict_to_device, action_data);
 
+        let mut active_hand = restrict_to_device;
         let (state, delta) = match action {
-            ActionData::Vector1(data) => {
-                let state = data.state(&session_data.session, subaction_path).unwrap();
+            ActionData::Vector1 { action, last_value } => {
+                let mut state = action.state(&session_data.session, subaction_path).unwrap();
+
+                // It's generally not clear how SteamVR handles float actions with multiple bindings;
+                //   so emulate OpenXR, which takes maximum among active actions
+                if let Some((binding_state, binding_source)) =
+                    self.state_from_bindings(handle, restrict_to_device)
+                {
+                    if binding_state.is_active
+                        && (binding_state.current_state && state.current_state != 1.0
+                            || !state.is_active)
+                    {
+                        state = xr::ActionState {
+                            current_state: if binding_state.current_state {
+                                1.0
+                            } else {
+                                0.0
+                            },
+                            is_active: binding_state.is_active,
+                            changed_since_last_sync: binding_state.changed_since_last_sync,
+                            last_change_time: binding_state.last_change_time,
+                        };
+                        active_hand = binding_source;
+                    }
+                }
+
                 let delta = xr::Vector2f {
-                    x: state.current_state - data.last_value.swap(state.current_state),
+                    x: state.current_state - last_value.swap(state.current_state),
                     y: 0.0,
                 };
                 (
@@ -756,7 +873,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         *out.value = vr::InputAnalogActionData_t {
             bActive: state.is_active,
-            activeOrigin: 0,
+            activeOrigin: active_hand,
             x: state.current_state.x,
             deltaX: delta.x,
             y: state.current_state.y,
@@ -787,11 +904,24 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             return vr::EVRInputError::WrongType;
         };
 
-        let state = action.state(&session_data.session, subaction_path).unwrap();
+        let mut state = action.state(&session_data.session, subaction_path).unwrap();
+
+        let mut active_hand = restrict_to_device;
+        if let Some((binding_state, binding_source)) =
+            self.state_from_bindings(handle, restrict_to_device)
+        {
+            if binding_state.is_active
+                && (binding_state.current_state && !state.current_state || !state.is_active)
+            {
+                state = binding_state;
+                active_hand = binding_source;
+            }
+        }
+
         *out.value = vr::InputDigitalActionData_t {
             bActive: state.is_active,
             bState: state.current_state,
-            activeOrigin: restrict_to_device, // TODO
+            activeOrigin: active_hand,
             bChanged: state.changed_since_last_sync,
             fUpdateTime: 0.0, // TODO
         };
@@ -1258,17 +1388,56 @@ impl CachedSpaces {
 struct LoadedActions {
     sets: SecondaryMap<ActionSetKey, xr::ActionSet>,
     actions: SecondaryMap<ActionKey, ActionData>,
+    extra_actions: SecondaryMap<ActionKey, ExtraActionData>,
+    per_profile_pose_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, BoundPose>>,
+    per_profile_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, Vec<BindingData>>>,
     info_set: xr::ActionSet,
     _info_action: xr::Action<bool>,
 }
 
 impl LoadedActions {
+    fn try_get_bindings(
+        &self,
+        handle: vr::VRActionHandle_t,
+        interaction_profile: xr::Path,
+    ) -> Result<&Vec<BindingData>, vr::EVRInputError> {
+        let key = ActionKey::from(KeyData::from_ffi(handle));
+        self.per_profile_bindings
+            .get(&interaction_profile)
+            .ok_or(vr::EVRInputError::InvalidHandle)?
+            .get(key)
+            .ok_or(vr::EVRInputError::InvalidHandle)
+    }
+
     fn try_get_action(
         &self,
         handle: vr::VRActionHandle_t,
     ) -> Result<&ActionData, vr::EVRInputError> {
         let key = ActionKey::from(KeyData::from_ffi(handle));
         self.actions
+            .get(key)
+            .ok_or(vr::EVRInputError::InvalidHandle)
+    }
+
+    fn try_get_extra(
+        &self,
+        handle: vr::VRActionHandle_t,
+    ) -> Result<&ExtraActionData, vr::EVRInputError> {
+        let key = ActionKey::from(KeyData::from_ffi(handle));
+        self.extra_actions
+            .get(key)
+            .ok_or(vr::EVRInputError::InvalidHandle)
+    }
+
+    fn try_get_pose(
+        &self,
+        handle: vr::VRActionHandle_t,
+        interaction_profile: xr::Path,
+    ) -> Result<&BoundPose, vr::EVRInputError> {
+        let key = ActionKey::from(KeyData::from_ffi(handle));
+        self.per_profile_pose_bindings
+            .get(&interaction_profile)
+            .ok_or(vr::EVRInputError::InvalidHandle)?
             .get(key)
             .ok_or(vr::EVRInputError::InvalidHandle)
     }

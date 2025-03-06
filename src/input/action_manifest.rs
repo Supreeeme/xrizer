@@ -1,10 +1,11 @@
 use super::{
-    custom_bindings::{
-        BoolActionData, DpadData, DpadDirection, FloatActionData, GrabBindingData, ToggleData,
-    },
-    legacy::{LegacyActionData, LegacyActions},
-    profiles::{InteractionProfile, PathTranslation, Profiles},
-    BoundPoseType, Input,
+    custom_bindings::DpadDirection,
+    legacy::LegacyActionData,
+    profiles::{PathTranslation, Profiles},
+    ActionData, ActionKey, BoundPoseType, Input,
+};
+use crate::input::action_manifest_helpers::{
+    BindingsLoadContext, BindingsProfileLoadContext, DpadActivatorData, DpadHapticData,
 };
 use crate::{
     input::skeletal::SkeletalInputActionData,
@@ -17,15 +18,28 @@ use serde::{
     de::{Error, IgnoredAny, Unexpected},
     Deserialize,
 };
-use slotmap::SecondaryMap;
+use slotmap::{SecondaryMap, SlotMap};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::RwLock;
-use std::{
-    cell::{LazyCell, RefCell},
-    env::current_dir,
-};
+use std::{cell::LazyCell, env::current_dir};
+
+fn action_map_to_secondary<T>(
+    act_guard: &mut SlotMap<ActionKey, super::Action>,
+    map: HashMap<String, T>,
+) -> SecondaryMap<ActionKey, T> {
+    map.into_iter()
+        .map(|(name, action)| {
+            let key = act_guard
+                .iter()
+                .find_map(|(key, super::Action { path })| (*path == name).then_some(key))
+                .unwrap_or_else(|| act_guard.insert(super::Action { path: name }));
+
+            (key, action)
+        })
+        .collect()
+}
 
 impl<C: openxr_data::Compositor> Input<C> {
     pub(super) fn load_action_manifest(
@@ -65,7 +79,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         )?;
         debug!("Loaded {} action sets.", sets.len());
 
-        let mut actions = load_actions(
+        let actions = load_actions(
             &self.openxr.instance,
             &session_data.session,
             english.as_ref(),
@@ -107,15 +121,27 @@ impl<C: openxr_data::Compositor> Input<C> {
             .create_action::<bool>("xrizer-info-action", "XRizer info action", &[])
             .unwrap();
 
-        self.load_bindings(
-            manifest_path.parent().unwrap(),
+        let mut binding_context = BindingsLoadContext::new(
             &sets,
-            &mut actions,
-            manifest.default_bindings,
+            actions,
             &legacy.actions,
             &info_action,
-            &skeletal_input,
+            skeletal_input,
         );
+
+        self.load_bindings(
+            manifest_path.parent().unwrap(),
+            manifest.default_bindings,
+            &mut binding_context,
+        );
+
+        let BindingsLoadContext {
+            actions,
+            extra_actions,
+            per_profile_bindings,
+            per_profile_pose_bindings,
+            ..
+        } = binding_context;
 
         let xr_sets: Vec<_> = sets
             .values()
@@ -147,21 +173,25 @@ impl<C: openxr_data::Compositor> Input<C> {
             .collect();
 
         let mut act_guard = self.action_map.write().unwrap();
-        let actions: SecondaryMap<_, _> = actions
-            .into_iter()
-            .map(|(name, action)| {
-                let key = act_guard
-                    .iter()
-                    .find_map(|(key, super::Action { path })| (*path == name).then_some(key))
-                    .unwrap_or_else(|| act_guard.insert(super::Action { path: name }));
+        let actions = action_map_to_secondary(&mut act_guard, actions);
+        let extra_actions = action_map_to_secondary(&mut act_guard, extra_actions);
 
-                (key, action)
-            })
+        let per_profile_bindings = per_profile_bindings
+            .into_iter()
+            .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
+            .collect();
+
+        let per_profile_pose_bindings = per_profile_pose_bindings
+            .into_iter()
+            .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
             .collect();
 
         let loaded = super::LoadedActions {
             sets,
             actions,
+            extra_actions,
+            per_profile_bindings,
+            per_profile_pose_bindings,
             _info_action: info_action,
             info_set,
         };
@@ -198,17 +228,18 @@ struct ActionManifest {
 }
 
 #[derive(Deserialize)]
-struct DefaultBindings {
+pub(super) struct DefaultBindings {
     binding_url: PathBuf,
     controller_type: ControllerType,
 }
 
-#[derive(Deserialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Hash, Clone)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum ControllerType {
     ViveController,
     Knuckles,
     OculusTouch,
+    KhrSimpleController,
     #[serde(untagged)]
     Unknown(String),
 }
@@ -305,20 +336,7 @@ fn load_action_sets(
     Ok(action_sets)
 }
 
-type LoadedActionDataMap = HashMap<String, super::ActionData>;
-
-#[track_caller]
-fn find_action(actions: &LoadedActionDataMap, name: &str) -> bool {
-    let ret = actions.contains_key(name);
-    if !ret {
-        let caller = std::panic::Location::caller();
-        warn!(
-            "Couldn't find action {name}, skipping (line {})",
-            caller.line()
-        );
-    }
-    ret
-}
+pub(super) type LoadedActionDataMap = HashMap<String, super::ActionData>;
 
 fn load_actions(
     instance: &xr::Instance,
@@ -396,13 +414,13 @@ fn load_actions(
         }
         use super::ActionData::*;
         let (path, action) = match &action {
-            ActionType::Boolean(data) => (
-                &data.name,
-                Bool(BoolActionData::new(create_action!(bool, data))),
-            ),
+            ActionType::Boolean(data) => (&data.name, Bool(create_action!(bool, data))),
             ActionType::Vector1(data) => (
                 &data.name,
-                Vector1(FloatActionData::new(create_action!(f32, data))),
+                Vector1 {
+                    action: create_action!(f32, data),
+                    last_value: Default::default(),
+                },
             ),
             ActionType::Vector2(data) => (
                 &data.name,
@@ -411,12 +429,7 @@ fn load_actions(
                     last_value: Default::default(),
                 },
             ),
-            ActionType::Pose(data) => (
-                &data.name,
-                Pose {
-                    bindings: Default::default(),
-                },
-            ),
+            ActionType::Pose(data) => (&data.name, Pose),
             ActionType::Skeleton(SkeletonData { skeleton, data }) => {
                 trace!("Creating skeleton action {}", data.name.to_lowercase());
                 let hand_tracker = match session.create_hand_tracker(match skeleton {
@@ -465,7 +478,7 @@ struct ActionSetBinding {
 
 #[repr(transparent)]
 #[derive(Hash, Eq, PartialEq)]
-struct LowercaseActionPath(String);
+pub(super) struct LowercaseActionPath(String);
 impl std::fmt::Debug for LowercaseActionPath {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -588,6 +601,8 @@ enum ActionBinding {
     ScalarConstant {
         path: String,
         inputs: ScalarConstantInput,
+        #[allow(unused)]
+        parameters: Option<ScalarConstantParameters>,
     },
     ForceSensor {
         path: String,
@@ -613,7 +628,7 @@ enum ActionBinding {
 }
 
 #[repr(transparent)]
-struct FromString<T>(T);
+pub(super) struct FromString<T>(pub T);
 
 impl<T: FromStr> FromStr for FromString<T> {
     type Err = T::Err;
@@ -639,25 +654,33 @@ impl<'de, T: Deserialize<'de> + FromStr> Deserialize<'de> for FromString<T> {
 
 #[derive(Deserialize)]
 struct ButtonInput {
+    touch: Option<ActionBindingOutput>,
     click: Option<ActionBindingOutput>,
     double: Option<ActionBindingOutput>,
 }
 
 #[derive(Deserialize)]
-struct ClickThresholdParams {
+pub(super) struct ClickThresholdParams {
     #[allow(unused)]
-    click_activate_threshold: Option<FromString<f32>>,
+    pub click_activate_threshold: Option<FromString<f32>>,
     #[allow(unused)]
-    click_deactivate_threshold: Option<FromString<f32>>,
+    pub click_deactivate_threshold: Option<FromString<f32>>,
 }
 
 #[derive(Deserialize)]
-struct ButtonParameters {
+struct ScalarConstantParameters {
+    #[serde(rename = "on/x")]
+    #[allow(unused)]
+    on_x: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ButtonParameters {
     #[allow(unused)]
     force_input: Option<String>,
     #[allow(unused)]
     #[serde(flatten)]
-    click_threshold: ClickThresholdParams,
+    pub click_threshold: ClickThresholdParams,
 }
 
 #[derive(Deserialize, Debug)]
@@ -671,11 +694,11 @@ struct DpadInput {
 
 #[derive(Deserialize)]
 #[serde(default)]
-struct DpadParameters {
-    sub_mode: DpadSubMode,
-    deadzone_pct: FromString<u8>,
-    overlap_pct: FromString<u8>,
-    sticky: FromString<bool>,
+pub struct DpadParameters {
+    pub sub_mode: DpadSubMode,
+    pub deadzone_pct: FromString<u8>,
+    pub overlap_pct: FromString<u8>,
+    pub sticky: FromString<bool>,
 }
 
 impl Default for DpadParameters {
@@ -691,7 +714,7 @@ impl Default for DpadParameters {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum DpadSubMode {
+pub(super) enum DpadSubMode {
     Click,
     Touch,
 }
@@ -725,11 +748,11 @@ struct GrabInput {
 }
 
 #[derive(Deserialize)]
-struct GrabParameters {
+pub struct GrabParameters {
     #[allow(unused)]
-    value_hold_threshold: Option<FromString<f32>>,
+    pub value_hold_threshold: Option<FromString<f32>>,
     #[allow(unused)]
-    value_release_threshold: Option<FromString<f32>>,
+    pub value_release_threshold: Option<FromString<f32>>,
 }
 
 #[derive(Deserialize)]
@@ -762,12 +785,8 @@ impl<C: openxr_data::Compositor> Input<C> {
     fn load_bindings(
         &self,
         parent_path: &Path,
-        action_sets: &HashMap<String, xr::ActionSet>,
-        actions: &mut LoadedActionDataMap,
         bindings: Vec<DefaultBindings>,
-        legacy_actions: &LegacyActions,
-        info_action: &xr::Action<bool>,
-        skeletal_input: &SkeletalInputActionData,
+        context: &mut BindingsLoadContext,
     ) {
         let mut it: Box<dyn Iterator<Item = DefaultBindings>> = Box::new(bindings.into_iter());
         while let Some(DefaultBindings {
@@ -816,15 +835,11 @@ impl<C: openxr_data::Compositor> Input<C> {
                     let bindings = LazyCell::new(load_bindings);
                     for profile in profiles {
                         if let Some(bindings) = bindings.as_ref() {
-                            self.load_bindings_for_profile(
-                                profile,
-                                action_sets,
-                                actions,
-                                legacy_actions,
-                                info_action,
-                                skeletal_input,
-                                bindings,
-                            );
+                            if let Some(mut context) =
+                                context.for_profile(&self.openxr, profile, other)
+                            {
+                                self.load_bindings_for_profile(bindings, &mut context);
+                            }
                         }
                     }
                 }
@@ -843,14 +858,10 @@ impl<C: openxr_data::Compositor> Input<C> {
 
     fn load_bindings_for_profile(
         &self,
-        profile: &dyn InteractionProfile,
-        action_sets: &HashMap<String, xr::ActionSet>,
-        actions: &mut LoadedActionDataMap,
-        legacy_actions: &LegacyActions,
-        info_action: &xr::Action<bool>,
-        skeletal_input: &SkeletalInputActionData,
         bindings: &HashMap<String, ActionSetBinding>,
+        context: &mut BindingsProfileLoadContext,
     ) {
+        let profile = context.profile;
         info!("loading bindings for {}", profile.profile_path());
 
         // Workaround weird closure lifetime quirks.
@@ -886,42 +897,33 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
         };
 
-        let mut xr_bindings = Vec::new();
         for (action_set_name, bindings) in bindings.iter() {
-            let Some(set) = action_sets.get(action_set_name) else {
+            let Some(set) = context.get_action_set(action_set_name) else {
                 warn!("Action set {action_set_name} missing.");
                 continue;
             };
 
+            let set = set.clone();
+
             if let Some(bindings) = &bindings.haptics {
-                xr_bindings.extend(handle_haptic_bindings(
-                    &self.openxr.instance,
-                    path_translator,
-                    actions,
-                    bindings,
-                ));
+                handle_haptic_bindings(&self.openxr.instance, path_translator, context, bindings);
             }
 
             if let Some(bindings) = &bindings.poses {
-                handle_pose_bindings(profile_path, actions, bindings);
+                handle_pose_bindings(context, bindings);
             }
 
             if let Some(bindings) = &bindings.skeleton {
-                handle_skeleton_bindings(actions, bindings);
+                handle_skeleton_bindings(context, bindings);
             }
 
-            xr_bindings.extend(handle_sources(
-                &self.openxr.instance,
+            handle_sources(
                 path_translator,
-                actions,
+                context,
                 action_set_name,
-                set,
+                &set,
                 &bindings.sources,
-                [
-                    self.openxr.left_hand.subaction_path,
-                    self.openxr.right_hand.subaction_path,
-                ],
-            ));
+            );
         }
 
         let info_action_binding = *legacy_bindings.trigger_click.first().unwrap_or_else(|| {
@@ -930,27 +932,30 @@ impl<C: openxr_data::Compositor> Input<C> {
                 profile.profile_path()
             )
         });
-        let bindings: Vec<xr::Binding<'_>> = xr_bindings
-            .into_iter()
+        let bindings: Vec<xr::Binding<'_>> = context
+            .bindings
+            .iter()
             .map(|(name, path)| {
                 use super::ActionData::*;
-                match actions
-                    .get(&name)
+                let path = *path;
+                match context
+                    .actions
+                    .get(name)
                     .unwrap_or_else(|| panic!("Couldn't find data for action {name}"))
                 {
-                    Bool(data) => xr::Binding::new(&data.action, path),
-                    Vector1(data) => xr::Binding::new(&data.action, path),
+                    Bool(action) => xr::Binding::new(action, path),
+                    Vector1 { action, .. } => xr::Binding::new(action, path),
                     Vector2 { action, .. } => xr::Binding::new(action, path),
                     Haptic(action) => xr::Binding::new(action, path),
                     Skeleton { .. } | Pose { .. } => unreachable!(),
                 }
             })
-            .chain(legacy_bindings.binding_iter(legacy_actions))
+            .chain(legacy_bindings.binding_iter(context.legacy_actions))
             .chain(std::iter::once(xr::Binding::new(
-                info_action,
+                context.info_action,
                 info_action_binding,
             )))
-            .chain(skeletal_bindings.binding_iter(&skeletal_input.actions))
+            .chain(skeletal_bindings.binding_iter(&context.skeletal_input.actions))
             .collect();
 
         self.openxr
@@ -971,7 +976,7 @@ fn handle_dpad_binding(
     parent_path: &str,
     action_set_name: &str,
     action_set: &xr::ActionSet,
-    actions: &mut LoadedActionDataMap,
+    context: &mut BindingsProfileLoadContext,
     DpadInput {
         east,
         south,
@@ -980,7 +985,7 @@ fn handle_dpad_binding(
         center,
     }: &DpadInput,
     parameters: Option<&DpadParameters>,
-) -> Vec<(String, xr::Path)> {
+) {
     // Would love to use the dpad extension here, but it doesn't seem to
     // support touch trackpad dpads.
     // TODO: actually take the deadzone and overlap into account
@@ -994,7 +999,7 @@ fn handle_dpad_binding(
     }
     let maybe_find_action = constrain(|a, direction| {
         let output = &a.as_ref()?.output.0;
-        let ret = actions.contains_key(output);
+        let ret = context.actions.contains_key(output);
         if !ret {
             warn!(
                 "Couldn't find dpad action {} (for path {parent_path}, {direction:?})",
@@ -1019,145 +1024,39 @@ fn handle_dpad_binding(
 
     if bound_actions.is_empty() {
         warn!("Dpad mode, but no actions ({parent_path} in {action_set_name})");
-        return vec![];
+        return;
     }
 
     let parent_action_key = format!("{parent_path}-{action_set_name}");
-    let actions = RefCell::new(actions);
-    let created_actions = LazyCell::new(|| {
-        get_dpad_parent(
-            &string_to_path,
-            parent_path,
-            &parent_action_key,
-            action_set_name,
-            action_set,
-            &actions,
-            parameters,
-        )
-    });
+
+    let created_actions = context.get_dpad_parent(
+        &string_to_path,
+        parent_path,
+        &parent_action_key,
+        action_set_name,
+        action_set,
+        parameters,
+    );
+
     for (action_name, direction) in bound_actions {
-        // Temporarily remove action to avoid double mutable reference
-        let super::ActionData::Bool(mut data) = actions.borrow_mut().remove(action_name).unwrap()
-        else {
-            panic!("Expected bool action for dpad binding on {}", action_name);
-        };
-
-        if data.dpad_data.is_none() {
-            let (parent_action, click_or_touch) = LazyCell::force(&created_actions);
-            data.dpad_data = Some(DpadData {
-                parent: parent_action.clone(),
-                click_or_touch: click_or_touch.as_ref().map(|d| d.action.clone()),
-                direction,
-                last_state: false.into(),
-            })
-        }
-
-        // Reinsert
-        actions
-            .borrow_mut()
-            .insert(action_name.to_string(), super::ActionData::Bool(data));
+        context.add_custom_dpad_binding(parent_path, action_name, direction, &created_actions);
     }
 
     let activator_binding = created_actions
         .1
         .as_ref()
         .map(|DpadActivatorData { key, binding, .. }| (key.clone(), *binding));
-    let mut ret = vec![(parent_action_key, string_to_path(parent_path).unwrap())];
-    if let Some(b) = activator_binding {
-        ret.push(b);
+    let haptic_binding = created_actions
+        .2
+        .as_ref()
+        .map(|DpadHapticData { key, binding, .. }| (key.clone(), *binding));
+    context.push_binding(parent_action_key, string_to_path(parent_path).unwrap());
+    if let Some((s, p)) = activator_binding {
+        context.push_binding(s, p);
     }
-    ret
-}
-
-struct DpadActivatorData {
-    key: String,
-    action: xr::Action<bool>,
-    binding: xr::Path,
-}
-
-fn get_dpad_parent(
-    string_to_path: &impl Fn(&str) -> Option<xr::Path>,
-    parent_path: &str,
-    parent_action_key: &str,
-    action_set_name: &str,
-    action_set: &xr::ActionSet,
-    actions: &RefCell<&mut LoadedActionDataMap>,
-    parameters: Option<&DpadParameters>,
-) -> (xr::Action<xr::Vector2f>, Option<DpadActivatorData>) {
-    let mut actions = actions.borrow_mut();
-    // Share parent actions that use the same action set and same bound path
-    let parent_action = actions
-        .entry(parent_action_key.to_string())
-        .or_insert_with(|| {
-            let clean_parent_path = parent_path.replace("/", "_");
-            let parent_action_name = format!("xrizer-dpad-parent-{clean_parent_path}");
-            let localized = format!("XRizer dpad parent ({parent_path})");
-            let action = action_set
-                .create_action::<xr::Vector2f>(&parent_action_name, &localized, &[])
-                .unwrap();
-
-            trace!("created new dpad parent ({parent_action_key})");
-
-            super::ActionData::Vector2 {
-                action,
-                last_value: Default::default(),
-            }
-        });
-    let super::ActionData::Vector2 {
-        action: parent_action,
-        ..
-    } = parent_action
-    else {
-        unreachable!();
-    };
-    // Remove lifetime
-    let parent_action = parent_action.clone();
-
-    // Create our path to our parent click/touch, if such a path exists
-    let (activator_binding_str, activator_binding_path) = parameters
-        .as_ref()
-        .and_then(|p| {
-            let name = match p.sub_mode {
-                DpadSubMode::Click => format!("{parent_path}/click"),
-                DpadSubMode::Touch => format!("{parent_path}/touch"),
-            };
-            string_to_path(&name).map(|p| (name, p))
-        })
-        .unzip();
-
-    let activator_key = activator_binding_str
-        .as_ref()
-        .map(|n| format!("{n}-{action_set_name}"));
-    // Action only needs to exist if our path was successfully created
-    let len = actions.len();
-    let activator_action = activator_key.as_ref().map(|key| {
-        let action = actions.entry(key.clone()).or_insert_with(|| {
-            let dpad_activator_name = format!("xrizer-dpad-active{len}");
-            let localized = format!("XRizer dpad active ({len})");
-
-            super::ActionData::Bool(BoolActionData::new(
-                action_set
-                    .create_action(&dpad_activator_name, &localized, &[])
-                    .unwrap(),
-            ))
-        });
-
-        let super::ActionData::Bool(BoolActionData { action, .. }) = action else {
-            unreachable!();
-        };
-        action
-    });
-    // Remove lifetime
-    let click_or_touch = activator_action.cloned();
-
-    (
-        parent_action,
-        click_or_touch.map(|action| DpadActivatorData {
-            key: activator_key.unwrap(),
-            action,
-            binding: activator_binding_path.unwrap(),
-        }),
-    )
+    if let Some((s, p)) = haptic_binding {
+        context.push_binding(s, p);
+    }
 }
 
 fn translate_warn(action: &str) -> impl FnOnce(&InvalidActionPath) + '_ {
@@ -1167,65 +1066,31 @@ fn translate_warn(action: &str) -> impl FnOnce(&InvalidActionPath) + '_ {
 struct InvalidActionPath(String);
 
 fn handle_sources(
-    instance: &xr::Instance,
     path_translator: impl Fn(&str) -> Result<String, InvalidActionPath>,
-    actions: &mut LoadedActionDataMap,
+    context: &mut BindingsProfileLoadContext,
     action_set_name: &str,
     action_set: &xr::ActionSet,
     sources: &[ActionBinding],
-    hands: [xr::Path; 2],
-) -> Vec<(String, xr::Path)> {
-    let bindings = RefCell::new(Vec::new());
-
-    trait ActionPattern {
-        fn check_match(&self, data: &super::ActionData, name: &str);
-    }
-    macro_rules! action_match {
-        ($pat:pat, $extra:literal) => {{
-            struct S;
-            impl ActionPattern for S {
-                fn check_match(&self, data: &super::ActionData, name: &str) {
-                    assert!(
-                        matches!(data, $pat),
-                        "Data for action {name} didn't match pattern {} ({})",
-                        stringify!($pat),
-                        $extra
-                    );
-                }
-            }
-            &S
-        }};
-        ($pat:pat) => {
-            action_match!($pat, "")
-        };
-    }
-
-    let actions = RefCell::new(actions);
-    let try_get_binding =
-        |action_path: String, input_path: String, action_pattern: &dyn ActionPattern| {
-            let actions = actions.borrow();
-            if find_action(&actions, &action_path) {
-                action_pattern.check_match(&actions[&action_path], &action_path);
-                trace!("suggesting {input_path} for {action_path}");
-                let binding_path = instance.string_to_path(&input_path).unwrap();
-                bindings.borrow_mut().push((action_path, binding_path));
-            }
-        };
-
-    use super::ActionData::*;
+) {
     for mode in sources {
-        let try_get_bool_binding = |action_path, input_path| {
-            try_get_binding(
-                action_path,
-                input_path,
-                action_match!(Bool(_) | Vector1 { .. }),
-            );
-        };
+        macro_rules! bind_button_touch {
+            ($path:expr, $inputs:expr) => {
+                if let Some(ActionBindingOutput { output }) = &$inputs.touch {
+                    if let Ok(translated) = path_translator(&format!("{}/touch", $path))
+                        .inspect_err(translate_warn(output))
+                    {
+                        // Touch is always directly bindable
+                        context.try_get_bool_binding(output.to_string(), translated);
+                    };
+                }
+            };
+        }
 
         match mode {
             ActionBinding::None(_) => {}
-            ActionBinding::Button { path, inputs, .. }
-            | ActionBinding::ToggleButton { path, inputs } => {
+            ActionBinding::ToggleButton { path, inputs } => {
+                bind_button_touch!(path, inputs);
+
                 if let Some(ActionBindingOutput { output }) = &inputs.click {
                     let Ok(translated) = path_translator(&format!("{path}/click"))
                         .inspect_err(translate_warn(output))
@@ -1233,43 +1098,90 @@ fn handle_sources(
                         continue;
                     };
 
-                    if matches!(mode, ActionBinding::Button { .. }) {
-                        try_get_bool_binding(output.to_string(), translated);
-                    } else {
-                        let mut actions = actions.borrow_mut();
-                        if !find_action(&actions, output) {
+                    if !context.find_action(output) {
+                        continue;
+                    }
+
+                    let as_name = context.get_or_create_toggle_extra_action(
+                        output,
+                        action_set_name,
+                        action_set,
+                    );
+
+                    trace!("suggesting {translated} for {output} (toggle)");
+                    context.push_binding(
+                        as_name,
+                        context.instance.string_to_path(&translated).unwrap(),
+                    );
+
+                    context.add_custom_toggle_binding(output, &translated);
+                }
+            }
+            ActionBinding::Button {
+                path,
+                inputs,
+                parameters,
+            } => {
+                bind_button_touch!(path, inputs);
+
+                if let Some(ActionBindingOutput { output }) = &inputs.click {
+                    let parameters = parameters.as_ref();
+                    let target = parameters
+                        .and_then(|x| x.force_input.as_ref())
+                        .map(|x| x.as_str())
+                        .unwrap_or("value");
+                    // TODO: ^ for button bindings on clicky triggers, it's unclear how to choose between /value and /click without hints
+                    // Clicking feels bad for a lot of interaction tho, so prefer /value for now
+
+                    let binding_to_2d = target == "position";
+                    let translated = if binding_to_2d {
+                        if let Ok(translated) = path_translator(path).inspect_err(|e| {
+                            warn!(
+                                "Button binding on {output} can't bind to joystick ({})",
+                                e.0
+                            )
+                        }) {
+                            translated
+                        } else {
                             continue;
                         }
+                    } else if let Ok(translated) = path_translator(&format!("{path}/{target}"))
+                        .inspect_err(|e| debug!("Falling back to click for {output} ({})", e.0))
+                    {
+                        translated
+                    } else if let Ok(translated) = path_translator(&format!("{path}/click"))
+                        .inspect_err(translate_warn(output))
+                    {
+                        translated
+                    } else {
+                        continue;
+                    };
 
-                        let mut data = actions.remove(&output.0).unwrap();
-                        let name_only = output.rsplit_once('/').unwrap().1;
-                        let toggle_name = format!("{name_only}_tgl");
+                    // These two sources are typically bool, so bind directly
+                    if translated.ends_with("/click") || translated.ends_with("/touch") {
+                        context.try_get_bool_binding(output.to_string(), translated);
+                    } else {
+                        // for everything actually binding to /value or /force, use custom thresholds
+                        let float_name_with_as = if binding_to_2d {
+                            context.get_or_create_v2_extra_action(
+                                output,
+                                action_set_name,
+                                action_set,
+                            )
+                        } else {
+                            context.get_or_create_analog_extra_action(
+                                output,
+                                action_set_name,
+                                action_set,
+                            )
+                        };
 
-                        match &mut data {
-                            super::ActionData::Bool(data) => {
-                                if data.toggle_data.is_none() {
-                                    let localized = format!("{name_only} toggle");
-                                    let action = action_set
-                                        .create_action(&toggle_name, &localized, &hands)
-                                        .unwrap();
-                                    actions.insert(
-                                        toggle_name.clone(),
-                                        super::ActionData::Bool(BoolActionData::new(
-                                            action.clone(),
-                                        )),
-                                    );
-                                    data.toggle_data = Some(ToggleData::new(action, hands));
-                                }
-                            }
-                            _ => panic!("expected action {output} to be boolean"),
-                        }
-                        actions.insert(output.to_string(), data);
+                        context.push_binding(
+                            float_name_with_as,
+                            context.instance.string_to_path(&translated).unwrap(),
+                        );
 
-                        trace!("suggesting {translated} for {output} (toggle)");
-                        bindings.borrow_mut().push((
-                            toggle_name.clone(),
-                            instance.string_to_path(&translated).unwrap(),
-                        ));
+                        context.add_custom_button_binding(output, &translated, parameters)
                     }
                 }
 
@@ -1287,22 +1199,20 @@ fn handle_sources(
                 else {
                     continue;
                 };
-                let data = handle_dpad_binding(
+                handle_dpad_binding(
                     |s| {
                         path_translator(s)
                             .inspect_err(translate_warn("<dpad binding>"))
                             .ok()
-                            .map(|s| instance.string_to_path(&s).unwrap())
+                            .map(|s| context.instance.string_to_path(&s).unwrap())
                     },
                     &parent_translated,
                     action_set_name,
                     action_set,
-                    &mut actions.borrow_mut(),
+                    context,
                     inputs,
                     parameters.as_ref(),
                 );
-
-                bindings.borrow_mut().extend(data);
             }
             ActionBinding::Trigger {
                 path,
@@ -1319,14 +1229,7 @@ fn handle_sources(
                         continue;
                     };
 
-                    try_get_binding(
-                        output.to_string(),
-                        translated,
-                        action_match!(
-                            Bool(_) | Vector1 { .. },
-                            "Trigger action should be a bool or float"
-                        ),
-                    );
+                    context.try_get_bool_binding(output.to_string(), translated);
                 }
             }
             ActionBinding::ScalarConstant {
@@ -1335,6 +1238,7 @@ fn handle_sources(
                     ScalarConstantInput {
                         value: ActionBindingOutput { output },
                     },
+                ..
             } => {
                 let vpath = format!("{path}/value");
                 let Ok(translated) = path_translator(&vpath)
@@ -1347,11 +1251,7 @@ fn handle_sources(
                     continue;
                 };
 
-                try_get_binding(
-                    output.to_string(),
-                    translated,
-                    action_match!(Vector1 { .. }),
-                )
+                context.try_get_float_binding(output.to_string(), translated)
             }
             ActionBinding::ForceSensor {
                 path,
@@ -1367,11 +1267,7 @@ fn handle_sources(
                     continue;
                 };
 
-                try_get_binding(
-                    output.to_string(),
-                    translated,
-                    action_match!(Vector1 { .. }),
-                );
+                context.try_get_float_binding(output.to_string(), translated);
             }
             ActionBinding::Grab {
                 path,
@@ -1379,7 +1275,7 @@ fn handle_sources(
                     GrabInput {
                         grab: ActionBindingOutput { output },
                     },
-                ..
+                parameters,
             } => {
                 let Ok((translated_force, translated_value)) =
                     path_translator(&[path, "/force"].concat())
@@ -1395,63 +1291,24 @@ fn handle_sources(
                     continue;
                 };
 
-                let mut actions = actions.borrow_mut();
-                if !find_action(&actions, output) {
+                if !context.find_action(output) {
                     continue;
                 }
 
-                let name_only = output.rsplit_once('/').unwrap().1;
-                let force_name = format!("{name_only}_grabactionf");
-                let value_name = format!("{name_only}_grabactionv");
+                let (force_full_name, value_full_name) =
+                    context.get_or_create_grip_action_pair(output, action_set_name, action_set);
 
-                let create_grab_action = |actions: &mut LoadedActionDataMap| {
-                    let localized = format!("{name_only} grab action (force)");
-                    let force_action = action_set
-                        .create_action(&force_name, &localized, &hands)
-                        .unwrap();
-                    let localizedv = format!("{name_only} grab action (value)");
-                    let value_action = action_set
-                        .create_action(&value_name, &localizedv, &hands)
-                        .unwrap();
+                context.add_custom_grab_binding(output, &translated_force, parameters);
 
-                    actions.insert(
-                        force_name.clone(),
-                        super::ActionData::Vector1(FloatActionData::new(force_action.clone())),
-                    );
-                    actions.insert(
-                        value_name.clone(),
-                        super::ActionData::Vector1(FloatActionData::new(value_action.clone())),
-                    );
-
-                    GrabBindingData::new(force_action, value_action, hands)
-                };
-
-                let mut data = actions.remove(&output.0).unwrap();
-                match &mut data {
-                    super::ActionData::Bool(data) => {
-                        if data.grab_data.is_none() {
-                            data.grab_data = Some(create_grab_action(&mut actions));
-                        }
-                    }
-                    super::ActionData::Vector1(data) => {
-                        if data.grab_data.is_none() {
-                            data.grab_data = Some(create_grab_action(&mut actions));
-                        }
-                    }
-                    _ => panic!("expected action {output} to be boolean or float"),
-                }
-
-                trace!("suggesting {translated_force} and {translated_value} for {force_name} (grab binding)");
-                bindings.borrow_mut().push((
-                    force_name.clone(),
-                    instance.string_to_path(&translated_force).unwrap(),
-                ));
-                bindings.borrow_mut().push((
-                    value_name.clone(),
-                    instance.string_to_path(&translated_value).unwrap(),
-                ));
-
-                actions.insert(output.to_string(), data);
+                trace!("suggesting {translated_force} and {translated_value} for {force_full_name} (grab binding)");
+                context.push_binding(
+                    force_full_name.clone(),
+                    context.instance.string_to_path(&translated_force).unwrap(),
+                );
+                context.push_binding(
+                    value_full_name.clone(),
+                    context.instance.string_to_path(&translated_value).unwrap(),
+                );
             }
             ActionBinding::Scroll { inputs, .. } => {
                 warn!("Got scroll binding for input {}, but these are currently unimplemented, skipping", inputs.scroll.output);
@@ -1477,7 +1334,7 @@ fn handle_sources(
                             .ok(),
                     )
                 }) {
-                    try_get_bool_binding(output.to_string(), click_path);
+                    context.try_get_bool_binding(output.to_string(), click_path);
                 }
 
                 if let Some((output, touch_path)) = touch.as_ref().and_then(|b| {
@@ -1487,30 +1344,28 @@ fn handle_sources(
                             .ok(),
                     )
                 }) {
-                    try_get_bool_binding(output.to_string(), touch_path);
+                    context.try_get_bool_binding(output.to_string(), touch_path);
                 }
 
                 if let Some(position) = position.as_ref() {
-                    try_get_binding(
-                        position.output.to_string(),
-                        translated,
-                        action_match!(Vector2 { .. }),
-                    );
+                    context.try_get_v2_binding(position.output.to_string(), translated);
                 }
             }
         }
     }
-    bindings.into_inner()
 }
 
-fn handle_skeleton_bindings(actions: &LoadedActionDataMap, bindings: &[SkeletonActionBinding]) {
+fn handle_skeleton_bindings(
+    context: &BindingsProfileLoadContext,
+    bindings: &[SkeletonActionBinding],
+) {
     for SkeletonActionBinding { output, path } in bindings {
         trace!("binding skeleton action {output} to {path:?}");
-        if !find_action(actions, output) {
+        if !context.find_action(output) {
             continue;
         };
 
-        match &actions[&output.0] {
+        match &context.actions[&output.0] {
             super::ActionData::Skeleton { hand, .. } => assert_eq!(hand, path),
             _ => panic!("Expected skeleton action for skeleton binding {output}"),
         }
@@ -1520,54 +1375,47 @@ fn handle_skeleton_bindings(actions: &LoadedActionDataMap, bindings: &[SkeletonA
 fn handle_haptic_bindings(
     instance: &xr::Instance,
     path_translator: impl Fn(&str) -> Result<String, InvalidActionPath>,
-    actions: &LoadedActionDataMap,
+    context: &mut BindingsProfileLoadContext,
     bindings: &[SimpleActionBinding],
-) -> Vec<(String, xr::Path)> {
-    let mut ret = Vec::new();
-
+) {
     for SimpleActionBinding { output, path } in bindings {
         let Ok(translated) = path_translator(path).inspect_err(translate_warn(output)) else {
             continue;
         };
-        if !find_action(actions, output) {
+        if !context.find_action(output) {
             continue;
         };
 
         assert!(
-            matches!(actions[&output.0], super::ActionData::Haptic(_)),
+            matches!(&context.actions[&output.0], super::ActionData::Haptic(_)),
             "expected haptic action for haptic binding {}, got {}",
             translated,
             output
         );
         let xr_path = instance.string_to_path(&translated).unwrap();
-        ret.push((output.0.clone(), xr_path));
+        context.push_binding(output.0.clone(), xr_path);
     }
-
-    ret
 }
 
-fn handle_pose_bindings(
-    profile_path: xr::Path,
-    actions: &mut LoadedActionDataMap,
-    bindings: &[PoseBinding],
-) {
+fn handle_pose_bindings(context: &mut BindingsProfileLoadContext, bindings: &[PoseBinding]) {
     for PoseBinding {
         output,
         path: (hand, pose_ty),
     } in bindings
     {
-        if !find_action(actions, output) {
+        if !context.find_action(output) {
             continue;
         };
 
-        let super::ActionData::Pose { bindings, .. } = actions.get_mut(&output.0).unwrap() else {
-            panic!("Expected pose action for pose binding on {output}");
-        };
+        assert!(
+            matches!(
+                context.actions.get_mut(&output.0).unwrap(),
+                ActionData::Pose
+            ),
+            "Expected pose action for pose binding on {output}"
+        );
 
-        let bound = bindings.entry(profile_path).or_insert(super::BoundPose {
-            left: None,
-            right: None,
-        });
+        let bound = context.pose_bindings.entry(output.0.clone()).or_default();
 
         let b = match hand {
             Hand::Left => &mut bound.left,

@@ -83,8 +83,8 @@ macro_rules! impl_action_type {
     };
 }
 
-impl_action_type!(bool, "boolean", ActionData::Bool(a) => a.action.as_raw());
-impl_action_type!(f32, "vector1", ActionData::Vector1(d) => d.action.as_raw());
+impl_action_type!(bool, "boolean", ActionData::Bool(a) => a.as_raw());
+impl_action_type!(f32, "vector1", ActionData::Vector1 { action, .. } => action.as_raw());
 impl_action_type!(xr::Vector2f, "vector2", ActionData::Vector2{ action, .. } => action.as_raw());
 impl_action_type!(xr::Haptic, "haptic", ActionData::Haptic(a) => a.as_raw());
 //impl_action_type!(xr::Posef, "pose", ActionData::Pose { action, .. } => action.as_raw());
