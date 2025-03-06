@@ -1040,8 +1040,7 @@ fn handle_dpad_binding(
     );
 
     for (action_name, direction) in bound_actions {
-        context.get_or_create_dpad_actions(action_name, &created_actions);
-        context.add_custom_dpad_binding(parent_path, action_name, direction);
+        context.add_custom_dpad_binding(parent_path, action_name, direction, &created_actions);
     }
 
     let activator_binding = created_actions

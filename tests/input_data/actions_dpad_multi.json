@@ -1,0 +1,35 @@
+{
+	"action_sets": [
+		{
+			"name": "/actions/set1",
+			"usage": "leftright"
+		},
+		{
+			"name": "/actions/set2",
+			"usage": "leftright"
+		}
+	],
+	"actions": [
+		{
+			"name": "/actions/set1/in/boolact",
+			"requirement": "mandatory",
+			"type": "boolean"
+		},
+		{
+			"name": "/actions/set2/in/boolact",
+			"requirement": "mandatory",
+			"type": "boolean"
+		}
+	],
+	"default_bindings": [
+		{
+			"binding_url": "wands_dpad.json",
+			"controller_type": "vive_controller"
+		},
+		{
+			"binding_url": "knuckles_dpad_thumbstick.json",
+			"controller_type": "knuckles"
+		}
+	],
+	"localization": []
+}

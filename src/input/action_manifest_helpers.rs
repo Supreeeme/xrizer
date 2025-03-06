@@ -284,13 +284,29 @@ impl BindingsProfileLoadContext<'_> {
         parent_path: &str,
         action_name: &str,
         direction: DpadDirection,
+        created_actions: &(
+            xr::Action<xr::Vector2f>,
+            Option<DpadActivatorData>,
+            Option<DpadHapticData>,
+        ),
     ) {
         if let Some(binding_hand) = parse_hand_from_path(self.instance, parent_path) {
+            let (parent_action, click_or_touch, haptic) = created_actions;
+            // Add an empty extra actions holder - custom bindings are gated by their presence
+            self.extra_actions
+                .entry(action_name.to_string())
+                .or_default();
+            let dpad_actions = DpadActions {
+                xy: parent_action.clone(),
+                click_or_touch: click_or_touch.as_ref().map(|d| d.action.clone()),
+                haptic: haptic.as_ref().map(|x| x.action.clone()),
+            };
             self.bindings_parsed
                 .entry(action_name.to_string())
                 .or_default()
                 .push(BindingData::Dpad(
                     DpadData {
+                        dpad_actions,
                         direction,
                         last_state: false.into(),
                     },
@@ -584,29 +600,5 @@ impl BindingsProfileLoadContext<'_> {
             }),
             haptic_data,
         )
-    }
-
-    pub fn get_or_create_dpad_actions(
-        &mut self,
-        action_name: &str,
-        created_actions: &(
-            xr::Action<xr::Vector2f>,
-            Option<DpadActivatorData>,
-            Option<DpadHapticData>,
-        ),
-    ) {
-        let mut data = self.extra_actions.remove(action_name).unwrap_or_default();
-
-        if data.dpad_actions.is_none() {
-            let (parent_action, click_or_touch, haptic) = created_actions;
-            data.dpad_actions = Some(DpadActions {
-                xy: parent_action.clone(),
-                click_or_touch: click_or_touch.as_ref().map(|d| d.action.clone()),
-                haptic: haptic.as_ref().map(|x| x.action.clone()),
-            })
-        }
-
-        // Reinsert
-        self.extra_actions.insert(action_name.to_string(), data);
     }
 }

@@ -22,6 +22,7 @@ pub(super) struct DpadActions {
 }
 
 pub(super) struct DpadData {
+    pub dpad_actions: DpadActions,
     pub direction: DpadDirection,
     pub last_state: AtomicBool,
 }
@@ -34,14 +35,11 @@ impl DpadData {
     const DPAD_RELEASE_THRESHOLD: f32 = 0.2;
     fn state<G>(
         &self,
-        extras: &ExtraActionData,
         session: &xr::Session<G>,
         subaction_path: xr::Path,
     ) -> xr::Result<Option<xr::ActionState<bool>>> {
-        let Some(action) = extras.dpad_actions.as_ref() else {
-            return Ok(None);
-        };
-        let parent_state = action.xy.state(session, xr::Path::NULL)?;
+        let action = &self.dpad_actions;
+        let parent_state = action.xy.state(session, subaction_path)?;
         let mut ret_state = xr::ActionState {
             current_state: false,
             last_change_time: parent_state.last_change_time, // TODO: this is wrong
@@ -63,7 +61,7 @@ impl DpadData {
                 // If this action isn't bound in the current interaction profile,
                 // is_active will be false - in this case, it's probably a joystick touch dpad, in
                 // which case we still want to read the current state.
-                a.state(session, xr::Path::NULL)
+                a.state(session, subaction_path)
                     .map(|s| !s.is_active || s.current_state > active_threshold)
             })
             .unwrap_or(Ok(true))?;
@@ -331,7 +329,7 @@ impl BindingData {
         assert_ne!(subaction_path, xr::Path::NULL);
         match self {
             BindingData::Dpad(dpad, x) if x == &subaction_path => {
-                dpad.state(extra_data, &session.session, subaction_path)
+                dpad.state(&session.session, subaction_path)
             }
             BindingData::Toggle(toggle, x) if x == &subaction_path => {
                 toggle.state(extra_data, &session.session, subaction_path)
@@ -353,6 +351,7 @@ mod tests {
     use crate::input::profiles::knuckles::Knuckles;
     use crate::input::profiles::vive_controller::ViveWands;
     use crate::input::tests::Fixture;
+    use crate::input::InteractionProfile;
     use fakexr::UserPath::*;
     use openvr as vr;
 
@@ -367,12 +366,29 @@ mod tests {
     }
 
     macro_rules! get_dpad_action {
-        ($fixture:expr, $handle:expr, $dpad_data:ident) => {
+        ($fixture:expr, $handle:expr, $dpad_data:ident, $profile:ident) => {
             let data = $fixture.input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
-            let ExtraActionData { dpad_actions, .. } = actions.try_get_extra($handle).unwrap();
+            let path = $fixture
+                .input
+                .openxr
+                .instance
+                .string_to_path($profile.profile_path())
+                .unwrap();
+            let bindings = actions.try_get_bindings($handle, path).unwrap();
 
-            let $dpad_data = dpad_actions.as_ref().unwrap();
+            let bindings: Vec<&DpadData> = bindings
+                .iter()
+                .filter_map(|x| match x {
+                    BindingData::Dpad(a, _) => Some(a),
+                    _ => None,
+                })
+                .collect();
+            if bindings.len() != 1 {
+                panic!("Got {} dpad bindings when one was expected", bindings.len());
+            }
+
+            let $dpad_data = &bindings[0].dpad_actions;
         };
     }
 
@@ -396,7 +412,7 @@ mod tests {
         f.load_actions(c"actions_dpad.json");
         f.input.openxr.restart_session();
 
-        get_dpad_action!(f, boolact, dpad_data);
+        get_dpad_action!(f, boolact, dpad_data, ViveWands);
 
         f.set_interaction_profile(&ViveWands, LeftHand);
         fakexr::set_action_state(
@@ -455,8 +471,8 @@ mod tests {
 
         f.load_actions(c"actions_dpad.json");
 
-        get_dpad_action!(f, boolact_set1, set1_dpad);
-        get_dpad_action!(f, boolact_set2, set2_dpad);
+        get_dpad_action!(f, boolact_set1, set1_dpad, ViveWands);
+        get_dpad_action!(f, boolact_set2, set2_dpad, ViveWands);
 
         assert_ne!(set1_dpad.xy.as_raw(), set2_dpad.xy.as_raw());
     }
@@ -470,7 +486,7 @@ mod tests {
         f.load_actions(c"actions_dpad_mixed.json");
         f.input.openxr.restart_session();
 
-        get_dpad_action!(f, boolact, _dpad);
+        get_dpad_action!(f, boolact, _dpad, ViveWands);
 
         f.sync(vr::VRActiveActionSet_t {
             ulActionSet: set1,
@@ -495,6 +511,106 @@ mod tests {
         let state = f.get_bool_state(boolact).unwrap();
         assert!(state.bState);
         assert!(state.bActive);
+        assert!(state.bChanged);
+    }
+
+    #[test]
+    fn dpad_cross_profile_actions() {
+        let f = Fixture::new();
+        let set1 = f.get_action_set_handle(c"/actions/set1");
+        let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+
+        f.load_actions(c"actions_dpad_multi.json");
+        f.input.openxr.restart_session();
+
+        get_dpad_action!(f, boolact, dpad_data_vive, ViveWands);
+        get_dpad_action!(f, boolact, dpad_data_knuckles, Knuckles);
+
+        // These bindings are on different dpads (trackpad vs thumbstick)
+        assert_ne!(dpad_data_vive.xy.as_raw(), dpad_data_knuckles.xy.as_raw());
+
+        f.set_interaction_profile(&ViveWands, LeftHand);
+        fakexr::set_action_state(
+            dpad_data_vive.xy.as_raw(),
+            fakexr::ActionState::Vector2(0.0, 0.5),
+            LeftHand,
+        );
+        fakexr::set_action_state(
+            dpad_data_vive.click_or_touch.as_ref().unwrap().as_raw(),
+            fakexr::ActionState::Float(1.0),
+            LeftHand,
+        );
+
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        let state = f.get_bool_state(boolact).unwrap();
+        assert!(state.bActive);
+        assert!(state.bState);
+        assert!(state.bChanged);
+
+        f.set_interaction_profile(&Knuckles, LeftHand);
+        fakexr::set_action_state(
+            dpad_data_knuckles.xy.as_raw(),
+            fakexr::ActionState::Vector2(0.0, 0.0),
+            LeftHand,
+        );
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        // Any input on touchpad shouldn't trigger thumbstick dpad
+        let state = f.get_bool_state(boolact).unwrap();
+        assert!(state.bActive);
+        assert!(!state.bState);
+        assert!(!state.bChanged);
+
+        fakexr::set_action_state(
+            dpad_data_knuckles.xy.as_raw(),
+            fakexr::ActionState::Vector2(0.0, 0.5),
+            LeftHand,
+        );
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        // Verify thumbstick deflection is sufficient
+        let state = f.get_bool_state(boolact).unwrap();
+        assert!(state.bActive);
+        assert!(state.bState);
+        assert!(state.bChanged);
+
+        f.set_interaction_profile(&ViveWands, LeftHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        // Verify action state stickiness across interaction profiles that this test assumes
+        let state = f.get_bool_state(boolact).unwrap();
+        assert!(state.bActive);
+        assert!(state.bState);
+        assert!(!state.bChanged);
+
+        fakexr::set_action_state(
+            dpad_data_vive.xy.as_raw(),
+            fakexr::ActionState::Vector2(0.0, 0.0),
+            LeftHand,
+        );
+
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        // Verify dpad deactivation on sliding input to center
+        let state = f.get_bool_state(boolact).unwrap();
+        assert!(state.bActive);
+        assert!(!state.bState);
         assert!(state.bChanged);
     }
 

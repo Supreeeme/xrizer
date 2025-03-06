@@ -17,7 +17,7 @@ use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span, AtomicF32,
 };
-use custom_bindings::{BindingData, DpadActions, GrabActions};
+use custom_bindings::{BindingData, GrabActions};
 use legacy::{setup_legacy_bindings, LegacyActionData};
 use log::{debug, info, trace, warn};
 use openvr::{self as vr, space_relation_to_openvr_pose};
@@ -251,7 +251,6 @@ enum ActionData {
 
 #[derive(Default)]
 struct ExtraActionData {
-    pub dpad_actions: Option<DpadActions>,
     pub toggle_action: Option<xr::Action<bool>>,
     pub analog_action: Option<xr::Action<f32>>,
     pub vector2_action: Option<xr::Action<xr::Vector2f>>,
