@@ -419,7 +419,7 @@ impl BindingsProfileLoadContext<'_> {
         float_name_with_as
     }
 
-    pub fn get_or_create_grip_action_pair(
+    pub fn get_or_create_grab_action_pair(
         &mut self,
         output: &LowercaseActionPath,
         action_set_name: &str,
