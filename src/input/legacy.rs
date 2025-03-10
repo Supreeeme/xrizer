@@ -4,7 +4,7 @@ use glam::Quat;
 use log::{debug, trace, warn};
 use openvr as vr;
 use openxr as xr;
-use std::sync::{atomic::Ordering, OnceLock};
+use std::sync::{atomic::Ordering, Arc, RwLock};
 
 impl<C: openxr_data::Compositor> Input<C> {
     pub fn get_legacy_controller_state(
@@ -74,7 +74,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
 macro_rules! legacy_actions_and_bindings {
     ($($field:ident: $ty:ty),+$(,)?) => {
-        pub(super) struct LegacyActions {
+        pub(crate) struct LegacyActions {
             $(pub $field: $ty),+
         }
         pub(super) struct LegacyBindings {
@@ -102,7 +102,7 @@ legacy_actions_and_bindings! {
     squeeze: xr::Action<f32>,
 }
 
-pub(super) struct LegacyActionData {
+pub(crate) struct LegacyActionData {
     pub set: xr::ActionSet,
     pub left_spaces: HandSpaces,
     pub right_spaces: HandSpaces,
@@ -139,7 +139,7 @@ impl LegacyActionData {
             HandSpaces {
                 hand,
                 hand_path,
-                raw: OnceLock::new(),
+                raw: RwLock::new(None),
             }
         };
 
@@ -194,13 +194,13 @@ pub fn setup_legacy_bindings(
         .unwrap();
 }
 
-pub(super) struct HandSpaces {
+pub struct HandSpaces {
     hand: Hand,
     hand_path: xr::Path,
 
     /// Based on the controller jsons in SteamVR, the "raw" pose
     /// This is stored as a space so we can locate hand joints relative to it for skeletal data.
-    raw: OnceLock<xr::Space>,
+    raw: RwLock<Option<Arc<xr::Space>>>,
 }
 
 impl HandSpaces {
@@ -209,8 +209,8 @@ impl HandSpaces {
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
         actions: &LegacyActions,
-    ) -> Option<&xr::Space> {
-        if let Some(raw) = self.raw.get() {
+    ) -> Option<Arc<xr::Space>> {
+        if let Some(raw) = self.raw.read().unwrap().clone() {
             return Some(raw);
         }
 
@@ -243,15 +243,19 @@ impl HandSpaces {
             },
         };
 
-        self.raw
-            .set(
-                actions
-                    .grip_pose
-                    .create_space(&session_data.session, self.hand_path, offset_pose)
-                    .unwrap(),
-            )
-            .unwrap_or_else(|_| unreachable!());
+        let raw_space = Some(Arc::new(
+            actions
+                .grip_pose
+                .create_space(&session_data.session, self.hand_path, offset_pose)
+                .unwrap(),
+        ));
 
-        self.raw.get()
+        *self.raw.write().unwrap() = raw_space.clone();
+
+        raw_space
+    }
+
+    pub fn reset_raw(&self) {
+        *self.raw.write().unwrap() = None;
     }
 }
