@@ -161,6 +161,12 @@ impl<C: Compositor> OpenXrData<C> {
 
                         *info.profile.lock().unwrap() = Profiles::get().profile_from_name(&profile);
 
+                        // If the interaction profile changes the offsets must be updated too
+                        // Delete the current raw spaces so they can be recreated later
+                        let legacy = session.input_data.legacy_actions.get().unwrap();
+                        legacy.left_spaces.reset_raw();
+                        legacy.right_spaces.reset_raw();
+
                         info!(
                             "{} interaction profile changed: {}",
                             info.path_name, profile

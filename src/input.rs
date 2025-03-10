@@ -137,7 +137,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 #[derive(Default)]
 pub struct InputSessionData {
     loaded_actions: OnceLock<RwLock<LoadedActions>>,
-    legacy_actions: OnceLock<LegacyActionData>,
+    pub(crate) legacy_actions: OnceLock<LegacyActionData>,
     estimated_skeleton_actions: OnceLock<SkeletalInputActionData>,
 }
 
