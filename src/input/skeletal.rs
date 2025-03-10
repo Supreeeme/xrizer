@@ -28,7 +28,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let legacy = session_data.input_data.legacy_actions.get().unwrap();
         let display_time = self.openxr.display_time.get();
-        let Some(raw) = match hand {
+        let Some(raw) = &*match hand {
             Hand::Left => &legacy.left_spaces,
             Hand::Right => &legacy.right_spaces,
         }
