@@ -162,6 +162,8 @@ impl<C: Compositor> OpenXrData<C> {
 
                         *info.profile.lock().unwrap() = Profiles::get().profile_from_name(&profile);
 
+                        session.input_data.interaction_profile_changed();
+
                         info!(
                             "{} interaction profile changed: {}",
                             info.path_name, profile

@@ -1,16 +1,17 @@
 use super::{
     profiles::{
-        knuckles::Knuckles, simple_controller::SimpleController, vive_controller::ViveWands,
+        knuckles::Knuckles, oculus_touch::Touch, simple_controller::SimpleController,
+        vive_controller::ViveWands,
     },
     ActionData, Input, InteractionProfile,
 };
 use crate::{
     graphics_backends::GraphicsBackend,
-    openxr_data::{FrameStream, OpenXrData, SessionCreateInfo},
+    openxr_data::{FrameStream, Hand, OpenXrData, SessionCreateInfo},
     vr::{self, IVRInput010_Interface},
 };
 use fakexr::UserPath::*;
-use glam::Quat;
+use glam::{Mat4, Quat};
 use openxr as xr;
 use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_4;
@@ -604,6 +605,97 @@ fn pose_action_no_restrict() {
         let p = actual.pose;
         assert!(p.bPoseIsValid);
         compare_pose(expected, p.mDeviceToAbsoluteTracking.into());
+    }
+}
+
+#[test]
+fn raw_pose_switch_profile() {
+    let f = Fixture::new();
+
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let posel = f.get_action_handle(c"/actions/set1/in/posel");
+    let poser = f.get_action_handle(c"/actions/set1/in/poser");
+
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile(&SimpleController, LeftHand);
+    f.set_interaction_profile(&SimpleController, RightHand);
+    let session = f.input.openxr.session_data.get().session.as_raw();
+    let pose_left = xr::Posef {
+        position: xr::Vector3f {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        orientation: xr::Quaternionf::IDENTITY,
+    };
+    fakexr::set_grip(session, LeftHand, pose_left);
+
+    let pose_right = xr::Posef {
+        position: xr::Vector3f {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        orientation: xr::Quaternionf::IDENTITY,
+    };
+    fakexr::set_grip(session, RightHand, pose_right);
+
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    fn offset_to_pose(offset: &Mat4) -> xr::Posef {
+        let translation = offset.w_axis.truncate();
+        let rotation = Quat::from_mat4(&offset);
+
+        xr::Posef {
+            orientation: xr::Quaternionf {
+                x: rotation.x,
+                y: rotation.y,
+                z: rotation.z,
+                w: rotation.w,
+            },
+            position: xr::Vector3f {
+                x: translation.x,
+                y: translation.y,
+                z: translation.z,
+            },
+        }
+    }
+
+    for (handle, expected) in [
+        (posel, &SimpleController.offset_grip_pose(Hand::Left)),
+        (poser, &SimpleController.offset_grip_pose(Hand::Right)),
+    ] {
+        let actual = f.get_pose(handle, 0).unwrap();
+        assert!(actual.bActive);
+        let p = actual.pose;
+        assert!(p.bPoseIsValid);
+        compare_pose(offset_to_pose(expected), p.mDeviceToAbsoluteTracking.into());
+    }
+
+    f.set_interaction_profile(&Touch, LeftHand);
+    f.set_interaction_profile(&Touch, RightHand);
+
+    // Cached poses don't reset until next frame
+    f.input.openxr.poll_events();
+    f.input.frame_start_update();
+
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    for (handle, expected) in [
+        (posel, &Touch.offset_grip_pose(Hand::Left)),
+        (poser, &Touch.offset_grip_pose(Hand::Right)),
+    ] {
+        let actual = f.get_pose(handle, 0).unwrap();
+        assert!(actual.bActive);
+        let p = actual.pose;
+        assert!(p.bPoseIsValid);
+        compare_pose(offset_to_pose(expected), p.mDeviceToAbsoluteTracking.into());
     }
 }
 

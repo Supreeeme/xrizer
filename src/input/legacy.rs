@@ -4,9 +4,12 @@ use glam::Quat;
 use log::{debug, trace, warn};
 use openvr as vr;
 use openxr as xr;
-use std::sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
-    OnceLock,
+use std::{
+    ops::Deref,
+    sync::{
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        RwLock, RwLockReadGuard,
+    },
 };
 
 #[derive(Default)]
@@ -203,7 +206,7 @@ impl LegacyActionData {
             HandSpaces {
                 hand,
                 hand_path,
-                raw: OnceLock::new(),
+                raw: RwLock::new(None),
             }
         };
 
@@ -291,7 +294,15 @@ pub(super) struct HandSpaces {
 
     /// Based on the controller jsons in SteamVR, the "raw" pose
     /// This is stored as a space so we can locate hand joints relative to it for skeletal data.
-    raw: OnceLock<xr::Space>,
+    raw: RwLock<Option<xr::Space>>,
+}
+
+pub(super) struct SpaceReadGuard<'a>(RwLockReadGuard<'a, Option<xr::Space>>);
+impl Deref for SpaceReadGuard<'_> {
+    type Target = xr::Space;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().unwrap()
+    }
 }
 
 impl HandSpaces {
@@ -300,50 +311,57 @@ impl HandSpaces {
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
         actions: &LegacyActions,
-    ) -> Option<&xr::Space> {
-        if let Some(raw) = self.raw.get() {
-            return Some(raw);
+    ) -> Option<SpaceReadGuard> {
+        {
+            let raw = self.raw.read().unwrap();
+            if raw.is_some() {
+                return Some(SpaceReadGuard(raw));
+            }
         }
 
-        let hand_profile = match self.hand {
-            Hand::Right => &xr_data.right_hand.profile,
-            Hand::Left => &xr_data.left_hand.profile,
-        };
+        {
+            let hand_profile = match self.hand {
+                Hand::Right => &xr_data.right_hand.profile,
+                Hand::Left => &xr_data.left_hand.profile,
+            };
 
-        let hand_profile = hand_profile.lock().unwrap();
-        let Some(profile) = hand_profile.as_ref() else {
-            trace!("no hand profile, no raw space will be created");
-            return None;
-        };
+            let hand_profile = hand_profile.lock().unwrap();
+            let Some(profile) = hand_profile.as_ref() else {
+                trace!("no hand profile, no raw space will be created");
+                return None;
+            };
 
-        let offset = profile.offset_grip_pose(self.hand);
-        let translation = offset.w_axis.truncate();
-        let rotation = Quat::from_mat4(&offset);
+            let offset = profile.offset_grip_pose(self.hand);
+            let translation = offset.w_axis.truncate();
+            let rotation = Quat::from_mat4(&offset);
 
-        let offset_pose = xr::Posef {
-            orientation: xr::Quaternionf {
-                x: rotation.x,
-                y: rotation.y,
-                z: rotation.z,
-                w: rotation.w,
-            },
-            position: xr::Vector3f {
-                x: translation.x,
-                y: translation.y,
-                z: translation.z,
-            },
-        };
+            let offset_pose = xr::Posef {
+                orientation: xr::Quaternionf {
+                    x: rotation.x,
+                    y: rotation.y,
+                    z: rotation.z,
+                    w: rotation.w,
+                },
+                position: xr::Vector3f {
+                    x: translation.x,
+                    y: translation.y,
+                    z: translation.z,
+                },
+            };
 
-        self.raw
-            .set(
+            *self.raw.write().unwrap() = Some(
                 actions
                     .grip_pose
                     .create_space(&session_data.session, self.hand_path, offset_pose)
                     .unwrap(),
-            )
-            .unwrap_or_else(|_| unreachable!());
+            );
+        }
 
-        self.raw.get()
+        Some(SpaceReadGuard(self.raw.read().unwrap()))
+    }
+
+    pub fn reset_raw(&self) {
+        *self.raw.write().unwrap() = None;
     }
 }
 

@@ -9,6 +9,14 @@
 				{
 					"output": "/actions/set1/in/pose",
 					"path": "/user/hand/right/pose/raw"
+				},
+				{
+					"output": "/actions/set1/in/posel",
+					"path": "/user/hand/left/pose/raw"
+				},
+				{
+					"output": "/actions/set1/in/poser",
+					"path": "/user/hand/right/pose/raw"
 				}
 			],
 			"haptics": [
