@@ -229,6 +229,15 @@ impl InputSessionData {
     fn get_loaded_actions(&self) -> Option<std::sync::RwLockReadGuard<'_, LoadedActions>> {
         self.loaded_actions.get().map(|l| l.read().unwrap())
     }
+
+    pub(crate) fn interaction_profile_changed(&self) {
+        if let Some(legacy) = self.legacy_actions.get() {
+            // If the interaction profile changes the offsets must be updated too
+            // Delete the current raw spaces so they can be recreated later
+            legacy.left_spaces.reset_raw();
+            legacy.right_spaces.reset_raw();
+        }
+    }
 }
 enum ActionData {
     Bool(xr::Action<bool>),
@@ -1394,7 +1403,10 @@ impl CachedSpaces {
                 Hand::Right => &legacy.right_spaces,
             };
 
-            if let Some(raw) = spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions) {
+            if let Some(raw) = spaces
+                .try_get_or_init_raw(xr_data, session_data, &legacy.actions)
+                .as_ref()
+            {
                 raw.relate(session_data.get_space_for_origin(origin), display_time)
                     .unwrap()
             } else {
