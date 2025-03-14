@@ -3,13 +3,14 @@ use crate::{
     graphics_backends::{supported_apis_enum, GraphicsBackend, SupportedBackend},
     openxr_data::{GraphicalSession, OpenXrData, Session, SessionData},
 };
+use glam::{vec3, Quat, Vec3};
 use log::{debug, trace};
 use openvr as vr;
 use openxr as xr;
 use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
-use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex, RwLock};
+use std::{collections::HashMap, f32::consts::PI};
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVROverlay"]
@@ -34,7 +35,7 @@ impl OverlayMan {
     pub fn get_layers<'a, G: xr::Graphics>(
         &self,
         session: &'a SessionData,
-    ) -> Vec<xr::CompositionLayerQuad<'a, G>>
+    ) -> Vec<OverlayLayer<'a, G>>
     where
         for<'b> &'b AnySwapchainMap: TryInto<&'b SwapchainMap<G>, Error: std::fmt::Display>,
     {
@@ -68,48 +69,95 @@ impl OverlayMan {
             );
 
             trace!("overlay rect: {:#?}", rect);
-            let layer = xr::CompositionLayerQuad::new()
-                .space(space)
-                .layer_flags(xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
-                .eye_visibility(xr::EyeVisibility::BOTH)
-                .sub_image(
-                    xr::SwapchainSubImage::new()
-                        .image_array_index(vr::EVREye::Left as u32)
-                        .swapchain(swapchain)
-                        .image_rect(rect),
-                )
-                .pose(
-                    overlay
-                        .transform
-                        .as_ref()
-                        .map(|(_, t)| (*t).into())
-                        .unwrap_or(xr::Posef {
-                            position: xr::Vector3f {
-                                x: 0.0,
-                                y: 0.0,
-                                z: -0.5,
-                            },
-                            orientation: xr::Quaternionf::IDENTITY,
-                        }),
-                )
-                .size(xr::Extent2Df {
-                    width: overlay.width,
-                    height: rect.extent.height as f32 * overlay.width / rect.extent.width as f32,
+
+            let pose = overlay
+                .transform
+                .as_ref()
+                .map(|(_, t)| (*t).into())
+                .unwrap_or(xr::Posef {
+                    position: xr::Vector3f {
+                        x: 0.0,
+                        y: 0.0,
+                        z: -0.5,
+                    },
+                    orientation: xr::Quaternionf::IDENTITY,
                 });
 
-            fn lifetime_extend<'a, 'b: 'a, G: xr::Graphics>(
-                layer: xr::CompositionLayerQuad<'a, G>,
-            ) -> xr::CompositionLayerQuad<'b, G> {
-                // SAFETY: We need to remove the lifetimes to be able to return this layer.
-                // Internally, CompositionLayerQuad is using the raw OpenXR handles and PhantomData, not actual
-                // references, so returning it as long as we can guarantee the lifetimes of the space and
-                // swapchain is fine. Both of these are derived from the SessionData,
-                // so we should have no lifetime problems.
-                unsafe { xr::CompositionLayerQuad::from_raw(layer.into_raw()) }
-            }
+            let subimage = xr::SwapchainSubImage::new()
+                .image_array_index(vr::EVREye::Left as u32)
+                .swapchain(swapchain)
+                .image_rect(rect);
 
-            let layer = lifetime_extend(layer);
-            layers.push(layer);
+            // SAFETY: SetOverlayCurvature ensures the following:
+            // - Curvature is only ever non-zero if CompositionLayerCylinderKHR is supported.
+            // - Curvature is within [0.0, 1.0]
+            if overlay.curvature > 0.0 {
+                let radius = overlay.width / (2.0 * PI * overlay.curvature);
+                let pos = vec3(pose.position.x, pose.position.y, pose.position.z);
+                let rot = Quat::from_xyzw(
+                    pose.orientation.x,
+                    pose.orientation.y,
+                    pose.orientation.z,
+                    pose.orientation.w,
+                );
+
+                let center = pos + rot.mul_vec3(Vec3::Z * radius);
+
+                let angle = 2.0 * (overlay.width / (2.0 * radius));
+
+                let layer = xr::CompositionLayerCylinderKHR::new()
+                    .space(space)
+                    .layer_flags(xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
+                    .eye_visibility(xr::EyeVisibility::BOTH)
+                    .sub_image(subimage)
+                    .radius(radius)
+                    .central_angle(angle)
+                    .aspect_ratio(rect.extent.height as f32 / rect.extent.width as f32)
+                    .pose(xr::Posef {
+                        orientation: pose.orientation,
+                        position: xr::Vector3f {
+                            x: center.x,
+                            y: center.y,
+                            z: center.z,
+                        },
+                    });
+
+                fn lifetime_extend<'a, 'b: 'a, G: xr::Graphics>(
+                    layer: xr::CompositionLayerCylinderKHR<'a, G>,
+                ) -> xr::CompositionLayerCylinderKHR<'b, G> {
+                    // SAFETY: See other lifetime_extend below
+                    unsafe { xr::CompositionLayerCylinderKHR::from_raw(layer.into_raw()) }
+                }
+
+                let layer = lifetime_extend(layer);
+                layers.push(OverlayLayer::Cylinder(layer));
+            } else {
+                let layer = xr::CompositionLayerQuad::new()
+                    .space(space)
+                    .layer_flags(xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
+                    .eye_visibility(xr::EyeVisibility::BOTH)
+                    .sub_image(subimage)
+                    .pose(pose)
+                    .size(xr::Extent2Df {
+                        width: overlay.width,
+                        height: rect.extent.height as f32 * overlay.width
+                            / rect.extent.width as f32,
+                    });
+
+                fn lifetime_extend<'a, 'b: 'a, G: xr::Graphics>(
+                    layer: xr::CompositionLayerQuad<'a, G>,
+                ) -> xr::CompositionLayerQuad<'b, G> {
+                    // SAFETY: We need to remove the lifetimes to be able to return this layer.
+                    // Internally, CompositionLayerQuad is using the raw OpenXR handles and PhantomData, not actual
+                    // references, so returning it as long as we can guarantee the lifetimes of the space and
+                    // swapchain is fine. Both of these are derived from the SessionData,
+                    // so we should have no lifetime problems.
+                    unsafe { xr::CompositionLayerQuad::from_raw(layer.into_raw()) }
+                }
+
+                let layer = lifetime_extend(layer);
+                layers.push(OverlayLayer::Quad(layer));
+            }
         }
 
         trace!("returning {} layers", layers.len());
@@ -120,6 +168,22 @@ impl OverlayMan {
 new_key_type!(
     pub(crate) struct OverlayKey;
 );
+
+pub enum OverlayLayer<'a, G: xr::Graphics> {
+    Quad(xr::CompositionLayerQuad<'a, G>),
+    // Curved overlays
+    Cylinder(xr::CompositionLayerCylinderKHR<'a, G>),
+}
+
+impl<'a, G: xr::Graphics> std::ops::Deref for OverlayLayer<'a, G> {
+    type Target = xr::CompositionLayerBase<'a, G>;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            OverlayLayer::Quad(quad) => quad.deref(),
+            OverlayLayer::Cylinder(cylinder) => cylinder.deref(),
+        }
+    }
+}
 
 pub(crate) struct SwapchainData<G: xr::Graphics> {
     swapchain: xr::Swapchain<G>,
@@ -141,6 +205,7 @@ struct Overlay {
     alpha: f32,
     width: f32,
     visible: bool,
+    curvature: f32,
     bounds: vr::VRTextureBounds_t,
     transform: Option<(vr::ETrackingUniverseOrigin, vr::HmdMatrix34_t)>,
     compositor: Option<SupportedBackend>,
@@ -155,6 +220,7 @@ impl Overlay {
             alpha: 1.0,
             width: 1.0,
             visible: false,
+            curvature: 0.0,
             bounds: vr::VRTextureBounds_t {
                 uMin: 0.0,
                 vMin: 0.0,
@@ -758,18 +824,41 @@ impl vr::IVROverlay027_Interface for OverlayMan {
     fn SetOverlayPreCurvePitch(&self, _: vr::VROverlayHandle_t, _: f32) -> vr::EVROverlayError {
         todo!()
     }
-    fn GetOverlayCurvature(&self, _: vr::VROverlayHandle_t, _: *mut f32) -> vr::EVROverlayError {
-        todo!()
+    fn GetOverlayCurvature(
+        &self,
+        handle: vr::VROverlayHandle_t,
+        value: *mut f32,
+    ) -> vr::EVROverlayError {
+        get_overlay!(self, handle, overlay);
+        unsafe { *value = overlay.curvature };
+        vr::EVROverlayError::None
     }
-    fn SetOverlayCurvature(&self, _: vr::VROverlayHandle_t, _: f32) -> vr::EVROverlayError {
-        todo!()
+    fn SetOverlayCurvature(
+        &self,
+        handle: vr::VROverlayHandle_t,
+        value: f32,
+    ) -> vr::EVROverlayError {
+        // All sanity checks must be made here
+        if self
+            .openxr
+            .enabled_extensions
+            .khr_composition_layer_cylinder
+        {
+            get_overlay!(self, handle, mut overlay);
+            overlay.curvature = value.clamp(0.0, 1.0);
+        }
+        vr::EVROverlayError::None
     }
     fn GetOverlayWidthInMeters(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: *mut f32,
+        handle: vr::VROverlayHandle_t,
+        value: *mut f32,
     ) -> vr::EVROverlayError {
-        todo!()
+        get_overlay!(self, handle, overlay);
+        unsafe {
+            *value = overlay.width;
+        }
+        vr::EVROverlayError::None
     }
     fn GetOverlaySortOrder(&self, _: vr::VROverlayHandle_t, _: *mut u32) -> vr::EVROverlayError {
         todo!()

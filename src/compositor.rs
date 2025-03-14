@@ -11,13 +11,13 @@ use crate::{
 use log::{debug, info, trace};
 use openvr as vr;
 use openxr as xr;
-use std::ffi::c_char;
 use std::mem::offset_of;
 use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc, Mutex,
 };
 use std::time::Instant;
+use std::{ffi::c_char, ops::Deref};
 
 #[derive(Default)]
 pub struct CompositorSessionData(Mutex<Option<DynFrameController>>);
@@ -1028,7 +1028,7 @@ impl<G: GraphicsBackend> FrameController<G> {
         let overlay_layers;
         if let Some(overlay_man) = overlays {
             overlay_layers = overlay_man.get_layers(session_data);
-            layers.extend(overlay_layers.iter().map(std::ops::Deref::deref));
+            layers.extend(overlay_layers.iter().map(Deref::deref));
         }
 
         self.stream
