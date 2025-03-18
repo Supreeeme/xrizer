@@ -330,8 +330,24 @@ impl vr::IVRCompositor028_Interface for Compositor {
     ) -> vr::EVRCompositorError {
         todo!()
     }
-    fn SuspendRendering(&self, _bSuspend: bool) {
-        crate::warn_unimplemented!("SuspendRendering");
+    fn SuspendRendering(&self, bSuspend: bool) {
+        #[macros::any_graphics(DynFrameController)]
+        fn set_suspend_render<G: GraphicsBackend + 'static>(
+            ctrl: &mut FrameController<G>,
+            app_suspend_render: bool,
+        ) {
+            ctrl.app_suspend_render = app_suspend_render;
+        }
+
+        self.openxr
+            .session_data
+            .get()
+            .comp_data
+            .0
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .for_each(|ctrl| ctrl.with_any_graphics_mut::<set_suspend_render>(bSuspend));
     }
     fn ForceReconnectProcess(&self) {
         todo!()
@@ -377,21 +393,68 @@ impl vr::IVRCompositor028_Interface for Compositor {
         crate::warn_unimplemented!("CompositorBringToFront");
     }
     fn ClearSkyboxOverride(&self) {
-        crate::warn_unimplemented!("ClearSkyboxOverride");
+        if let Some(overlays) = self.overlays.get() {
+            overlays.clear_skybox();
+        }
     }
     fn SetSkyboxOverride(
         &self,
-        _pTextures: *const vr::Texture_t,
-        _unTextureCount: u32,
+        pTextures: *const vr::Texture_t,
+        unTextureCount: u32,
     ) -> vr::EVRCompositorError {
-        crate::warn_unimplemented!("SetSkyboxOverride");
+        let overlays = self
+            .overlays
+            .force(|_| OverlayMan::new(self.openxr.clone()));
+        if pTextures.is_null() {
+            return vr::EVRCompositorError::RequestFailed;
+        }
+        match unTextureCount {
+            1..=2 => {
+                if !self
+                    .openxr
+                    .enabled_extensions
+                    .khr_composition_layer_equirect2
+                {
+                    log::info!("Could not set skybox: khr_composition_layer_equirect2 unsupported");
+                    return vr::EVRCompositorError::None;
+                }
+                log::debug!("Setting new equirect skybox");
+            }
+            6 => {
+                log::debug!("Setting new box skybox");
+            }
+            _ => {
+                log::warn!("Invalid number of skybox textures: {}", unTextureCount);
+                return vr::EVRCompositorError::RequestFailed;
+            }
+        }
+
+        let textures = unsafe { std::slice::from_raw_parts(pTextures, unTextureCount as _) };
+        overlays.set_skybox(&self.openxr.session_data.get(), textures);
+
         vr::EVRCompositorError::None
     }
     fn GetCurrentGridAlpha(&self) -> f32 {
         0.0
     }
-    fn FadeGrid(&self, _fSeconds: f32, _bFadeGridIn: bool) {
-        crate::warn_unimplemented!("FadeGrid");
+    fn FadeGrid(&self, _fSeconds: f32, bFadeGridIn: bool) {
+        #[macros::any_graphics(DynFrameController)]
+        fn set_fade_grid<G: GraphicsBackend + 'static>(
+            ctrl: &mut FrameController<G>,
+            app_fade_grid: bool,
+        ) {
+            ctrl.app_fade_grid = app_fade_grid;
+        }
+
+        self.openxr
+            .session_data
+            .get()
+            .comp_data
+            .0
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .for_each(|ctrl| ctrl.with_any_graphics_mut::<set_fade_grid>(bFadeGridIn));
     }
     fn GetCurrentFadeColor(&self, _bBackground: bool) -> vr::HmdColor_t {
         todo!()
@@ -708,6 +771,8 @@ struct FrameController<G: GraphicsBackend> {
     image_index: usize,
     image_acquired: bool,
     should_render: bool,
+    app_suspend_render: bool,
+    app_fade_grid: bool,
     eyes_submitted: [Option<SubmittedEye>; 2],
     submitting_null: bool,
     backend: G,
@@ -791,6 +856,8 @@ impl<G: GraphicsBackend> FrameController<G> {
             image_index: 0,
             image_acquired: false,
             should_render: false,
+            app_suspend_render: false,
+            app_fade_grid: false,
             eyes_submitted: Default::default(),
             submitting_null: false,
             backend,
@@ -859,7 +926,7 @@ impl<G: GraphicsBackend> FrameController<G> {
             tracy_span!("wait frame");
             self.waiter.wait().unwrap()
         };
-        self.should_render = frame_state.should_render;
+        self.should_render = frame_state.should_render && !self.app_suspend_render;
         {
             tracy_span!("begin frame");
             self.stream.begin().unwrap();
@@ -965,10 +1032,10 @@ impl<G: GraphicsBackend> FrameController<G> {
         self.image_acquired = false;
 
         let mut proj_layer_views = Vec::new();
+
         if self.should_render {
             let crate::system::ViewData { flags, views } =
                 system.get_views(session_data.current_origin_as_reference_space());
-
             proj_layer_views = views
                 .into_iter()
                 .enumerate()
@@ -1027,7 +1094,7 @@ impl<G: GraphicsBackend> FrameController<G> {
         }
         let overlay_layers;
         if let Some(overlay_man) = overlays {
-            overlay_layers = overlay_man.get_layers(session_data);
+            overlay_layers = overlay_man.get_layers(session_data, self.app_fade_grid);
             layers.extend(overlay_layers.iter().map(Deref::deref));
         }
 

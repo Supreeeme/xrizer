@@ -88,6 +88,7 @@ impl<C: Compositor> OpenXrData<C> {
         exts.ext_hand_tracking = supported_exts.ext_hand_tracking;
         exts.khr_visibility_mask = supported_exts.khr_visibility_mask;
         exts.khr_composition_layer_cylinder = supported_exts.khr_composition_layer_cylinder;
+        exts.khr_composition_layer_equirect2 = supported_exts.khr_composition_layer_equirect2;
 
         let instance = entry
             .create_instance(
