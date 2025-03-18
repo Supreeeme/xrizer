@@ -2,7 +2,8 @@
 mod gen;
 
 use super::Input;
-use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
+use crate::input::devices::tracked_device::TrackedDevice;
+use crate::openxr_data::{self, Hand, SessionData};
 use glam::{Affine3A, Quat, Vec3};
 use log::debug;
 use openvr as vr;
@@ -17,7 +18,6 @@ impl<C: openxr_data::Compositor> Input<C> {
     /// Returns false if hand tracking data couldn't be generated for some reason.
     pub(super) fn get_bones_from_hand_tracking(
         &self,
-        xr_data: &OpenXrData<C>,
         session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
         hand_tracker: &xr::HandTracker,
@@ -28,11 +28,19 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let legacy = session_data.input_data.legacy_actions.get().unwrap();
         let display_time = self.openxr.display_time.get();
+        let devices = self.devices.read().unwrap();
+
+        let controller = devices.get_controller(hand.into());
+
         let Some(raw) = match hand {
             Hand::Left => &legacy.left_spaces,
             Hand::Right => &legacy.right_spaces,
         }
-        .try_get_or_init_raw(xr_data, session_data, &legacy.actions) else {
+        .try_get_or_init_raw(
+            &controller.get_interaction_profile(),
+            session_data,
+            &legacy.actions,
+        ) else {
             self.get_estimated_bones(session_data, space, hand, transforms);
             return;
         };
@@ -214,10 +222,10 @@ impl<C: openxr_data::Compositor> Input<C> {
             .get()
             .unwrap()
             .actions;
-        let subaction = match hand {
-            Hand::Left => self.openxr.left_hand.subaction_path,
-            Hand::Right => self.openxr.right_hand.subaction_path,
-        };
+
+        let devices = self.devices.read().unwrap();
+
+        let subaction = devices.get_controller(hand.into()).subaction_path;
 
         let thumb_touch = actions
             .thumb_touch

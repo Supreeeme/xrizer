@@ -7,6 +7,7 @@ use super::{
 };
 use crate::{
     graphics_backends::GraphicsBackend,
+    input::devices::tracked_device::TrackedDevice,
     openxr_data::{FrameStream, Hand, OpenXrData, SessionCreateInfo},
     vr::{self, IVRInput010_Interface},
 };
@@ -877,14 +878,18 @@ fn detect_controller_after_manifest_load() {
         f.input.frame_start_update();
     };
 
+    let devices = f.input.devices.read().unwrap();
+
+    let left_hand = devices.get_controller(Hand::Left.into());
+
     frame();
-    assert!(!f.input.openxr.left_hand.connected());
+    assert!(!left_hand.connected());
 
     f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
     frame();
     // Profile won't be set for this frame - we call sync after events have already been polled
-    assert!(!f.input.openxr.left_hand.connected());
+    assert!(!left_hand.connected());
 
     frame();
-    assert!(f.input.openxr.left_hand.connected());
+    assert!(left_hand.connected());
 }

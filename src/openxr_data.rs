@@ -1,7 +1,10 @@
 use crate::{
     clientcore::{Injected, Injector},
     graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData},
-    input::{InteractionProfile, Profiles},
+    input::{
+        devices::tracked_device::{TrackedDevice, TrackedDeviceType},
+        Profiles,
+    },
 };
 use derive_more::{Deref, From, TryInto};
 use glam::f32::{Quat, Vec3};
@@ -10,8 +13,8 @@ use openvr as vr;
 use openxr as xr;
 use std::mem::ManuallyDrop;
 use std::sync::{
-    atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
-    Mutex, RwLock,
+    atomic::{AtomicI64, AtomicU64, Ordering},
+    RwLock,
 };
 
 pub trait Compositor: vr::InterfaceImpl {
@@ -35,8 +38,6 @@ pub struct OpenXrData<C: Compositor> {
     pub system_id: xr::SystemId,
     pub session_data: SessionReadGuard,
     pub display_time: AtomicXrTime,
-    pub left_hand: HandInfo,
-    pub right_hand: HandInfo,
     pub enabled_extensions: xr::ExtensionSet,
 
     /// should only be externally accessed for testing
@@ -118,17 +119,12 @@ impl<C: Compositor> OpenXrData<C> {
             .0,
         )));
 
-        let left_hand = HandInfo::new(&instance, "/user/hand/left");
-        let right_hand = HandInfo::new(&instance, "/user/hand/right");
-
         Ok(Self {
             _entry: entry,
             instance,
             system_id,
             session_data,
             display_time: AtomicXrTime(1.into()),
-            left_hand,
-            right_hand,
             enabled_extensions: exts,
             input: injector.inject(),
             compositor: injector.inject(),
@@ -145,32 +141,52 @@ impl<C: Compositor> OpenXrData<C> {
                 }
                 xr::Event::InteractionProfileChanged(_) => {
                     let session = self.session_data.get();
-                    for info in [&self.left_hand, &self.right_hand] {
+                    if self.input.get().is_none() {
+                        continue;
+                    }
+
+                    let xr_input = self.input.get().unwrap();
+
+                    let devices = xr_input.devices.read().unwrap();
+
+                    for hand in [TrackedDeviceType::LeftHand, TrackedDeviceType::RightHand] {
+                        let controller = devices.get_controller(hand);
+                        let hmd = devices.get_hmd();
+
                         let profile_path = session
                             .session
-                            .current_interaction_profile(info.subaction_path)
+                            .current_interaction_profile(controller.subaction_path)
                             .unwrap();
 
-                        info.profile_path.store(profile_path);
-                        let profile = match profile_path {
+                        controller
+                            .get_base_device()
+                            .profile_path
+                            .store(profile_path);
+
+                        let profile_name = match profile_path {
                             xr::Path::NULL => {
-                                info.connected.store(false, Ordering::Relaxed);
+                                controller.set_connected(false);
                                 "<null>".to_owned()
                             }
                             path => {
-                                info.connected.store(true, Ordering::Relaxed);
+                                controller.set_connected(true);
                                 self.instance.path_to_string(path).unwrap()
                             }
                         };
 
-                        *info.profile.lock().unwrap() = Profiles::get().profile_from_name(&profile);
+                        let profile = Profiles::get().profile_from_name(&profile_name);
+
+                        if let Some(p) = profile {
+                            controller.set_interaction_profile(p);
+                            hmd.set_interaction_profile(p);
+                        };
 
                         session.input_data.interaction_profile_changed();
 
                         info!(
                             "{} interaction profile changed: {}",
-                            info.path_name, profile
-                        );
+                            controller.hand_path, profile_name
+                        )
                     }
                 }
                 _ => {
@@ -576,37 +592,16 @@ impl SessionData {
 
 pub struct AtomicPath(AtomicU64);
 impl AtomicPath {
+    pub(crate) fn new() -> Self {
+        Self(0.into())
+    }
+
     pub(crate) fn load(&self) -> xr::Path {
         xr::Path::from_raw(self.0.load(Ordering::Relaxed))
     }
 
     fn store(&self, path: xr::Path) {
         self.0.store(path.into_raw(), Ordering::Relaxed);
-    }
-}
-
-pub struct HandInfo {
-    path_name: &'static str,
-    connected: AtomicBool,
-    pub subaction_path: xr::Path,
-    pub profile_path: AtomicPath,
-    pub profile: Mutex<Option<&'static dyn InteractionProfile>>,
-}
-
-impl HandInfo {
-    #[inline]
-    pub fn connected(&self) -> bool {
-        self.connected.load(Ordering::Relaxed)
-    }
-
-    fn new(instance: &xr::Instance, path_name: &'static str) -> Self {
-        Self {
-            path_name,
-            connected: false.into(),
-            subaction_path: instance.string_to_path(path_name).unwrap(),
-            profile_path: AtomicPath(0.into()),
-            profile: Mutex::default(),
-        }
     }
 }
 
@@ -626,6 +621,13 @@ impl TryFrom<vr::TrackedDeviceIndex_t> for Hand {
             x if x == Hand::Right as u32 => Ok(Hand::Right),
             _ => Err(()),
         }
+    }
+}
+
+impl Into<vr::TrackedDeviceIndex_t> for Hand {
+    #[inline]
+    fn into(self) -> vr::TrackedDeviceIndex_t {
+        self as u32
     }
 }
 
