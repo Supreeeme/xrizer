@@ -539,17 +539,21 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
     fn GetSkeletalSummaryData(
         &self,
         action: vr::VRActionHandle_t,
-        _: vr::EVRSummaryType,
+        summary_type: vr::EVRSummaryType,
         data: *mut vr::VRSkeletalSummaryData_t,
     ) -> vr::EVRInputError {
-        crate::warn_unimplemented!("GetSkeletalSummaryData");
-        get_action_from_handle!(self, action, session_data, _action);
-        unsafe {
-            data.write(vr::VRSkeletalSummaryData_t {
-                flFingerSplay: [0.2; 4],
-                flFingerCurl: [0.0; 5],
-            })
+        get_action_from_handle!(self, action, session_data, action);
+
+        let ActionData::Skeleton { hand, hand_tracker } = action else {
+            return vr::EVRInputError::WrongType;
+        };
+
+        if let Some(hand_tracker) = hand_tracker.as_ref() {
+            self.get_bone_summary_from_hand_tracking(&self.openxr, &session_data, summary_type, data, hand_tracker, *hand);
+        } else {
+            self.get_estimated_bone_summary(&session_data, summary_type, data, *hand);
         }
+
         vr::EVRInputError::None
     }
     fn GetSkeletalBoneData(
