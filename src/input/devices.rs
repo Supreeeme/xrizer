@@ -30,9 +30,7 @@ pub struct TrackedDeviceList {
 impl Default for TrackedDeviceList {
     fn default() -> Self {
         Self {
-            devices: vec![
-                XrHMD::new().into(),
-            ],
+            devices: vec![XrHMD::new().into()],
         }
     }
 }
