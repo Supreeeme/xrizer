@@ -549,7 +549,14 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         };
 
         if let Some(hand_tracker) = hand_tracker.as_ref() {
-            self.get_bone_summary_from_hand_tracking(&self.openxr, &session_data, summary_type, data, hand_tracker, *hand);
+            self.get_bone_summary_from_hand_tracking(
+                &self.openxr,
+                &session_data,
+                summary_type,
+                data,
+                hand_tracker,
+                *hand,
+            );
         } else {
             self.get_estimated_bone_summary(&session_data, summary_type, data, *hand);
         }
