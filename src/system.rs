@@ -708,10 +708,12 @@ impl vr::IVRSystem022_Interface for System {
             );
     }
     fn SetDisplayVisibility(&self, _: bool) -> bool {
-        todo!()
+        // Act as if we're limited to direct mode
+        false
     }
     fn IsDisplayOnDesktop(&self) -> bool {
-        todo!()
+        // Direct mode
+        false
     }
     fn GetOutputDevice(
         &self,
