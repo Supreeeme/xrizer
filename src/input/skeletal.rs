@@ -205,7 +205,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let mut finger_curls = [0.0; 5];
         let finger_splay = [0.2; 4];
 
-        for i in 0..5 {
+        for (i, curl_value) in finger_curls.iter_mut().enumerate() {
             let (metacarpal, proximal, tip) = match i {
                 0 => (
                     joints[xr::HandJoint::THUMB_METACARPAL],
@@ -251,7 +251,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 1.0 - (ang / PI)
             };
 
-            finger_curls[i] = curl;
+            *curl_value = curl;
         }
 
         unsafe {
@@ -260,8 +260,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                 flFingerCurl: finger_curls,
             })
         }
-
-        return;
     }
 
     pub(super) fn get_estimated_bone_summary(
