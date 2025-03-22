@@ -180,7 +180,10 @@ impl OverlayMan {
                 ($ty:ident) => {{
                     $ty::new()
                         .space(space)
-                        .layer_flags(xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
+                        .layer_flags(
+                            xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
+                                | xr::CompositionLayerFlags::UNPREMULTIPLIED_ALPHA,
+                        )
                         .eye_visibility(xr::EyeVisibility::BOTH)
                         .sub_image(
                             xr::SwapchainSubImage::new()
@@ -545,11 +548,11 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         vr::EVROverlayError::None
     }
 
-    fn SetOverlayAlpha(&self, handle: vr::VROverlayHandle_t, alpha: f32) -> vr::EVROverlayError {
-        get_overlay!(self, handle, mut overlay);
-
-        debug!("setting overlay {:?} alpha to {alpha}", overlay.name);
-        overlay.alpha = alpha.clamp(0.0, 1.0);
+    fn SetOverlayAlpha(&self, _handle: vr::VROverlayHandle_t, _alpha: f32) -> vr::EVROverlayError {
+        // Merely setting overlay.alpha here is not enough.
+        // The swapchain texture needs to be re-rendered with the new alpha.
+        // Once we have a mechanism to do that, consider re-enabling this.
+        crate::warn_unimplemented!("SetOverlayAlpha");
         vr::EVROverlayError::None
     }
 

@@ -784,14 +784,9 @@ impl PipelineData {
         let multi_state = vk::PipelineMultisampleStateCreateInfo::default();
         let depth_state = vk::PipelineDepthStencilStateCreateInfo::default();
         let blend = vk::PipelineColorBlendAttachmentState {
-            blend_enable: vk::TRUE,
-            src_color_blend_factor: vk::BlendFactor::ONE,
-            dst_color_blend_factor: vk::BlendFactor::ZERO,
-            color_blend_op: vk::BlendOp::ADD,
-            src_alpha_blend_factor: vk::BlendFactor::ONE,
-            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-            alpha_blend_op: vk::BlendOp::ADD,
+            blend_enable: vk::FALSE,
             color_write_mask: vk::ColorComponentFlags::RGBA,
+            ..Default::default()
         };
         let blend_state = vk::PipelineColorBlendStateCreateInfo::default()
             .attachments(std::slice::from_ref(&blend));
