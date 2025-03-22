@@ -107,7 +107,10 @@ impl OverlayMan {
 
                 let layer = xr::CompositionLayerCylinderKHR::new()
                     .space(space)
-                    .layer_flags(xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
+                    .layer_flags(
+                        xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
+                            | xr::CompositionLayerFlags::UNPREMULTIPLIED_ALPHA,
+                    )
                     .eye_visibility(xr::EyeVisibility::BOTH)
                     .sub_image(subimage)
                     .radius(radius)
@@ -134,7 +137,10 @@ impl OverlayMan {
             } else {
                 let layer = xr::CompositionLayerQuad::new()
                     .space(space)
-                    .layer_flags(xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
+                    .layer_flags(
+                        xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
+                            | xr::CompositionLayerFlags::UNPREMULTIPLIED_ALPHA,
+                    )
                     .eye_visibility(xr::EyeVisibility::BOTH)
                     .sub_image(subimage)
                     .pose(pose)
@@ -420,7 +426,7 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         get_overlay!(self, handle, mut overlay);
 
         debug!("setting overlay {:?} alpha to {alpha}", overlay.name);
-        overlay.alpha = alpha;
+        overlay.alpha = alpha.clamp(0.0, 1.0);
         vr::EVROverlayError::None
     }
 
@@ -874,8 +880,16 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         crate::warn_unimplemented!("SetOverlayTexelAspect");
         vr::EVROverlayError::None
     }
-    fn GetOverlayAlpha(&self, _: vr::VROverlayHandle_t, _: *mut f32) -> vr::EVROverlayError {
-        todo!()
+    fn GetOverlayAlpha(
+        &self,
+        handle: vr::VROverlayHandle_t,
+        value: *mut f32,
+    ) -> vr::EVROverlayError {
+        get_overlay!(self, handle, overlay);
+        unsafe {
+            *value = overlay.alpha;
+        }
+        vr::EVROverlayError::None
     }
 
     fn GetOverlayColor(
