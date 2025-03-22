@@ -964,51 +964,49 @@ impl<G: GraphicsBackend> FrameController<G> {
             return Err(vr::EVRCompositorError::AlreadySubmitted);
         }
 
-        self.eyes_submitted[eye as usize] = if self.should_render {
-            // Make sure our image dimensions haven't changed.
-            let new_info = self
-                .backend
-                .swapchain_info_for_texture(texture, bounds, color_space);
+        // Make sure our image dimensions haven't changed.
+        let new_info = self
+            .backend
+            .swapchain_info_for_texture(texture, bounds, color_space);
 
-            is_valid_swapchain_info(&new_info)
-                .then(|| {
-                    assert!(
-                        !self.submitting_null,
-                        "App submitted a null texture and a normal texture in the same frame"
-                    );
-
-                    let creation_format;
-                    let current_info = if let Some(data) = self.swapchain_data.as_ref() {
-                        creation_format = data.initial_format;
-                        &data.info
-                    } else {
-                        // SAFETY: Technically SessionCreateInfo should be Copy anyway so this should be fine:
-                        // https://github.com/Ralith/openxrs/issues/183
-                        creation_format = new_info.format;
-                        self.recreate_swapchain(session_data, unsafe { std::ptr::read(&new_info) });
-                        self.swapchain_data.as_ref().map(|d| &d.info).unwrap()
-                    };
-                    if !is_usable_swapchain(current_info, creation_format, &new_info) {
+        let valid = is_valid_swapchain_info(&new_info);
+        if valid {
+            match &self.swapchain_data {
+                Some(data) => {
+                    if !is_usable_swapchain(&data.info, data.initial_format, &new_info) {
                         info!("recreating swapchain (for {eye:?})");
                         self.recreate_swapchain(session_data, new_info);
                     }
-                    SubmittedEye {
-                        extent: self.backend.copy_texture_to_swapchain(
-                            eye,
-                            texture,
-                            color_space,
-                            bounds,
-                            self.image_index,
-                            submit_flags,
-                        ),
-                        flip_vertically: bounds.vertically_flipped(),
-                    }
+                }
+                None => {
+                    self.recreate_swapchain(session_data, new_info);
+                }
+            }
+        }
+
+        self.eyes_submitted[eye as usize] = if self.should_render {
+            if valid {
+                assert!(
+                    !self.submitting_null,
+                    "App submitted a null texture and a normal texture in the same frame"
+                );
+
+                Some(SubmittedEye {
+                    extent: self.backend.copy_texture_to_swapchain(
+                        eye,
+                        texture,
+                        color_space,
+                        bounds,
+                        self.image_index,
+                        submit_flags,
+                    ),
+                    flip_vertically: bounds.vertically_flipped(),
                 })
-                .or_else(|| {
-                    trace!("submitting null this frame");
-                    self.submitting_null = true;
-                    Some(Default::default())
-                })
+            } else {
+                trace!("submitting null this frame");
+                self.submitting_null = true;
+                Some(Default::default())
+            }
         } else {
             Some(Default::default())
         };
