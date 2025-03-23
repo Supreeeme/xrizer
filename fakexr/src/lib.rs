@@ -117,13 +117,6 @@ pub fn get_suggested_bindings(action: xr::Action, profile: xr::Path) -> Vec<Stri
         .collect()
 }
 
-pub fn should_render_next_frame(instance: xr::Instance, should_render: bool) {
-    let instance = instance.to_handle().unwrap();
-    instance
-        .should_render
-        .store(should_render, Ordering::Relaxed)
-}
-
 macro_rules! fn_unimplemented_impl {
     ($($param:ident),+) => {
         fn_unimplemented_impl!($($param),+  -> []);
@@ -361,14 +354,16 @@ macro_rules! impl_handle {
     };
 }
 
-struct EventDataBuffer(Vec<u8>);
+struct EventDataBuffer {
+    buffer: Vec<u8>,
+    on_polled: Option<Box<dyn FnOnce() + Send + Sync>>,
+}
 
 struct Instance {
     event_receiver: Mutex<mpsc::Receiver<EventDataBuffer>>,
     event_sender: mpsc::Sender<EventDataBuffer>,
     paths: Mutex<SlotMap<DefaultKey, String>>,
     string_to_path: Mutex<HashMap<String, DefaultKey>>,
-    should_render: AtomicBool,
     action_sets: Mutex<HashSet<xr::ActionSet>>,
 }
 
@@ -422,6 +417,9 @@ struct Session {
     right_hand: HandData,
     spaces: Mutex<HashSet<DefaultKey>>,
     frame_active: AtomicBool,
+    state: AtomicCell<xr::SessionState>,
+    state_synced: AtomicBool,
+    should_render: AtomicBool,
 }
 
 impl Drop for Session {
@@ -430,6 +428,33 @@ impl Drop for Session {
         for space in spaces.iter() {
             Space::instances().remove(*space);
         }
+    }
+}
+
+impl Session {
+    fn synchronized(self: &Arc<Self>) {
+        self.state.store(xr::SessionState::SYNCHRONIZED);
+        let session = Self::instances()
+            .iter()
+            .find_map(|(key, s)| {
+                Arc::ptr_eq(s, self).then(|| xr::Session::from_raw(key.data().as_ffi()))
+            })
+            .expect("Couldn't find session?");
+        let s = self.clone();
+        send_event(
+            &self.event_sender,
+            xr::EventDataSessionStateChanged {
+                ty: xr::EventDataSessionStateChanged::TYPE,
+                next: std::ptr::null_mut(),
+                session,
+                state: xr::SessionState::SYNCHRONIZED,
+                time: xr::Time::from_nanos(0),
+            },
+            Some(Box::new(move || {
+                s.state_synced.store(true, Ordering::Relaxed);
+                s.should_render.store(true, Ordering::Relaxed);
+            })),
+        );
     }
 }
 
@@ -612,7 +637,6 @@ extern "system" fn create_instance(
         event_sender: tx,
         paths: Mutex::new(paths),
         string_to_path: Mutex::new(string_to_path),
-        should_render: false.into(),
         action_sets: Default::default(),
     });
     unsafe {
@@ -647,6 +671,9 @@ extern "system" fn create_session(
         right_hand: Default::default(),
         spaces: Default::default(),
         frame_active: false.into(),
+        state: xr::SessionState::READY.into(),
+        state_synced: true.into(),
+        should_render: false.into(),
     });
 
     let tx = sess.event_sender.clone();
@@ -663,6 +690,7 @@ extern "system" fn create_session(
             state: xr::SessionState::READY,
             time: xr::Time::from_nanos(0),
         },
+        None,
     );
 
     xr::Result::SUCCESS
@@ -854,16 +882,20 @@ extern "system" fn get_system(
     xr::Result::SUCCESS
 }
 
-fn send_event<T: Copy>(tx: &mpsc::Sender<EventDataBuffer>, event: T) {
+fn send_event<T: Copy>(
+    tx: &mpsc::Sender<EventDataBuffer>,
+    event: T,
+    on_polled: Option<Box<dyn FnOnce() + Sync + Send>>,
+) {
     const {
         assert!(std::mem::size_of::<T>() <= std::mem::size_of::<xr::EventDataBuffer>());
     }
 
-    let s = unsafe {
+    let buffer = unsafe {
         std::slice::from_raw_parts(&event as *const T as *const u8, std::mem::size_of::<T>())
     }
     .to_vec();
-    tx.send(EventDataBuffer(s)).unwrap();
+    tx.send(EventDataBuffer { buffer, on_polled }).unwrap();
 }
 
 extern "system" fn begin_session(_: xr::Session, _: *const xr::SessionBeginInfo) -> xr::Result {
@@ -904,10 +936,13 @@ extern "system" fn poll_event(
     let recv = instance.event_receiver.lock().unwrap();
     match recv.try_recv() {
         Ok(event) => {
+            if let Some(on_polled) = event.on_polled {
+                on_polled();
+            }
             unsafe {
                 buffer
                     .cast::<u8>()
-                    .copy_from(event.0.as_ptr(), event.0.len());
+                    .copy_from(event.buffer.as_ptr(), event.buffer.len());
             }
             xr::Result::SUCCESS
         }
@@ -973,6 +1008,7 @@ extern "system" fn request_exit_session(session: xr::Session) -> xr::Result {
             state: xr::SessionState::STOPPING,
             time: xr::Time::from_nanos(0),
         },
+        None,
     );
     xr::Result::SUCCESS
 }
@@ -988,6 +1024,7 @@ extern "system" fn end_session(session: xr::Session) -> xr::Result {
             state: xr::SessionState::EXITING,
             time: xr::Time::from_nanos(0),
         },
+        None,
     );
     xr::Result::SUCCESS
 }
@@ -1055,6 +1092,7 @@ extern "system" fn sync_actions(
                     next: std::ptr::null(),
                     session: session_xr,
                 },
+                None,
             );
         }
     }
@@ -1424,14 +1462,13 @@ extern "system" fn wait_frame(
     state: *mut xr::FrameState,
 ) -> xr::Result {
     let session = get_handle!(session);
-    let instance = session.instance.upgrade().unwrap();
     unsafe {
         state.write(xr::FrameState {
             ty: xr::FrameState::TYPE,
             next: std::ptr::null_mut(),
             predicted_display_time: xr::Time::from_nanos(1),
             predicted_display_period: xr::Duration::from_nanos(1),
-            should_render: instance.should_render.load(Ordering::Relaxed).into(),
+            should_render: session.should_render.load(Ordering::Relaxed).into(),
         })
     }
     xr::Result::SUCCESS
@@ -1452,6 +1489,9 @@ extern "system" fn end_frame(session: xr::Session, _info: *const xr::FrameEndInf
         return xr::Result::ERROR_CALL_ORDER_INVALID;
     }
     session.frame_active.store(false, Ordering::Relaxed);
+    if session.state.load() == xr::SessionState::READY {
+        session.synchronized();
+    }
     xr::Result::SUCCESS
 }
 

@@ -977,18 +977,13 @@ impl<G: GraphicsBackend> FrameController<G> {
                         "App submitted a null texture and a normal texture in the same frame"
                     );
 
-                    let creation_format;
-                    let current_info = if let Some(data) = self.swapchain_data.as_ref() {
-                        creation_format = data.initial_format;
-                        &data.info
-                    } else {
+                    if self.swapchain_data.as_ref().is_none() {
                         // SAFETY: Technically SessionCreateInfo should be Copy anyway so this should be fine:
                         // https://github.com/Ralith/openxrs/issues/183
-                        creation_format = new_info.format;
                         self.recreate_swapchain(session_data, unsafe { std::ptr::read(&new_info) });
-                        self.swapchain_data.as_ref().map(|d| &d.info).unwrap()
-                    };
-                    if !is_usable_swapchain(current_info, creation_format, &new_info) {
+                    }
+                    let data = self.swapchain_data.as_ref().unwrap();
+                    if !is_usable_swapchain(&data.info, data.initial_format, &new_info) {
                         info!("recreating swapchain (for {eye:?})");
                         self.recreate_swapchain(session_data, new_info);
                     }
@@ -1013,13 +1008,6 @@ impl<G: GraphicsBackend> FrameController<G> {
             Some(Default::default())
         };
 
-        // Swapchain data will be None when the swapchain info is bad
-        // This should only happen when the game submits a 0x0 texture,
-        // which is valid for whatever reason.
-        let Some(swapchain_data) = self.swapchain_data.as_mut() else {
-            return Err(vr::EVRCompositorError::None);
-        };
-
         trace!("submitted {eye:?}");
         if !self.eyes_submitted.iter().all(|eye| eye.is_some()) {
             return Err(vr::EVRCompositorError::None);
@@ -1027,13 +1015,19 @@ impl<G: GraphicsBackend> FrameController<G> {
 
         // Both eyes submitted: show our images
 
-        trace!("releasing image");
-        swapchain_data.swapchain.release_image().unwrap();
+        let mut swapchain_data = self.swapchain_data.as_mut();
+        if let Some(data) = &mut swapchain_data {
+            trace!("releasing image");
+            data.swapchain.release_image().unwrap();
+        }
         self.image_acquired = false;
 
         let mut proj_layer_views = Vec::new();
 
-        if self.should_render {
+        if self.should_render && !self.submitting_null {
+            let swapchain_data =
+                swapchain_data.expect("Swapchain data unexpectedly invalid on submit");
+
             let crate::system::ViewData { flags, views } =
                 system.get_views(session_data.current_origin_as_reference_space());
             proj_layer_views = views
@@ -1403,7 +1397,6 @@ mod tests {
     #[test]
     fn recreate_swapchain() {
         let f = Fixture::new();
-        fakexr::should_render_next_frame(f.comp.openxr.instance.as_raw(), true);
 
         let get_swapchain_width = || {
             let data = f.comp.openxr.session_data.get();
@@ -1419,9 +1412,12 @@ mod tests {
         };
         assert_eq!(f.wait_get_poses(), None);
         assert_eq!(f.submit(vr::EVREye::Left), None);
+        assert_eq!(f.submit(vr::EVREye::Right), None);
 
         let old_width = get_swapchain_width();
         SWAPCHAIN_WIDTH.set(40);
+        assert_eq!(f.wait_get_poses(), None);
+        assert_eq!(f.submit(vr::EVREye::Left), None);
         assert_eq!(f.submit(vr::EVREye::Right), None);
         let new_width = get_swapchain_width();
         assert_ne!(old_width, new_width);
@@ -1461,7 +1457,6 @@ mod tests {
     #[test]
     fn zero_dims_texture() {
         let f = Fixture::new();
-        fakexr::should_render_next_frame(f.comp.openxr.instance.as_raw(), true);
         SWAPCHAIN_WIDTH.set(0);
         SWAPCHAIN_HEIGHT.set(0);
 
@@ -1475,6 +1470,7 @@ mod tests {
                 panic!("Frame controller was not set up or not faked!");
             };
             assert!(ctrl.swapchain_data.is_none());
+            assert!(!ctrl.should_render);
         }
 
         SWAPCHAIN_WIDTH.set(10);
@@ -1488,6 +1484,7 @@ mod tests {
                 panic!("Frame controller was not set up or not faked!");
             };
             assert!(ctrl.swapchain_data.is_none());
+            assert!(ctrl.should_render);
         }
 
         SWAPCHAIN_HEIGHT.set(10);
@@ -1501,6 +1498,7 @@ mod tests {
                 panic!("Frame controller was not set up or not faked!");
             };
             assert!(ctrl.swapchain_data.is_some());
+            assert!(ctrl.should_render);
         }
     }
 
@@ -1545,7 +1543,6 @@ mod tests {
     #[test]
     fn unsupported_format() {
         let f = Fixture::new();
-        fakexr::should_render_next_frame(f.comp.openxr.instance.as_raw(), true);
         SWAPCHAIN_FORMAT.set(1);
         assert_eq!(f.wait_get_poses(), None);
         assert_eq!(f.submit(vr::EVREye::Left), None);
