@@ -61,20 +61,6 @@ impl TrackedDeviceList {
         self.devices.get_mut(device_index as usize)
     }
 
-    pub unsafe fn get_device_unchecked(
-        &self,
-        device_index: vr::TrackedDeviceIndex_t,
-    ) -> &TrackedDeviceContainer {
-        self.devices.get_unchecked(device_index as usize)
-    }
-
-    pub unsafe fn get_device_mut_unchecked(
-        &mut self,
-        device_index: vr::TrackedDeviceIndex_t,
-    ) -> &mut TrackedDeviceContainer {
-        self.devices.get_unchecked_mut(device_index as usize)
-    }
-
     /// This function is only intended to be used for the HMD and controllers. For other devices, it'll return the first match.
     pub fn get_device_by_type(
         &self,
@@ -96,7 +82,7 @@ impl TrackedDeviceList {
     }
 
     pub fn get_hmd(&self) -> &XrHMD {
-        let hmd = unsafe { self.get_device_unchecked(0) };
+        let hmd = unsafe { self.devices.get_unchecked(0) };
 
         match hmd {
             TrackedDeviceContainer::HMD(hmd) => hmd,
@@ -106,8 +92,8 @@ impl TrackedDeviceList {
 
     pub fn get_controller(&self, hand: TrackedDeviceType) -> &XrController {
         let controller = match hand {
-            TrackedDeviceType::LeftHand => unsafe { self.get_device_unchecked(1) },
-            TrackedDeviceType::RightHand => unsafe { self.get_device_unchecked(2) },
+            TrackedDeviceType::LeftHand => unsafe { self.devices.get_unchecked(1) },
+            TrackedDeviceType::RightHand => unsafe { self.devices.get_unchecked(2) },
             _ => panic!("Invalid hand type"),
         };
 
