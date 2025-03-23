@@ -977,16 +977,13 @@ impl<G: GraphicsBackend> FrameController<G> {
                         "App submitted a null texture and a normal texture in the same frame"
                     );
 
-                    if self.swapchain_data.as_ref().is_none() {
-                        // SAFETY: Technically SessionCreateInfo should be Copy anyway so this should be fine:
-                        // https://github.com/Ralith/openxrs/issues/183
-                        self.recreate_swapchain(session_data, unsafe { std::ptr::read(&new_info) });
-                    }
-                    let data = self.swapchain_data.as_ref().unwrap();
-                    if !is_usable_swapchain(&data.info, data.initial_format, &new_info) {
+                    if !self.swapchain_data.as_ref().is_some_and(|data| {
+                        is_usable_swapchain(&data.info, data.initial_format, &new_info)
+                    }) {
                         info!("recreating swapchain (for {eye:?})");
                         self.recreate_swapchain(session_data, new_info);
                     }
+
                     SubmittedEye {
                         extent: self.backend.copy_texture_to_swapchain(
                             eye,
