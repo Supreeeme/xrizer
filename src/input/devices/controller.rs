@@ -35,7 +35,7 @@ impl XrController {
         let subaction_path = instance.string_to_path(hand_path).unwrap();
 
         Self {
-            base: BaseDevice::new(device_type.into(), device_type),
+            base: BaseDevice::new(device_type),
             hand_path,
             subaction_path,
         }

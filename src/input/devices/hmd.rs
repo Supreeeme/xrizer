@@ -16,7 +16,7 @@ pub struct XrHMD {
 impl XrHMD {
     pub fn new() -> Self {
         let hmd = Self {
-            base: BaseDevice::new(0, TrackedDeviceType::HMD),
+            base: BaseDevice::new(TrackedDeviceType::HMD),
         };
 
         hmd.base.connected.store(true, Ordering::Relaxed);
