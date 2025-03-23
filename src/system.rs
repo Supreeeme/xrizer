@@ -349,7 +349,7 @@ impl vr::IVRSystem022_Interface for System {
         let input = self.input.get().unwrap();
         let devices = input.devices.read().unwrap();
 
-        for device in devices.iter() {
+        for (i, device) in devices.iter().enumerate() {
             let current = device.connected();
 
             if device
@@ -374,13 +374,13 @@ impl vr::IVRSystem022_Interface for System {
                         vr::EVREventType::TrackedDeviceDeactivated as u32
                     });
 
-                    (&raw mut (*event).trackedDeviceIndex).write(device.get_device_index());
+                    (&raw mut (*event).trackedDeviceIndex).write(i as vr::TrackedDeviceIndex_t);
                     (&raw mut (*event).eventAgeSeconds).write(0.0);
                     if !pose.is_null() {
                         pose.write(
                             self.input
                                 .force(|_| Input::new(self.openxr.clone()))
-                                .get_device_pose(device.get_device_index(), Some(origin))
+                                .get_device_pose(i as vr::TrackedDeviceIndex_t, Some(origin))
                                 .unwrap_or_default(),
                         );
                     }

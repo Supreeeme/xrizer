@@ -113,10 +113,6 @@ pub trait TrackedDevice {
         self.get_base_device().device_type
     }
 
-    fn get_device_index(&self) -> vr::TrackedDeviceIndex_t {
-        self.get_base_device().device_index
-    }
-
     fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
         self.get_base_device()
             .interaction_profile
@@ -137,32 +133,14 @@ pub trait TrackedDevice {
 
 pub struct BaseDevice {
     pub device_type: TrackedDeviceType,
-    pub device_index: vr::TrackedDeviceIndex_t,
     pub interaction_profile: Mutex<Option<&'static dyn InteractionProfile>>,
     pub profile_path: AtomicPath,
     pub connected: AtomicBool,
     pub previous_connected: AtomicBool,
 }
 
-impl Default for BaseDevice {
-    fn default() -> Self {
-        Self {
-            device_type: TrackedDeviceType::Unknown,
-            device_index: vr::k_unTrackedDeviceIndexInvalid,
-            interaction_profile: Mutex::new(None),
-            profile_path: AtomicPath::new(),
-            connected: AtomicBool::new(false),
-            previous_connected: AtomicBool::new(false),
-        }
-    }
-}
-
 impl BaseDevice {
-    pub fn new(device_index: vr::TrackedDeviceIndex_t, device_type: TrackedDeviceType) -> Self {
-        assert!(
-            device_index != vr::k_unTrackedDeviceIndexInvalid,
-            "Cannot create a device with an invalid index"
-        );
+    pub fn new(device_type: TrackedDeviceType) -> Self {
         assert!(
             device_type != TrackedDeviceType::Unknown,
             "Cannot create a device with an unknown type"
@@ -170,8 +148,10 @@ impl BaseDevice {
 
         Self {
             device_type,
-            device_index,
-            ..Default::default()
+            interaction_profile: Mutex::new(None),
+            profile_path: AtomicPath::new(),
+            connected: AtomicBool::new(false),
+            previous_connected: AtomicBool::new(false),
         }
     }
 }
