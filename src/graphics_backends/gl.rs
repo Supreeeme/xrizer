@@ -261,9 +261,7 @@ impl GraphicsBackend for GlData {
         texture: Self::OpenVrTexture,
         bounds: openvr::VRTextureBounds_t,
         image_index: usize,
-        _alpha: f32,
     ) -> openxr::Extent2Di {
-        // TODO: handle alpha
         self.copy_texture_to_swapchain(
             vr::EVREye::Left,
             texture,

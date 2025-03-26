@@ -46,7 +46,6 @@ pub trait GraphicsBackend: Into<SupportedBackend> {
         texture: Self::OpenVrTexture,
         bounds: vr::VRTextureBounds_t,
         image_index: usize,
-        alpha: f32,
     ) -> xr::Extent2Di;
 }
 

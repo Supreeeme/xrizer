@@ -312,7 +312,6 @@ impl GraphicsBackend for VulkanData {
         texture: *const vr::VRVulkanTextureData_t,
         bounds: vr::VRTextureBounds_t,
         image_index: usize,
-        alpha: f32,
     ) -> xr::Extent2Di {
         let mut data = self.real_data.as_ref().unwrap();
         let buf = data.bufs[image_index];
@@ -410,7 +409,7 @@ impl GraphicsBackend for VulkanData {
                 0,
                 &[vk::Viewport {
                     width: extent.width as f32,
-                    height: extent.width as f32,
+                    height: extent.height as f32,
                     x: 0.0,
                     y: 0.0,
                     min_depth: 0.0,
@@ -433,13 +432,6 @@ impl GraphicsBackend for VulkanData {
                 vk::ShaderStageFlags::VERTEX,
                 0,
                 pc.align_to().1,
-            );
-            self.device.cmd_push_constants(
-                buf,
-                pipeline_data.layout,
-                vk::ShaderStageFlags::FRAGMENT,
-                std::mem::size_of_val(&pc) as u32,
-                std::slice::from_ref(&alpha).align_to().1,
             );
             self.device.cmd_begin_render_pass(
                 buf,
@@ -751,17 +743,12 @@ impl PipelineData {
             offset: 0,
             size: std::mem::size_of::<[f32; 4]>() as u32,
         };
-        let alpha_pc = vk::PushConstantRange {
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            offset: texture_coordinates_pc.size,
-            size: std::mem::size_of::<f32>() as u32,
-        };
         let pipeline_layout = unsafe {
             device
                 .create_pipeline_layout(
                     &vk::PipelineLayoutCreateInfo::default()
                         .set_layouts(std::slice::from_ref(&set_layout))
-                        .push_constant_ranges(&[texture_coordinates_pc, alpha_pc]),
+                        .push_constant_ranges(&[texture_coordinates_pc]),
                     None,
                 )
                 .unwrap()

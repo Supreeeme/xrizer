@@ -8,10 +8,10 @@ use log::{debug, trace};
 use openvr as vr;
 use openxr as xr;
 use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
-use std::collections::HashMap;
 use std::f32::consts::{FRAC_1_SQRT_2, PI};
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex, RwLock};
+use std::{collections::HashMap, ops::Deref};
 
 // OpenVR overlays are allowed to use ≥ 0
 pub const SKYBOX_Z_ORDER: i64 = -1;
@@ -223,7 +223,9 @@ impl OverlayMan {
                         });
 
                     let layer = lifetime_extend!(CompositionLayerQuad, layer);
-                    layers.push((overlay.z_order, OverlayLayer::Quad(layer)));
+                    let mut layer = OverlayLayer::from(OverlayLayerInner::Quad(layer));
+                    overlay.alpha.iter().for_each(|a| layer.set_alpha(*a));
+                    layers.push((overlay.z_order, layer));
                 }
                 // SetOverlayCurvature checks for khr_composition_layer_cylinder
                 OverlayKind::Curved { curvature } => {
@@ -254,7 +256,9 @@ impl OverlayMan {
                         });
 
                     let layer = lifetime_extend!(CompositionLayerCylinderKHR, layer);
-                    layers.push((overlay.z_order, OverlayLayer::Cylinder(layer)));
+                    let mut layer = OverlayLayer::from(OverlayLayerInner::Cylinder(layer));
+                    overlay.alpha.iter().for_each(|a| layer.set_alpha(*a));
+                    layers.push((overlay.z_order, layer));
                 }
                 // SetSkyboxOverride checks for khr_composition_layer_equirect2
                 OverlayKind::Sphere => {
@@ -271,7 +275,9 @@ impl OverlayMan {
                         .pose(pose);
 
                     let layer = lifetime_extend!(CompositionLayerEquirect2KHR, layer);
-                    layers.push((overlay.z_order, OverlayLayer::Equirect2(layer)));
+                    let mut layer = OverlayLayer::from(OverlayLayerInner::Equirect2(layer));
+                    overlay.alpha.iter().for_each(|a| layer.set_alpha(*a));
+                    layers.push((overlay.z_order, layer));
                 }
             }
         }
@@ -286,7 +292,84 @@ impl OverlayMan {
     }
 }
 
-pub enum OverlayLayer<'a, G: xr::Graphics> {
+pub struct OverlayLayer<'a, G: xr::Graphics> {
+    /// Only ever None during next_chain_insert
+    layer: Option<OverlayLayerInner<'a, G>>,
+    color_bias_khr: Option<Box<xr::sys::CompositionLayerColorScaleBiasKHR>>,
+}
+
+impl<'a, G: xr::Graphics> OverlayLayer<'a, G> {
+    pub fn set_alpha(&mut self, alpha: f32) {
+        // only one instance is stored, so this would cause segfault due to UAF
+        debug_assert!(
+            self.color_bias_khr.is_none(),
+            "attempted to set_alpha on the same CompositorLayer twice!"
+        );
+
+        self.color_bias_khr = {
+            let mut payload = Box::new(xr::sys::CompositionLayerColorScaleBiasKHR {
+                ty: xr::StructureType::COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR,
+                next: std::ptr::null(),
+                color_bias: Default::default(),
+                color_scale: xr::Color4f {
+                    a: alpha,
+                    ..Default::default()
+                },
+            });
+
+            let payload_ptr = payload.as_mut() as *mut _ as *mut xr::sys::BaseInStructure;
+            unsafe { self.next_chain_insert(payload_ptr) };
+
+            Some(payload)
+        };
+    }
+
+    /// Insert the given item as the first element in the next chain.
+    /// `item` must be a non-null pointer to a valid XrBaseInStructure object
+    ///
+    /// SAFETY: For lifetime guarantees, store item in Box inside CompositorLayer.
+    unsafe fn next_chain_insert(&mut self, item: *mut xr::sys::BaseInStructure) {
+        let new_elem = item.as_mut().unwrap();
+        self.layer = Some(match self.layer.take().unwrap() {
+            OverlayLayerInner::Quad(quad) => {
+                let mut raw = quad.into_raw();
+                new_elem.next = raw.next as _;
+                raw.next = item as *const _;
+                OverlayLayerInner::Quad(xr::CompositionLayerQuad::from_raw(raw))
+            }
+            OverlayLayerInner::Cylinder(cylinder) => {
+                let mut raw = cylinder.into_raw();
+                new_elem.next = raw.next as _;
+                raw.next = item as *const _;
+                OverlayLayerInner::Cylinder(xr::CompositionLayerCylinderKHR::from_raw(raw))
+            }
+            OverlayLayerInner::Equirect2(equirect2) => {
+                let mut raw = equirect2.into_raw();
+                new_elem.next = raw.next as _;
+                raw.next = item as *const _;
+                OverlayLayerInner::Equirect2(xr::CompositionLayerEquirect2KHR::from_raw(raw))
+            }
+        });
+    }
+}
+
+impl<'a, G: xr::Graphics> From<OverlayLayerInner<'a, G>> for OverlayLayer<'a, G> {
+    fn from(value: OverlayLayerInner<'a, G>) -> Self {
+        Self {
+            layer: Some(value),
+            color_bias_khr: None,
+        }
+    }
+}
+
+impl<'a, G: xr::Graphics> Deref for OverlayLayer<'a, G> {
+    type Target = xr::CompositionLayerBase<'a, G>;
+    fn deref(&self) -> &Self::Target {
+        self.layer.as_ref().unwrap().deref()
+    }
+}
+
+pub enum OverlayLayerInner<'a, G: xr::Graphics> {
     Quad(xr::CompositionLayerQuad<'a, G>),
     // Curved overlays
     Cylinder(xr::CompositionLayerCylinderKHR<'a, G>),
@@ -294,13 +377,13 @@ pub enum OverlayLayer<'a, G: xr::Graphics> {
     Equirect2(xr::CompositionLayerEquirect2KHR<'a, G>),
 }
 
-impl<'a, G: xr::Graphics> std::ops::Deref for OverlayLayer<'a, G> {
+impl<'a, G: xr::Graphics> Deref for OverlayLayerInner<'a, G> {
     type Target = xr::CompositionLayerBase<'a, G>;
     fn deref(&self) -> &Self::Target {
         match self {
-            OverlayLayer::Quad(quad) => quad.deref(),
-            OverlayLayer::Cylinder(cylinder) => cylinder.deref(),
-            OverlayLayer::Equirect2(equirect2) => equirect2.deref(),
+            OverlayLayerInner::Quad(quad) => quad.deref(),
+            OverlayLayerInner::Cylinder(cylinder) => cylinder.deref(),
+            OverlayLayerInner::Equirect2(equirect2) => equirect2.deref(),
         }
     }
 }
@@ -332,7 +415,8 @@ enum OverlayKind {
 struct Overlay {
     key: CString,
     name: CString,
-    alpha: f32,
+    /// Only allowed to be Some if KHR_composition_layer_color_scale_bias is active
+    alpha: Option<f32>,
     width: f32,
     visible: bool,
     kind: OverlayKind,
@@ -348,7 +432,7 @@ impl Overlay {
         Self {
             key,
             name,
-            alpha: 1.0,
+            alpha: None,
             width: 1.0,
             visible: false,
             kind: OverlayKind::Quad,
@@ -443,12 +527,7 @@ impl Overlay {
             let idx = swapchain.acquire_image().unwrap();
             swapchain.wait_image(xr::Duration::INFINITE).unwrap();
 
-            let extent = backend.copy_overlay_to_swapchain(
-                b_texture,
-                overlay.bounds,
-                idx as usize,
-                overlay.alpha,
-            );
+            let extent = backend.copy_overlay_to_swapchain(b_texture, overlay.bounds, idx as usize);
             swapchain.release_image().unwrap();
 
             extent
@@ -548,11 +627,28 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         vr::EVROverlayError::None
     }
 
-    fn SetOverlayAlpha(&self, _handle: vr::VROverlayHandle_t, _alpha: f32) -> vr::EVROverlayError {
-        // Merely setting overlay.alpha here is not enough.
-        // The swapchain texture needs to be re-rendered with the new alpha.
-        // Once we have a mechanism to do that, consider re-enabling this.
-        crate::warn_unimplemented!("SetOverlayAlpha");
+    fn SetOverlayAlpha(&self, handle: vr::VROverlayHandle_t, alpha: f32) -> vr::EVROverlayError {
+        get_overlay!(self, handle, mut overlay);
+        if !self
+            .openxr
+            .enabled_extensions
+            .khr_composition_layer_color_scale_bias
+        {
+            crate::warn_once!("Cannot SetOverlayAlpha on {:?}: Runtime does not support KHR_composition_layer_color_scale_bias", overlay.name);
+            return vr::EVROverlayError::None;
+        }
+
+        debug!(
+            "overlay {:?} alpha {:.2} → {:.2}",
+            overlay.name,
+            overlay.alpha.unwrap_or(1.0),
+            alpha
+        );
+        if alpha == 1.0 {
+            overlay.alpha = None;
+        } else {
+            overlay.alpha = Some(alpha);
+        }
         vr::EVROverlayError::None
     }
 
@@ -914,10 +1010,16 @@ impl vr::IVROverlay027_Interface for OverlayMan {
     }
     fn GetOverlayTextureBounds(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: *mut vr::VRTextureBounds_t,
+        handle: vr::VROverlayHandle_t,
+        bounds: *mut vr::VRTextureBounds_t,
     ) -> vr::EVROverlayError {
-        todo!()
+        get_overlay!(self, handle, overlay);
+        if bounds.is_null() {
+            vr::EVROverlayError::InvalidParameter
+        } else {
+            unsafe { bounds.write(overlay.bounds) };
+            vr::EVROverlayError::None
+        }
     }
     fn SetOverlayTextureBounds(
         &self,
@@ -929,6 +1031,7 @@ impl vr::IVROverlay027_Interface for OverlayMan {
             vr::EVROverlayError::InvalidParameter
         } else {
             overlay.bounds = unsafe { bounds.read() };
+            debug!("overlay {:?} {:?}", overlay.name, overlay.bounds);
             vr::EVROverlayError::None
         }
     }
@@ -1005,9 +1108,7 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         value: *mut u32,
     ) -> vr::EVROverlayError {
         get_overlay!(self, handle, overlay);
-        unsafe {
-            *value = overlay.z_order as _;
-        }
+        unsafe { *value = overlay.z_order as _ };
         vr::EVROverlayError::None
     }
     fn SetOverlaySortOrder(
@@ -1016,6 +1117,10 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         value: u32,
     ) -> vr::EVROverlayError {
         get_overlay!(self, handle, mut overlay);
+        debug!(
+            "overlay {:?} sort order {} → {}",
+            overlay.name, overlay.z_order, value
+        );
         overlay.z_order = value as _;
         vr::EVROverlayError::None
     }
@@ -1032,9 +1137,7 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         value: *mut f32,
     ) -> vr::EVROverlayError {
         get_overlay!(self, handle, overlay);
-        unsafe {
-            *value = overlay.alpha;
-        }
+        unsafe { *value = overlay.alpha.unwrap_or(1.0) };
         vr::EVROverlayError::None
     }
 

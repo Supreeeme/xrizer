@@ -89,6 +89,8 @@ impl<C: Compositor> OpenXrData<C> {
         exts.khr_visibility_mask = supported_exts.khr_visibility_mask;
         exts.khr_composition_layer_cylinder = supported_exts.khr_composition_layer_cylinder;
         exts.khr_composition_layer_equirect2 = supported_exts.khr_composition_layer_equirect2;
+        exts.khr_composition_layer_color_scale_bias =
+            supported_exts.khr_composition_layer_color_scale_bias;
 
         let instance = entry
             .create_instance(
