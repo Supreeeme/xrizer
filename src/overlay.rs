@@ -41,7 +41,7 @@ impl OverlayMan {
     pub fn set_skybox(&self, session: &SessionData, textures: &[vr::Texture_t]) {
         // We don't yet follow HMD position, so the skybox needs to be
         // big enough so that the user never leaves it
-        const SKYBOX_SIZE: f32 = 50.0;
+        const SKYBOX_SIZE: f32 = 500.0;
 
         self.clear_skybox();
 
