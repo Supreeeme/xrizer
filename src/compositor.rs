@@ -1354,7 +1354,6 @@ mod tests {
             _texture: Self::OpenVrTexture,
             _bounds: openvr::VRTextureBounds_t,
             _image_index: usize,
-            _alpha: f32,
         ) -> openxr::Extent2Di {
             xr::Extent2Di::default()
         }
