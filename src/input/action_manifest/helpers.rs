@@ -6,7 +6,6 @@ use crate::input::custom_bindings::{
     ThresholdBindingData,
 };
 use crate::input::legacy::LegacyActions;
-use crate::input::skeletal::SkeletalInputActionData;
 use crate::input::ActionData::{Bool, Vector1, Vector2};
 use crate::input::{ActionData, BoundPose, ExtraActionData, InteractionProfile};
 use crate::openxr_data;
@@ -23,7 +22,6 @@ pub(super) struct BindingsLoadContext<'a> {
     pub per_profile_pose_bindings: HashMap<xr::Path, HashMap<String, BoundPose>>,
     pub legacy_actions: &'a LegacyActions,
     pub info_action: &'a xr::Action<bool>,
-    pub skeletal_input: &'a SkeletalInputActionData,
 }
 
 impl<'a> BindingsLoadContext<'a> {
@@ -32,7 +30,6 @@ impl<'a> BindingsLoadContext<'a> {
         actions: LoadedActionDataMap,
         legacy_actions: &'a LegacyActions,
         info_action: &'a xr::Action<bool>,
-        skeletal_input: &'a SkeletalInputActionData,
     ) -> Self {
         BindingsLoadContext {
             action_sets,
@@ -42,7 +39,6 @@ impl<'a> BindingsLoadContext<'a> {
             per_profile_pose_bindings: Default::default(),
             legacy_actions,
             info_action,
-            skeletal_input,
         }
     }
 }
@@ -83,7 +79,6 @@ impl BindingsLoadContext<'_> {
             pose_bindings,
             legacy_actions: self.legacy_actions,
             info_action: self.info_action,
-            skeletal_input: self.skeletal_input,
             instance,
             hands,
             bindings: Vec::new(),
@@ -101,7 +96,6 @@ pub(super) struct BindingsProfileLoadContext<'a> {
     pub pose_bindings: &'a mut HashMap<String, BoundPose>,
     pub legacy_actions: &'a LegacyActions,
     pub info_action: &'a xr::Action<bool>,
-    pub skeletal_input: &'a SkeletalInputActionData,
     pub instance: &'a xr::Instance,
     pub hands: [xr::Path; 2],
     pub bindings: Vec<(String, xr::Path)>,

@@ -4,7 +4,6 @@ mod gen;
 use super::Input;
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use glam::{Affine3A, Quat, Vec3};
-use log::debug;
 use openvr as vr;
 use openxr::{self as xr};
 use paste::paste;
@@ -33,12 +32,12 @@ impl<C: openxr_data::Compositor> Input<C> {
             Hand::Right => &legacy.right_spaces,
         }
         .try_get_or_init_raw(xr_data, session_data, &legacy.actions) else {
-            self.get_estimated_bones(session_data, space, hand, transforms);
+            self.get_estimated_bones(space, hand, transforms);
             return;
         };
 
         let Some(joints) = raw.locate_hand_joints(hand_tracker, display_time).unwrap() else {
-            self.get_estimated_bones(session_data, space, hand, transforms);
+            self.get_estimated_bones(space, hand, transforms);
             return;
         };
 
@@ -161,12 +160,11 @@ impl<C: openxr_data::Compositor> Input<C> {
 
     pub(super) fn get_estimated_bones(
         &self,
-        session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
         hand: Hand,
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
-        let finger_state = self.get_finger_state(session_data, hand);
+        let finger_state = self.get_finger_state(hand);
         let (open, fist) = match hand {
             Hand::Left => (&gen::left_hand::OPENHAND, &gen::left_hand::FIST),
             Hand::Right => (&gen::right_hand::OPENHAND, &gen::right_hand::FIST),
@@ -203,46 +201,21 @@ impl<C: openxr_data::Compositor> Input<C> {
         *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
     }
 
-    fn get_finger_state(&self, session_data: &SessionData, hand: Hand) -> FingerState {
+    fn get_finger_state(&self, hand: Hand) -> FingerState {
         // Determines the speed at which fingers follow the input states
         // This value seems to feel right for both analog inputs and binary ones (like vive wands)
         const FINGER_SMOOTHING_SPEED: f32 = 24.0;
 
-        let actions = &session_data
-            .input_data
-            .estimated_skeleton_actions
-            .get()
+        let input = &self
+            .skeletal_input_ipc
+            .lock()
             .unwrap()
-            .actions;
-        let subaction = match hand {
-            Hand::Left => self.openxr.left_hand.subaction_path,
-            Hand::Right => self.openxr.right_hand.subaction_path,
-        };
+            .get_action_states(hand)
+            .expect("Failed to get skeletal input from IPC!");
 
-        let thumb_touch = actions
-            .thumb_touch
-            .state(&session_data.session, subaction)
-            .unwrap()
-            .current_state;
-        let index_touch = actions
-            .index_touch
-            .state(&session_data.session, subaction)
-            .unwrap()
-            .current_state;
-        let index_curl = actions
-            .index_curl
-            .state(&session_data.session, subaction)
-            .unwrap()
-            .current_state;
-        let rest_curl = actions
-            .rest_curl
-            .state(&session_data.session, subaction)
-            .unwrap()
-            .current_state;
-
-        let index = index_curl.max(
+        let index = input.index_curl.max(
             // Curl the index finger slightly on touch input
-            if index_touch || index_curl > 0.0 {
+            if input.index_touch || input.index_curl > 0.0 {
                 0.3
             } else {
                 0.0
@@ -258,10 +231,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         let target = FingerState {
             index,
             // Make other fingers curl with the index slightly to mimic how real human hands work
-            middle: rest_curl.max(index / 2.0),
-            ring: rest_curl.max(index / 4.0),
-            pinky: rest_curl.max(index / 6.0),
-            thumb: if thumb_touch { 1.0 } else { 0.0 },
+            middle: input.rest_curl.max(index / 2.0),
+            ring: input.rest_curl.max(index / 4.0),
+            pinky: input.rest_curl.max(index / 6.0),
+            thumb: if input.thumb_touch { 1.0 } else { 0.0 },
             time: current_time,
         };
 
@@ -530,69 +503,4 @@ pub(super) enum HandSkeletonBone {
     AuxRingFinger,
     AuxPinkyFinger,
     Count,
-}
-
-macro_rules! skeletal_input_actions {
-    ($($field:ident: $ty:ty),+$(,)?) => {
-        pub struct SkeletalInputActions {
-            $(pub $field: xr::Action<$ty>),+
-        }
-        pub struct SkeletalInputBindings {
-            $(pub $field: Vec<xr::Path>),+
-        }
-        impl SkeletalInputBindings {
-            pub fn binding_iter(self, actions: &SkeletalInputActions) -> impl Iterator<Item = xr::Binding<'_>> {
-                std::iter::empty()
-                $(
-                    .chain(
-                        self.$field.into_iter().map(|binding| xr::Binding::new(&actions.$field, binding))
-                    )
-                )+
-            }
-        }
-    }
-}
-
-skeletal_input_actions! {
-    thumb_touch: bool,
-    index_touch: bool,
-    index_curl: f32,
-    rest_curl: f32,
-}
-
-pub struct SkeletalInputActionData {
-    pub set: xr::ActionSet,
-    pub actions: SkeletalInputActions,
-}
-
-impl SkeletalInputActionData {
-    pub fn new(instance: &xr::Instance, left_hand: xr::Path, right_hand: xr::Path) -> Self {
-        debug!("creating skeletal input actions");
-        let leftright = [left_hand, right_hand];
-        let set = instance
-            .create_action_set("xrizer-skeletal-input", "XRizer Skeletal Input", 0)
-            .unwrap();
-        let thumb_touch = set
-            .create_action("thumb-touch", "Thumb Touch", &leftright)
-            .unwrap();
-        let index_touch = set
-            .create_action("index-touch", "Index Touch", &leftright)
-            .unwrap();
-        let index_curl = set
-            .create_action("index-curl", "Index Curl", &leftright)
-            .unwrap();
-        let rest_curl = set
-            .create_action("rest-curl", "Rest Curl", &leftright)
-            .unwrap();
-
-        Self {
-            set,
-            actions: SkeletalInputActions {
-                thumb_touch,
-                index_touch,
-                index_curl,
-                rest_curl,
-            },
-        }
-    }
 }
