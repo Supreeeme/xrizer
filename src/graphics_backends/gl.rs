@@ -154,7 +154,7 @@ impl GraphicsBackend for GlData {
         &self,
         texture: Self::OpenVrTexture,
         bounds: vr::VRTextureBounds_t,
-        _color_space: vr::EColorSpace,
+        color_space: vr::EColorSpace,
     ) -> xr::SwapchainCreateInfo<Self::Api> {
         let mut fmt = 0;
         unsafe {
@@ -162,6 +162,15 @@ impl GraphicsBackend for GlData {
             gl::GetTexLevelParameteriv(gl::TEXTURE_2D, 0, gl::TEXTURE_INTERNAL_FORMAT, &mut fmt);
         }
         let xr::Rect2Di { extent, .. } = texture_rect_from_bounds(texture, bounds);
+
+        let fmt = match color_space {
+            vr::EColorSpace::Linear => fmt,
+            vr::EColorSpace::Gamma | vr::EColorSpace::Auto => match fmt as gl::types::GLenum {
+                gl::RGBA8 => gl::SRGB8_ALPHA8 as gl::types::GLint,
+                gl::RGB8 => gl::SRGB8 as gl::types::GLint,
+                _ => fmt,
+            },
+        };
 
         xr::SwapchainCreateInfo {
             create_flags: xr::SwapchainCreateFlags::EMPTY,

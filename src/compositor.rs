@@ -141,6 +141,7 @@ impl Compositor {
     }
 
     fn initialize_real_session(&self, texture: &vr::Texture_t, bounds: vr::VRTextureBounds_t) {
+        info!("Creating real backend for texture type {:?}", texture.eType);
         let backend = SupportedBackend::new(texture, bounds);
 
         #[macros::any_graphics(SupportedBackend)]
