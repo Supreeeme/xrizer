@@ -298,7 +298,7 @@ pub struct OverlayLayer<'a, G: xr::Graphics> {
     color_bias_khr: Option<Box<xr::sys::CompositionLayerColorScaleBiasKHR>>,
 }
 
-impl<'a, G: xr::Graphics> OverlayLayer<'a, G> {
+impl<G: xr::Graphics> OverlayLayer<'_, G> {
     pub fn set_alpha(&mut self, alpha: f32) {
         // only one instance is stored, so this would cause segfault due to UAF
         debug_assert!(
