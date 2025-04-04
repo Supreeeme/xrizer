@@ -20,7 +20,6 @@ pub enum TrackedDeviceType {
     HMD,
     LeftHand,
     RightHand,
-    GenericTracker,
     Unknown,
 }
 
@@ -30,7 +29,6 @@ impl fmt::Display for TrackedDeviceType {
             Self::HMD => write!(f, "HMD"),
             Self::LeftHand => write!(f, "Left Hand"),
             Self::RightHand => write!(f, "Right Hand"),
-            Self::GenericTracker => write!(f, "Generic Tracker"),
             Self::Unknown => write!(f, "Unknown"),
         }
     }
@@ -42,7 +40,6 @@ impl Into<vr::TrackedDeviceIndex_t> for TrackedDeviceType {
             Self::HMD => vr::k_unTrackedDeviceIndex_Hmd,
             Self::LeftHand => vr::k_unTrackedDeviceIndex_Hmd + 1,
             Self::RightHand => vr::k_unTrackedDeviceIndex_Hmd + 2,
-            Self::GenericTracker => vr::k_unTrackedDeviceIndex_Hmd + 3,
             Self::Unknown => vr::k_unTrackedDeviceIndexInvalid,
         }
     }
@@ -72,7 +69,6 @@ impl Into<vr::ETrackedDeviceClass> for TrackedDeviceType {
         match self {
             Self::HMD => vr::ETrackedDeviceClass::HMD,
             Self::LeftHand | Self::RightHand => vr::ETrackedDeviceClass::Controller,
-            Self::GenericTracker => vr::ETrackedDeviceClass::GenericTracker,
             Self::Unknown => vr::ETrackedDeviceClass::Invalid,
         }
     }

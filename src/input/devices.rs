@@ -24,7 +24,7 @@ pub enum TrackedDeviceContainer {
 }
 
 pub struct TrackedDeviceList {
-    pub devices: Vec<TrackedDeviceContainer>,
+    devices: Vec<TrackedDeviceContainer>,
 }
 
 impl Default for TrackedDeviceList {
