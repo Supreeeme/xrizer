@@ -20,7 +20,6 @@ pub enum TrackedDeviceType {
     HMD,
     LeftHand,
     RightHand,
-    Unknown,
 }
 
 impl fmt::Display for TrackedDeviceType {
@@ -29,7 +28,6 @@ impl fmt::Display for TrackedDeviceType {
             Self::HMD => write!(f, "HMD"),
             Self::LeftHand => write!(f, "Left Hand"),
             Self::RightHand => write!(f, "Right Hand"),
-            Self::Unknown => write!(f, "Unknown"),
         }
     }
 }
@@ -40,7 +38,6 @@ impl Into<vr::TrackedDeviceIndex_t> for TrackedDeviceType {
             Self::HMD => vr::k_unTrackedDeviceIndex_Hmd,
             Self::LeftHand => vr::k_unTrackedDeviceIndex_Hmd + 1,
             Self::RightHand => vr::k_unTrackedDeviceIndex_Hmd + 2,
-            Self::Unknown => vr::k_unTrackedDeviceIndexInvalid,
         }
     }
 }
@@ -69,7 +66,6 @@ impl Into<vr::ETrackedDeviceClass> for TrackedDeviceType {
         match self {
             Self::HMD => vr::ETrackedDeviceClass::HMD,
             Self::LeftHand | Self::RightHand => vr::ETrackedDeviceClass::Controller,
-            Self::Unknown => vr::ETrackedDeviceClass::Invalid,
         }
     }
 }
@@ -79,7 +75,7 @@ impl From<vr::ETrackedControllerRole> for TrackedDeviceType {
         match role {
             vr::ETrackedControllerRole::LeftHand => Self::LeftHand,
             vr::ETrackedControllerRole::RightHand => Self::RightHand,
-            _ => Self::Unknown,
+            _ => panic!("Unsupported controller role {:?}", role)
         }
     }
 }
@@ -137,11 +133,6 @@ pub struct BaseDevice {
 
 impl BaseDevice {
     pub fn new(device_type: TrackedDeviceType) -> Self {
-        assert!(
-            device_type != TrackedDeviceType::Unknown,
-            "Cannot create a device with an unknown type"
-        );
-
         Self {
             device_type,
             interaction_profile: Mutex::new(None),
