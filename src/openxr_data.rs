@@ -1,8 +1,5 @@
-use crate::{
-    clientcore::{Injected, Injector},
-    graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData},
-    input::{InteractionProfile, Profiles},
-};
+use std::ffi::{CStr, CString};
+use crate::{clientcore::{Injected, Injector}, graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData}, input::{InteractionProfile, Profiles}, extensions::ExtraExtensionSet};
 use derive_more::{Deref, From, TryInto};
 use glam::f32::{Quat, Vec3};
 use log::{info, warn};
@@ -13,6 +10,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
     Mutex, RwLock,
 };
+use crate::extensions::{ExtraExtensions, XDevIdMNDX, XDevList, XDevPropertiesMNDX};
 
 pub trait Compositor: vr::InterfaceImpl {
     fn post_session_restart(
@@ -38,6 +36,8 @@ pub struct OpenXrData<C: Compositor> {
     pub left_hand: HandInfo,
     pub right_hand: HandInfo,
     pub enabled_extensions: xr::ExtensionSet,
+    pub enabled_extra_extensions: ExtraExtensionSet,
+    pub extra_extensions: ExtraExtensions,
 
     /// should only be externally accessed for testing
     pub(crate) input: Injected<crate::input::Input<C>>,
@@ -59,6 +59,7 @@ impl<C: Compositor> Drop for OpenXrData<C> {
 pub enum InitError {
     EnumeratingExtensionsFailed(xr::sys::Result),
     InstanceCreationFailed(xr::sys::Result),
+    ExtraExtensionsInitFailed(xr::sys::Result),
     SystemCreationFailed(xr::sys::Result),
     SessionCreationFailed(SessionCreationError),
 }
@@ -92,6 +93,11 @@ impl<C: Compositor> OpenXrData<C> {
         exts.khr_composition_layer_color_scale_bias =
             supported_exts.khr_composition_layer_color_scale_bias;
 
+        let supported_extra_exts = ExtraExtensionSet::from(&supported_exts);
+        let mut extra_exts = ExtraExtensionSet::default();
+        extra_exts.mnd_xdev_space = supported_extra_exts.mnd_xdev_space;
+        extra_exts.to_vec(&mut exts.other);
+
         let instance = entry
             .create_instance(
                 &xr::ApplicationInfo {
@@ -103,6 +109,8 @@ impl<C: Compositor> OpenXrData<C> {
                 &[],
             )
             .map_err(InitError::InstanceCreationFailed)?;
+        let extra_extensions = ExtraExtensions::load(&instance, &extra_exts)
+            .map_err(InitError::ExtraExtensionsInitFailed)?;
 
         let system_id = instance
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
@@ -114,6 +122,7 @@ impl<C: Compositor> OpenXrData<C> {
                 system_id,
                 vr::ETrackingUniverseOrigin::Standing,
                 None,
+                &extra_extensions,
             )?
             .0,
         )));
@@ -130,6 +139,8 @@ impl<C: Compositor> OpenXrData<C> {
             left_hand,
             right_hand,
             enabled_extensions: exts,
+            enabled_extra_extensions: extra_exts,
+            extra_extensions,
             input: injector.inject(),
             compositor: injector.inject(),
         })
@@ -196,7 +207,7 @@ impl<C: Compositor> OpenXrData<C> {
         let _ = unsafe { ManuallyDrop::take(&mut *session_guard) };
 
         let (session, waiter, stream) =
-            SessionData::new(&self.instance, self.system_id, origin, Some(&info))
+            SessionData::new(&self.instance, self.system_id, origin, Some(&info), &self.extra_extensions)
                 .expect("Failed to initalize new session");
 
         comp.post_session_restart(&session, waiter, stream);
@@ -276,6 +287,12 @@ impl<C: Compositor> OpenXrData<C> {
     }
 
     fn end_session(&self) {
+        {
+            let mut session_data = self.session_data.0.write().unwrap();
+            session_data.generic_trackers.clear();
+            session_data.xdev_list.take();
+        }
+        
         self.session_data.get().session.request_exit().unwrap();
         let mut state = self.session_data.get().state;
         while state != xr::SessionState::STOPPING {
@@ -361,6 +378,9 @@ pub struct SessionData {
     /// \- structs are dropped in declaration order, and if we drop our temporary Vulkan data
     /// before the session, the runtime will likely be very unhappy.
     temp_vulkan: Option<VulkanData>,
+
+    pub generic_trackers: Vec<GenericTrackerInfo>,
+    xdev_list: Option<XDevList>,
 }
 
 #[derive(Debug)]
@@ -370,6 +390,7 @@ pub enum SessionCreationError {
     SessionCreationFailed(xr::sys::Result),
     PollEventFailed(xr::sys::Result),
     BeginSessionFailed(xr::sys::Result),
+    QueryGenericTrackersFailed(xr::sys::Result),
 }
 
 impl SessionData {
@@ -378,6 +399,7 @@ impl SessionData {
         system_id: xr::SystemId,
         current_origin: vr::ETrackingUniverseOrigin,
         create_info: Option<&SessionCreateInfo>,
+        extra_exts: &ExtraExtensions,
     ) -> Result<(Self, xr::FrameWaiter, FrameStream), SessionCreationError> {
         let info;
         let (temp_vulkan, info) = if let Some(info) = create_info {
@@ -469,6 +491,46 @@ impl SessionData {
             .map_err(SessionCreationError::BeginSessionFailed)?;
         info!("Began OpenXR session.");
 
+        // Query generic trackers
+        let mut generic_trackers = Vec::new();
+        let mut xdev_list = None;
+        if let Some(ext) = &extra_exts.mnd_xdev_space {
+            info!("Querying generic trackers.");
+            let new_xdevs = XDevList::try_new(&session, ext)
+                .map_err(SessionCreationError::QueryGenericTrackersFailed)?;
+            let mut xdev_ids = [XDevIdMNDX::NULL; 64];
+
+            let n = new_xdevs.enumerate(&mut xdev_ids)
+                .map_err(SessionCreationError::QueryGenericTrackersFailed)?;
+            let xdev_ids = &xdev_ids[..n];
+            for &xdev_id in xdev_ids {
+                let Ok(props) = new_xdevs.get_xdev_properties(xdev_id) else {
+                    continue;
+                };
+
+                if !bool::from(props.can_create_space) {
+                    continue;
+                }
+
+                // Currently the only tell-tale sign of trackers is 'Tracker' in their name.
+                let needle = b"Tracker";
+                if !props.name.windows(needle.len()).any(|w| w == needle) {
+                    continue;
+                }
+
+                let offset = xr::Posef {
+                    orientation: xr::Quaternionf::IDENTITY,
+                    position: xr::Vector3f::default(),
+                };
+                let space = new_xdevs.create_xdev_space(&session, xdev_id, offset)
+                    .map_err(SessionCreationError::QueryGenericTrackersFailed)?;
+                generic_trackers.push(GenericTrackerInfo::new(&props, space));
+            }
+
+            xdev_list = Some(new_xdevs);
+            info!("Found {} generic trackers", generic_trackers.len());
+        }
+
         Ok((
             SessionData {
                 temp_vulkan,
@@ -484,6 +546,8 @@ impl SessionData {
                 comp_data: Default::default(),
                 overlay_data: Default::default(),
                 current_origin,
+                generic_trackers,
+                xdev_list,
             },
             waiter,
             stream,
@@ -660,5 +724,28 @@ fn swing_twist_decomposition(rotation: Quat, axis: Vec3) -> Option<(Quat, Quat)>
         Some((twist.normalize(), swing))
     } else {
         None
+    }
+}
+
+pub struct GenericTrackerInfo {
+    pub name: CString,
+    pub serial: CString,
+    pub space: xr::Space,
+}
+
+impl GenericTrackerInfo {
+    fn new(info: &XDevPropertiesMNDX, space: xr::Space) -> Self {
+        let name = CStr::from_bytes_until_nul(&info.name)
+            .expect("device name should not contain invalid UTF-8")
+            .to_owned();
+        let serial = CStr::from_bytes_until_nul(&info.serial)
+            .expect("serial should not contain invalid UTF-8")
+            .to_owned();
+
+        Self {
+            name,
+            serial,
+            space,
+        }
     }
 }

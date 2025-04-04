@@ -14,6 +14,7 @@ mod rendermodels;
 mod screenshots;
 mod settings;
 mod system;
+mod extensions;
 
 #[cfg(not(test))]
 mod error_dialog;

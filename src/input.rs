@@ -7,6 +7,7 @@ mod skeletal;
 #[cfg(test)]
 mod tests;
 
+use std::borrow::Cow;
 use profiles::MainAxisType;
 pub use profiles::{InteractionProfile, Profiles};
 use skeletal::FingerState;
@@ -1161,6 +1162,24 @@ impl<C: openxr_data::Compositor> Input<C> {
                 .get_controller_pose(Hand::Right, origin)
                 .unwrap_or_default();
         }
+
+        if self.openxr.enabled_extra_extensions.mnd_xdev_space {
+            let mut spaces = self.cached_poses.lock().unwrap();
+            let session_data = self.openxr.session_data.get();
+            let num_trackers = session_data.generic_trackers.len();
+
+            for i in 0..num_trackers {
+                if let Some(pose) = spaces.get_pose_impl(
+                    &self.openxr,
+                    &session_data,
+                    self.openxr.display_time.get(),
+                    (2 + i) as vr::TrackedDeviceIndex_t,
+                    origin.unwrap_or(session_data.current_origin),
+                ) {
+                    poses[2 + i] = pose;
+                }
+            }
+        }
     }
 
     fn get_hmd_pose(&self, origin: Option<vr::ETrackingUniverseOrigin>) -> vr::TrackedDevicePose_t {
@@ -1172,7 +1191,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 &self.openxr,
                 &data,
                 self.openxr.display_time.get(),
-                None,
+                vr::k_unTrackedDeviceIndex_Hmd,
                 origin.unwrap_or(data.current_origin),
             )
             .unwrap()
@@ -1191,7 +1210,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             &self.openxr,
             &data,
             self.openxr.display_time.get(),
-            Some(hand),
+            hand as vr::TrackedDeviceIndex_t,
             origin.unwrap_or(data.current_origin),
         )
     }
@@ -1319,6 +1338,27 @@ impl<C: openxr_data::Compositor> Input<C> {
         })
     }
 
+    pub fn get_generic_tracker_string_tracked_property(
+        &self,
+        index: usize,
+        property: vr::ETrackedDeviceProperty,
+    ) -> Option<Cow<'static, CStr>> {
+        let session_data = self.openxr.session_data.get();
+        let Some(tracker) = session_data.generic_trackers.get(index) else {
+            return None;
+        };
+
+        match property {
+            vr::ETrackedDeviceProperty::ControllerType_String => Some(c"vive_tracker".into()),
+            vr::ETrackedDeviceProperty::ModelNumber_String =>
+                Some(tracker.name.as_c_str().to_owned().into()),
+            vr::ETrackedDeviceProperty::SerialNumber_String =>
+                Some(tracker.serial.as_c_str().to_owned().into()),
+            vr::ETrackedDeviceProperty::ManufacturerName_String => Some(c"<unknown>".into()),
+            _ => None,
+        }
+    }
+
     pub fn post_session_restart(&self, data: &SessionData) {
         // This function is called while a write lock is called on the session, and as such should
         // not use self.openxr.session_data.get().
@@ -1363,11 +1403,16 @@ struct CachedSpaces {
     standing: CachedPoses,
 }
 
-#[derive(Default)]
 struct CachedPoses {
-    head: Option<vr::TrackedDevicePose_t>,
-    left: Option<vr::TrackedDevicePose_t>,
-    right: Option<vr::TrackedDevicePose_t>,
+    poses: [Option<vr::TrackedDevicePose_t>; vr::k_unMaxTrackedDeviceCount as usize],
+}
+
+impl Default for CachedPoses {
+    fn default() -> Self {
+        CachedPoses {
+            poses: [None; 64],
+        }
+    }
 }
 
 impl CachedSpaces {
@@ -1376,7 +1421,7 @@ impl CachedSpaces {
         xr_data: &OpenXrData<impl openxr_data::Compositor>,
         session_data: &SessionData,
         display_time: xr::Time,
-        hand: Option<Hand>,
+        device_index: vr::TrackedDeviceIndex_t,
         origin: vr::ETrackingUniverseOrigin,
     ) -> Option<vr::TrackedDevicePose_t> {
         tracy_span!();
@@ -1386,35 +1431,49 @@ impl CachedSpaces {
             vr::ETrackingUniverseOrigin::RawAndUncalibrated => unreachable!(),
         };
 
-        let pose = match hand {
-            None => &mut space.head,
-            Some(Hand::Left) => &mut space.left,
-            Some(Hand::Right) => &mut space.right,
+        let pose_index = device_index as usize;
+        let Some(pose) = space.poses.get_mut(pose_index) else {
+            return None;
         };
 
-        if let Some(pose) = pose {
-            return Some(*pose);
+        if let Some(pose) = *pose {
+            return Some(pose);
         }
 
-        let (loc, velo) = if let Some(hand) = hand {
-            let legacy = session_data.input_data.legacy_actions.get()?;
-            let spaces = match hand {
-                Hand::Left => &legacy.left_spaces,
-                Hand::Right => &legacy.right_spaces,
-            };
-
-            if let Some(raw) = spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions) {
-                raw.relate(session_data.get_space_for_origin(origin), display_time)
+        let (loc, velo) = match device_index {
+            vr::k_unTrackedDeviceIndex_Hmd => {
+                session_data
+                    .view_space
+                    .relate(session_data.get_space_for_origin(origin), display_time)
                     .unwrap()
-            } else {
-                trace!("failed to get raw space, making empty pose");
-                (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
             }
-        } else {
-            session_data
-                .view_space
-                .relate(session_data.get_space_for_origin(origin), display_time)
-                .unwrap()
+            _ => {
+                if let Ok(hand) = Hand::try_from(device_index) {
+                    let legacy = session_data.input_data.legacy_actions.get()?;
+                    let spaces = match hand {
+                        Hand::Left => &legacy.left_spaces,
+                        Hand::Right => &legacy.right_spaces,
+                    };
+
+                    if let Some(raw) = spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions) {
+                        raw.relate(session_data.get_space_for_origin(origin), display_time)
+                            .unwrap()
+                    } else {
+                        trace!("failed to get raw space, making empty pose");
+                        (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
+                    }
+
+                } else {
+                    let tracker_index = (device_index - 3) as usize;
+                    if let Some(tracker) = session_data.generic_trackers.get(tracker_index) {
+                        tracker.space
+                            .relate(session_data.get_space_for_origin(origin), display_time)
+                            .unwrap()
+                    } else {
+                        (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
+                    }
+                }
+            }
         };
 
         let ret = space_relation_to_openvr_pose(loc, velo);

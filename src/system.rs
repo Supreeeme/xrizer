@@ -461,13 +461,27 @@ impl vr::IVRSystem022_Interface for System {
                 // itself doesn't appear to be that important.
                 vr::ETrackedDeviceProperty::SerialNumber_String
                 | vr::ETrackedDeviceProperty::ManufacturerName_String
-                | vr::ETrackedDeviceProperty::ControllerType_String => Some(c"<unknown>"),
+                | vr::ETrackedDeviceProperty::ControllerType_String => Some(c"<unknown>".into()),
                 _ => None,
             },
             x if Hand::try_from(x).is_ok() => self.input.get().and_then(|i| {
                 i.get_controller_string_tracked_property(Hand::try_from(x).unwrap(), prop)
+                    .map(|v| v.into())
             }),
-            _ => None,
+            _ => {
+                let session_data = self.openxr.session_data.get();
+                let num_trackers = session_data.generic_trackers.len();
+                if device_index >= 3 && (device_index as usize) < num_trackers + 3 {
+                    let tracker_index = (device_index - 3) as usize;
+                    if let Some(input) = self.input.get() {
+                        input.get_generic_tracker_string_tracked_property(tracker_index, prop)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            },
         };
 
         let Some(data) = data else {
@@ -603,23 +617,28 @@ impl vr::IVRSystem022_Interface for System {
                 Hand::Left => self.openxr.left_hand.connected(),
                 Hand::Right => self.openxr.right_hand.connected(),
             },
-            _ => false,
+            _ => {
+                let session_data = self.openxr.session_data.get();
+                let max_id = (session_data.generic_trackers.len() + 3) as u32;
+                device_index < max_id
+            }
         }
     }
 
     fn GetTrackedDeviceClass(&self, index: vr::TrackedDeviceIndex_t) -> vr::ETrackedDeviceClass {
-        match index {
-            vr::k_unTrackedDeviceIndex_Hmd => vr::ETrackedDeviceClass::HMD,
-            x if Hand::try_from(x).is_ok() => {
-                if self.IsTrackedDeviceConnected(x) {
-                    vr::ETrackedDeviceClass::Controller
-                } else {
-                    vr::ETrackedDeviceClass::Invalid
+        if !self.IsTrackedDeviceConnected(index) {
+            vr::ETrackedDeviceClass::Invalid
+        } else {
+            match index {
+                vr::k_unTrackedDeviceIndex_Hmd => vr::ETrackedDeviceClass::HMD,
+                x if Hand::try_from(x).is_ok() => {
+                        vr::ETrackedDeviceClass::Controller
                 }
+                _ => vr::ETrackedDeviceClass::GenericTracker,
             }
-            _ => vr::ETrackedDeviceClass::Invalid,
         }
     }
+
     fn GetControllerRoleForTrackedDeviceIndex(
         &self,
         index: vr::TrackedDeviceIndex_t,
