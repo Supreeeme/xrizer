@@ -61,8 +61,12 @@ impl XrTrackedDevice {
             device_type,
             interaction_profile: Mutex::new(None),
             profile_path: AtomicPath::new(),
-            connected: AtomicBool::new(false),
-            previous_connected: AtomicBool::new(false),
+            connected: if device_type == TrackedDeviceType::Hmd {
+                true.into()
+            } else {
+                false.into()
+            },
+            previous_connected: false.into(),
         }
     }
 
