@@ -62,10 +62,13 @@ impl BindingsLoadContext<'_> {
             return None;
         };
 
-        let left_hand = devices.get_controller(Hand::Left.into());
-        let right_hand = devices.get_controller(Hand::Right.into());
+        let left_hand = devices.get_controller(Hand::Left);
+        let right_hand = devices.get_controller(Hand::Right);
 
-        let hands = [left_hand.subaction_path, right_hand.subaction_path];
+        let hands = [
+            left_hand.get_controller_variables()?.subaction_path,
+            right_hand.get_controller_variables()?.subaction_path,
+        ];
 
         let bindings_parsed = self
             .per_profile_bindings

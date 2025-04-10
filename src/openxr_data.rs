@@ -563,6 +563,17 @@ pub enum Hand {
     Right,
 }
 
+pub type HandPath = &'static str;
+
+impl From<Hand> for HandPath {
+    fn from(value: Hand) -> Self {
+        match value {
+            Hand::Left => "/user/hand/left",
+            Hand::Right => "/user/hand/right",
+        }
+    }
+}
+
 impl TryFrom<vr::TrackedDeviceIndex_t> for Hand {
     type Error = ();
     #[inline]
@@ -575,10 +586,30 @@ impl TryFrom<vr::TrackedDeviceIndex_t> for Hand {
     }
 }
 
-impl Into<vr::TrackedDeviceIndex_t> for Hand {
+impl TryFrom<vr::ETrackedControllerRole> for Hand {
+    type Error = ();
     #[inline]
-    fn into(self) -> vr::TrackedDeviceIndex_t {
-        self as u32
+    fn try_from(value: vr::ETrackedControllerRole) -> Result<Self, Self::Error> {
+        match value {
+            vr::ETrackedControllerRole::LeftHand => Ok(Hand::Left),
+            vr::ETrackedControllerRole::RightHand => Ok(Hand::Right),
+            _ => Err(()),
+        }
+    }
+}
+
+impl From<Hand> for vr::TrackedDeviceIndex_t {
+    fn from(hand: Hand) -> Self {
+        hand as vr::TrackedDeviceIndex_t
+    }
+}
+
+impl From<Hand> for vr::ETrackedControllerRole {
+    fn from(hand: Hand) -> Self {
+        match hand {
+            Hand::Left => vr::ETrackedControllerRole::LeftHand,
+            Hand::Right => vr::ETrackedControllerRole::RightHand,
+        }
     }
 }
 

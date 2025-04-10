@@ -78,8 +78,14 @@ impl<C: openxr_data::Compositor> Input<C> {
         debug!("Loaded {} action sets.", sets.len());
 
         let devices = self.devices.read().unwrap();
-        let left_hand = devices.get_controller(Hand::Left.into());
-        let right_hand = devices.get_controller(Hand::Right.into());
+        let left_hand = devices
+            .get_controller(Hand::Left)
+            .get_controller_variables()
+            .ok_or(vr::EVRInputError::InvalidDevice)?;
+        let right_hand = devices
+            .get_controller(Hand::Right)
+            .get_controller_variables()
+            .ok_or(vr::EVRInputError::InvalidDevice)?;
 
         let actions = load_actions(
             &self.openxr.instance,

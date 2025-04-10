@@ -7,7 +7,6 @@ use super::{
 };
 use crate::{
     graphics_backends::GraphicsBackend,
-    input::devices::tracked_device::TrackedDevice,
     openxr_data::{FrameStream, Hand, OpenXrData, SessionCreateInfo},
     vr::{self, IVRInput010_Interface},
 };

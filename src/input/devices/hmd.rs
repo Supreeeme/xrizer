@@ -1,39 +1,16 @@
-use std::sync::atomic::Ordering;
+use openvr as vr;
 
-use super::tracked_device::{BaseDevice, TrackedDevice, TrackedDeviceType};
+use crate::openxr_data::{OpenXrData, SessionData};
 
-use openvr::{self as vr, space_relation_to_openvr_pose};
+use super::tracked_device::XrTrackedDevice;
 
-use crate::{
-    openxr_data::{OpenXrData, SessionData},
-    tracy_span,
-};
-
-pub struct XrHMD {
-    base: BaseDevice,
-}
-
-impl XrHMD {
-    pub fn new() -> Self {
-        let hmd = Self {
-            base: BaseDevice::new(TrackedDeviceType::HMD),
-        };
-
-        hmd.base.connected.store(true, Ordering::Relaxed);
-
-        hmd
-    }
-}
-
-impl TrackedDevice for XrHMD {
-    fn get_pose(
+impl XrTrackedDevice {
+    pub fn get_hmd_pose(
         &self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
         origin: vr::ETrackingUniverseOrigin,
     ) -> Option<vr::TrackedDevicePose_t> {
-        tracy_span!("XrHMD::get_pose");
-
         let (location, velocity) = {
             session_data
                 .view_space
@@ -44,10 +21,6 @@ impl TrackedDevice for XrHMD {
                 .ok()?
         };
 
-        Some(space_relation_to_openvr_pose(location, velocity))
-    }
-
-    fn get_base_device(&self) -> &BaseDevice {
-        &self.base
+        Some(vr::space_relation_to_openvr_pose(location, velocity))
     }
 }

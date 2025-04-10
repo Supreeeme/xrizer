@@ -2,7 +2,6 @@
 mod gen;
 
 use super::Input;
-use crate::input::devices::tracked_device::TrackedDevice;
 use crate::openxr_data::{self, Hand, SessionData};
 use glam::{Affine3A, Quat, Vec3};
 use log::debug;
@@ -30,7 +29,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let display_time = self.openxr.display_time.get();
         let devices = self.devices.read().unwrap();
 
-        let controller = devices.get_controller(hand.into());
+        let controller = devices.get_controller(hand);
 
         let Some(raw) = match hand {
             Hand::Left => &legacy.left_spaces,
@@ -225,7 +224,11 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let devices = self.devices.read().unwrap();
 
-        let subaction = devices.get_controller(hand.into()).subaction_path;
+        let subaction = devices
+            .get_controller(hand)
+            .get_controller_variables()
+            .unwrap()
+            .subaction_path;
 
         let thumb_touch = actions
             .thumb_touch

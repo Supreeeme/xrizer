@@ -61,7 +61,10 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let devices = self.devices.read().unwrap();
 
-        let controller = devices.get_controller(hand.into());
+        let Some(controller) = devices.get_controller(hand).get_controller_variables() else {
+            debug!("tried getting controller state, but no controller variables were found");
+            return false;
+        };
 
         let hand_path = controller.subaction_path;
 
