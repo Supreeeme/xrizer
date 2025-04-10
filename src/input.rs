@@ -10,6 +10,7 @@ pub mod devices;
 mod tests;
 
 use devices::tracked_device::TrackedDevice;
+use devices::tracked_device::TrackedDeviceType;
 use devices::TrackedDeviceList;
 use profiles::MainAxisType;
 pub use profiles::{InteractionProfile, Profiles};
@@ -1208,6 +1209,51 @@ impl<C: openxr_data::Compositor> Input<C> {
             &session_data,
             origin.unwrap_or(session_data.current_origin),
         )
+    }
+
+    pub fn interaction_profile_changed(&self) {
+        let session = self.openxr.session_data.get();
+        let devices = self.devices.read().unwrap();
+        let hmd = devices.get_hmd();
+
+        for hand in [TrackedDeviceType::LeftHand, TrackedDeviceType::RightHand] {
+            let controller = devices.get_controller(hand);
+
+            let profile_path = session
+                .session
+                .current_interaction_profile(controller.subaction_path)
+                .unwrap();
+
+            controller
+                .get_base_device()
+                .profile_path
+                .store(profile_path);
+
+            let profile_name = match profile_path {
+                xr::Path::NULL => {
+                    controller.set_connected(false);
+                    "<null>".to_owned()
+                }
+                path => {
+                    controller.set_connected(true);
+                    self.openxr.instance.path_to_string(path).unwrap()
+                }
+            };
+
+            let profile = Profiles::get().profile_from_name(&profile_name);
+
+            if let Some(p) = profile {
+                controller.set_interaction_profile(p);
+                hmd.set_interaction_profile(p);
+            };
+
+            session.input_data.interaction_profile_changed();
+
+            info!(
+                "{} interaction profile changed: {}",
+                controller.hand_path, profile_name
+            )
+        }
     }
 
     pub fn frame_start_update(&self) {
