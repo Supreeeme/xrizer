@@ -297,7 +297,7 @@ impl<T: InterfaceImpl> Injected<T> {
                     .unwrap_or_else(|_| unreachable!());
                 Some(self.item.get().unwrap())
             })
-            .and_then(|i| i.upgrade()?.downcast().ok())
+            .map(|i| i.upgrade().unwrap().downcast().unwrap())
     }
 
     pub fn force(&self, init: impl FnOnce(&Injector) -> T) -> Arc<T> {
