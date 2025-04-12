@@ -70,8 +70,4 @@ impl TrackedDeviceList {
     pub fn iter(&self) -> std::slice::Iter<'_, XrTrackedDevice> {
         self.devices.iter()
     }
-
-    pub fn len(&self) -> usize {
-        self.devices.len()
-    }
 }

@@ -40,14 +40,14 @@ impl XrTrackedDevice {
     }
 
     pub fn get_controller_subaction_path(&self) -> Option<xr::Path> {
-        match self.device_type {
+        match self.get_type() {
             TrackedDeviceType::Controller { subaction_path, .. } => Some(subaction_path),
             _ => None,
         }
     }
 
     pub fn get_controller_hand(&self) -> Option<Hand> {
-        match self.device_type {
+        match self.get_type() {
             TrackedDeviceType::Controller { hand, .. } => Some(hand),
             _ => None,
         }

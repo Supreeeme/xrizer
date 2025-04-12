@@ -31,7 +31,6 @@ use std::collections::VecDeque;
 use std::ffi::{c_char, CStr, CString};
 use std::mem::ManuallyDrop;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 new_key_type! {
@@ -725,10 +724,10 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             Ok(ActionData::Pose) => {
                 let (mut hand, interaction_profile) = match subaction_path {
                     x if x == left_hand.get_controller_subaction_path().unwrap() => {
-                        (Some(Hand::Left), Some(left_hand.profile_path.load()))
+                        (Some(Hand::Left), Some(left_hand.get_profile_path()))
                     }
                     x if x == right_hand.get_controller_subaction_path().unwrap() => {
-                        (Some(Hand::Right), Some(right_hand.profile_path.load()))
+                        (Some(Hand::Right), Some(right_hand.get_profile_path()))
                     }
                     x if x == xr::Path::NULL => (None, None),
                     _ => unreachable!(),
@@ -736,8 +735,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
                 let get_first_bound_hand_profile = || {
                     loaded
-                        .try_get_pose(action, left_hand.profile_path.load())
-                        .or_else(|_| loaded.try_get_pose(action, right_hand.profile_path.load()))
+                        .try_get_pose(action, left_hand.get_profile_path())
+                        .or_else(|_| loaded.try_get_pose(action, right_hand.get_profile_path()))
                         .ok()
                 };
 
@@ -1230,7 +1229,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 .current_interaction_profile(subaction_path)
                 .unwrap();
 
-            controller.profile_path.store(profile_path);
+            controller.set_profile_path(profile_path);
 
             let profile_name = match profile_path {
                 xr::Path::NULL => {
@@ -1332,8 +1331,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             .read()
             .ok()?
             .get_device(hand.into())?
-            .profile_path
-            .load();
+            .get_profile_path();
 
         self.profile_map.get(&path).map(|v| &**v)
     }
@@ -1410,11 +1408,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         for (i, device) in devices.iter().enumerate() {
             let current = device.connected();
 
-            if device
-                .previous_connected
-                .compare_exchange(!current, current, Ordering::Relaxed, Ordering::Relaxed)
-                .is_ok()
-            {
+            if device.compare_exchange_connected().is_ok() {
                 debug!(
                     "sending {:?} {}connected",
                     device.get_type(),

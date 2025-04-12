@@ -56,11 +56,11 @@ impl TryFrom<vr::TrackedDeviceIndex_t> for TrackedDeviceType {
 }
 
 pub struct XrTrackedDevice {
-    pub device_type: TrackedDeviceType,
-    pub interaction_profile: Mutex<Option<&'static dyn InteractionProfile>>,
-    pub profile_path: AtomicPath,
-    pub connected: AtomicBool,
-    pub previous_connected: AtomicBool,
+    device_type: TrackedDeviceType,
+    interaction_profile: Mutex<Option<&'static dyn InteractionProfile>>,
+    profile_path: AtomicPath,
+    connected: AtomicBool,
+    previous_connected: AtomicBool,
 }
 
 impl XrTrackedDevice {
@@ -100,15 +100,34 @@ impl XrTrackedDevice {
         self.connected.store(connected, Ordering::Relaxed);
     }
 
-    pub fn get_type(&self) -> TrackedDeviceType {
-        self.device_type
-    }
-
     pub fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
         self.interaction_profile.lock().unwrap().replace(profile);
     }
 
     pub fn get_interaction_profile(&self) -> Option<&'static dyn InteractionProfile> {
         self.interaction_profile.lock().unwrap().as_ref().copied()
+    }
+
+    pub fn get_profile_path(&self) -> xr::Path {
+        self.profile_path.load()
+    }
+
+    pub fn set_profile_path(&self, path: xr::Path) {
+        self.profile_path.store(path);
+    }
+
+    pub fn compare_exchange_connected(&self) -> Result<bool, bool> {
+        let current = self.connected();
+
+        self.previous_connected.compare_exchange(
+            !current,
+            current,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        )
+    }
+
+    pub fn get_type(&self) -> TrackedDeviceType {
+        self.device_type
     }
 }
