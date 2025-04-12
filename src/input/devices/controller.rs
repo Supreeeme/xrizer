@@ -8,7 +8,7 @@ use super::tracked_device::{TrackedDeviceType, XrTrackedDevice};
 use log::trace;
 
 impl XrTrackedDevice {
-    pub fn get_controller_pose(
+    pub(super) fn get_controller_pose(
         &self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,

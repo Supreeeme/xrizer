@@ -5,7 +5,7 @@ use crate::openxr_data::{OpenXrData, SessionData};
 use super::tracked_device::XrTrackedDevice;
 
 impl XrTrackedDevice {
-    pub fn get_hmd_pose(
+    pub(super) fn get_hmd_pose(
         &self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
