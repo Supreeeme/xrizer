@@ -1,4 +1,3 @@
-use controller::ControllerVariables;
 use tracked_device::{TrackedDeviceType, XrTrackedDevice};
 
 use openvr as vr;
@@ -20,14 +19,14 @@ impl TrackedDeviceList {
         Self {
             devices: vec![
                 XrTrackedDevice::new(TrackedDeviceType::Hmd),
-                XrTrackedDevice::new(TrackedDeviceType::Controller(ControllerVariables::new(
-                    xr_instance,
-                    Hand::Left,
-                ))),
-                XrTrackedDevice::new(TrackedDeviceType::Controller(ControllerVariables::new(
-                    xr_instance,
-                    Hand::Right,
-                ))),
+                XrTrackedDevice::new(TrackedDeviceType::Controller {
+                    hand: Hand::Left,
+                    subaction_path: xr_instance.string_to_path(Hand::Left.into()).unwrap(),
+                }),
+                XrTrackedDevice::new(TrackedDeviceType::Controller {
+                    hand: Hand::Right,
+                    subaction_path: xr_instance.string_to_path(Hand::Right.into()).unwrap(),
+                }),
             ],
         }
     }

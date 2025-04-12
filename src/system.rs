@@ -547,7 +547,7 @@ impl vr::IVRSystem022_Interface for System {
         TrackedDeviceType::try_from(index).map_or(vr::ETrackedDeviceClass::Invalid, |device| {
             match device {
                 TrackedDeviceType::Hmd => vr::ETrackedDeviceClass::HMD,
-                TrackedDeviceType::Controller(_) => vr::ETrackedDeviceClass::Controller,
+                TrackedDeviceType::Controller { .. } => vr::ETrackedDeviceClass::Controller,
             }
         })
     }

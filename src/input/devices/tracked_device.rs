@@ -7,26 +7,28 @@ use std::{
 };
 
 use openvr as vr;
+use openxr as xr;
 
 use crate::{
     input::InteractionProfile,
     openxr_data::{AtomicPath, Hand, OpenXrData, SessionData},
 };
 
-use super::controller::ControllerVariables;
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum TrackedDeviceType {
     Hmd,
-    Controller(ControllerVariables),
+    Controller {
+        hand: Hand,
+        subaction_path: xr::Path,
+    },
 }
 
 impl fmt::Display for TrackedDeviceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Hmd => write!(f, "HMD"),
-            Self::Controller(vars) => match vars.hand {
+            Self::Controller { hand, .. } => match hand {
                 Hand::Left => write!(f, "Left Hand"),
                 Hand::Right => write!(f, "Right Hand"),
             },
@@ -40,8 +42,14 @@ impl TryFrom<vr::TrackedDeviceIndex_t> for TrackedDeviceType {
     fn try_from(value: vr::TrackedDeviceIndex_t) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Hmd),
-            1 => Ok(Self::Controller(ControllerVariables::default())),
-            2 => Ok(Self::Controller(ControllerVariables::default())),
+            1 => Ok(Self::Controller {
+                hand: Hand::Left,
+                subaction_path: xr::Path::default(),
+            }),
+            2 => Ok(Self::Controller {
+                hand: Hand::Right,
+                subaction_path: xr::Path::default(),
+            }),
             _ => Err(()),
         }
     }

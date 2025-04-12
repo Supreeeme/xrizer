@@ -226,9 +226,8 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let subaction = devices
             .get_controller(hand)
-            .get_controller_variables()
-            .unwrap()
-            .subaction_path;
+            .get_controller_subaction_path()
+            .unwrap();
 
         let thumb_touch = actions
             .thumb_touch

@@ -66,8 +66,8 @@ impl BindingsLoadContext<'_> {
         let right_hand = devices.get_controller(Hand::Right);
 
         let hands = [
-            left_hand.get_controller_variables()?.subaction_path,
-            right_hand.get_controller_variables()?.subaction_path,
+            left_hand.get_controller_subaction_path()?,
+            right_hand.get_controller_subaction_path()?,
         ];
 
         let bindings_parsed = self
