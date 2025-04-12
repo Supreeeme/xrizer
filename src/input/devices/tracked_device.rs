@@ -1,9 +1,6 @@
-use std::{
-    fmt,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Mutex,
-    },
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
 };
 
 use openvr as vr;
@@ -21,18 +18,6 @@ pub enum TrackedDeviceType {
         hand: Hand,
         subaction_path: xr::Path,
     },
-}
-
-impl fmt::Display for TrackedDeviceType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Hmd => write!(f, "HMD"),
-            Self::Controller { hand, .. } => match hand {
-                Hand::Left => write!(f, "Left Hand"),
-                Hand::Right => write!(f, "Right Hand"),
-            },
-        }
-    }
 }
 
 impl TryFrom<vr::TrackedDeviceIndex_t> for TrackedDeviceType {
