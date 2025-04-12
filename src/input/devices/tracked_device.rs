@@ -15,7 +15,6 @@ use crate::{
 };
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[allow(dead_code)]
 pub enum TrackedDeviceType {
     Hmd,
     Controller {
