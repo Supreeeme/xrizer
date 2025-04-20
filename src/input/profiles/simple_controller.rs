@@ -16,6 +16,7 @@ impl InteractionProfile for SimpleController {
             openvr_controller_type: c"<unknown>",
             render_model_name: Property::BothHands(c"generic_controller"),
             main_axis: MainAxisType::Thumbstick,
+            legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 32) | (1 << 33) // TODO: This is just the one for the vive_controller. I'm not certain whether that's correct here
         }
     }
     fn profile_path(&self) -> &'static str {

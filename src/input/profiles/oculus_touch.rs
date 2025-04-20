@@ -18,6 +18,7 @@ impl InteractionProfile for Touch {
                 right: c"oculus_quest_controller_right",
             },
             main_axis: MainAxisType::Thumbstick,
+            legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 7) | (1 << 32) | (1 << 33) | (1 << 34),
         }
     }
     fn profile_path(&self) -> &'static str {

@@ -1321,6 +1321,17 @@ impl<C: openxr_data::Compositor> Input<C> {
             _ => None,
         })
     }
+    
+    pub fn get_controller_uint_tracked_property(
+        &self,
+        hand: Hand,
+        property: vr::ETrackedDeviceProperty
+    ) -> Option<u64> {
+        self.get_profile_data(hand).and_then(|data| match property {
+            vr::ETrackedDeviceProperty::SupportedButtons_Uint64 => Some(data.legacy_buttons_mask),
+            _ => None
+        })
+    }
 
     pub fn post_session_restart(&self, data: &SessionData) {
         // This function is called while a write lock is called on the session, and as such should

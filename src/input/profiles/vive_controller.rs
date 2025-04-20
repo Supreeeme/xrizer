@@ -15,6 +15,7 @@ impl InteractionProfile for ViveWands {
             openvr_controller_type: c"vive_controller",
             render_model_name: Property::BothHands(c"vr_controller_vive_1_5"),
             main_axis: MainAxisType::Trackpad,
+            legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 32) | (1 << 33)
         }
     }
     fn profile_path(&self) -> &'static str {

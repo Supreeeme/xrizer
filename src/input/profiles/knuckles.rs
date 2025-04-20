@@ -22,6 +22,7 @@ impl InteractionProfile for Knuckles {
                 right: c"valve_controller_knu_1_0_right",
             },
             main_axis: MainAxisType::Thumbstick,
+            legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 7) | (1 << 32) | (1 << 33) | (1 << 34)
         }
     }
     fn translate_map(&self) -> &'static [PathTranslation] {
