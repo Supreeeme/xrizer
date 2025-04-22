@@ -28,8 +28,14 @@ impl LegacyState {
 }
 
 // Adapted from openvr.h
-fn button_mask_from_id(id: vr::EVRButtonId) -> u64 {
+pub const fn button_mask_from_id(id: vr::EVRButtonId) -> u64 {
     1_u64 << (id as u32)
+}
+#[macro_export]
+macro_rules! button_mask_from_ids {
+    ($($x:expr), * $(,)?) => {
+        0u64 $(| button_mask_from_id($x))*
+    };
 }
 
 impl<C: openxr_data::Compositor> Input<C> {

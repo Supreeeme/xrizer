@@ -1,39 +1,43 @@
-use glam::{EulerRot, Mat4, Quat, Vec3};
-
 use super::{
     InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
     SkeletalInputBindings, StringToPath,
 };
-use crate::input::legacy::LegacyBindings;
+use crate::button_mask_from_ids;
+use crate::input::legacy::{button_mask_from_id, LegacyBindings};
 use crate::openxr_data::Hand;
+use glam::{EulerRot, Mat4, Quat, Vec3};
+use openvr::EVRButtonId;
+use std::iter::Iterator;
 
 pub struct Knuckles;
+
+static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
+    model: c"Knuckles",
+    openvr_controller_type: c"knuckles",
+    render_model_name: Property::PerHand {
+        left: c"valve_controller_knu_1_0_left",
+        right: c"valve_controller_knu_1_0_right",
+    },
+    main_axis: MainAxisType::Thumbstick,
+    registered_device_type: Property::PerHand {
+        left: c"valve/index_controllerLHR-FFFFFFF1",
+        right: c"valve/index_controllerLHR-FFFFFFF2"
+    },
+    serial_number: Property::PerHand {
+        left: c"LHR-FFFFFFF1",
+        right: c"LHR-FFFFFFF2"
+    },
+    tracking_system_name: c"lighthouse",
+    manufacturer_name: c"Valve",
+    legacy_buttons_mask: button_mask_from_ids!(EVRButtonId::System, EVRButtonId::ApplicationMenu, EVRButtonId::Grip, EVRButtonId::A, EVRButtonId::Axis0, EVRButtonId::Axis1, EVRButtonId::Axis2)
+};
 
 impl InteractionProfile for Knuckles {
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/valve/index_controller"
     }
     fn properties(&self) -> &'static ProfileProperties {
-        &ProfileProperties {
-            model: c"Knuckles",
-            openvr_controller_type: c"knuckles",
-            render_model_name: Property::PerHand {
-                left: c"valve_controller_knu_1_0_left",
-                right: c"valve_controller_knu_1_0_right",
-            },
-            main_axis: MainAxisType::Thumbstick,
-            registered_device_type: Property::PerHand {
-                left: c"valve/index_controllerLHR-FFFFFFF1",
-                right: c"valve/index_controllerLHR-FFFFFFF2"
-            },
-            serial_number: Property::PerHand {
-                left: c"LHR-FFFFFFF1",
-                right: c"LHR-FFFFFFF2"
-            },
-            tracking_system_name: c"lighthouse",
-            manufacturer_name: c"Valve",
-            legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 7) | (1 << 32) | (1 << 33) | (1 << 34)
-        }
+        &DEVICE_PROPERTIES
     }
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
