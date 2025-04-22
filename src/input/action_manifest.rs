@@ -77,15 +77,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         )?;
         debug!("Loaded {} action sets.", sets.len());
 
-        let devices = self.devices.read().unwrap();
-        let left_hand_subaction_path = devices
-            .get_controller(Hand::Left)
-            .get_controller_subaction_path()
-            .ok_or(vr::EVRInputError::InvalidDevice)?;
-        let right_hand_subaction_path = devices
-            .get_controller(Hand::Right)
-            .get_controller_subaction_path()
-            .ok_or(vr::EVRInputError::InvalidDevice)?;
+        let left_hand_subaction_path = self.get_subaction_path(Hand::Left);
+        let right_hand_subaction_path = self.get_subaction_path(Hand::Right);
 
         let actions = load_actions(
             &self.openxr.instance,
@@ -843,12 +836,9 @@ impl<C: openxr_data::Compositor> Input<C> {
                     let bindings = LazyCell::new(load_bindings);
                     for profile in profiles {
                         if let Some(bindings) = bindings.as_ref() {
-                            if let Some(mut context) = context.for_profile(
-                                &self.openxr,
-                                &self.devices.read().unwrap(),
-                                profile,
-                                other,
-                            ) {
+                            if let Some(mut context) =
+                                context.for_profile(self, &self.openxr, profile, other)
+                            {
                                 self.load_bindings_for_profile(bindings, &mut context);
                             }
                         }

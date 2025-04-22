@@ -5,11 +5,10 @@ use crate::input::custom_bindings::{
     BindingData, DpadActions, DpadData, DpadDirection, GrabActions, GrabBindingData,
     ThresholdBindingData,
 };
-use crate::input::devices::TrackedDeviceList;
 use crate::input::legacy::LegacyActions;
 use crate::input::skeletal::SkeletalInputActionData;
 use crate::input::ActionData::{Bool, Vector1, Vector2};
-use crate::input::{ActionData, BoundPose, ExtraActionData, InteractionProfile};
+use crate::input::{ActionData, BoundPose, ExtraActionData, Input, InteractionProfile};
 use crate::openxr_data::OpenXrData;
 use crate::openxr_data::{self, Hand};
 use log::{info, trace, warn};
@@ -51,8 +50,8 @@ impl<'a> BindingsLoadContext<'a> {
 impl BindingsLoadContext<'_> {
     pub fn for_profile<'a, 'b: 'a, C: openxr_data::Compositor>(
         &'b mut self,
+        input: &'a Input<C>,
         openxr: &'a OpenXrData<C>,
-        devices: &'a TrackedDeviceList,
         profile: &'a dyn InteractionProfile,
         controller_type: &'a ControllerType,
     ) -> Option<BindingsProfileLoadContext<'a>> {
@@ -62,12 +61,9 @@ impl BindingsLoadContext<'_> {
             return None;
         };
 
-        let left_hand = devices.get_controller(Hand::Left);
-        let right_hand = devices.get_controller(Hand::Right);
-
         let hands = [
-            left_hand.get_controller_subaction_path()?,
-            right_hand.get_controller_subaction_path()?,
+            input.get_subaction_path(Hand::Left),
+            input.get_subaction_path(Hand::Right),
         ];
 
         let bindings_parsed = self

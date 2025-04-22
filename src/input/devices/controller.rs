@@ -39,13 +39,6 @@ impl XrTrackedDevice {
         Some(vr::space_relation_to_openvr_pose(location, velocity))
     }
 
-    pub fn get_controller_subaction_path(&self) -> Option<xr::Path> {
-        match self.get_type() {
-            TrackedDeviceType::Controller { subaction_path, .. } => Some(subaction_path),
-            _ => None,
-        }
-    }
-
     pub fn get_controller_hand(&self) -> Option<Hand> {
         match self.get_type() {
             TrackedDeviceType::Controller { hand, .. } => Some(hand),

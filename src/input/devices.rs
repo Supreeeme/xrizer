@@ -1,7 +1,6 @@
 use tracked_device::{TrackedDeviceType, XrTrackedDevice};
 
 use openvr as vr;
-use openxr as xr;
 
 use crate::openxr_data::Hand;
 
@@ -14,18 +13,12 @@ pub struct TrackedDeviceList {
 }
 
 impl TrackedDeviceList {
-    pub fn new(xr_instance: &xr::Instance) -> Self {
+    pub fn new() -> Self {
         Self {
             devices: vec![
                 XrTrackedDevice::new(TrackedDeviceType::Hmd),
-                XrTrackedDevice::new(TrackedDeviceType::Controller {
-                    hand: Hand::Left,
-                    subaction_path: xr_instance.string_to_path(Hand::Left.into()).unwrap(),
-                }),
-                XrTrackedDevice::new(TrackedDeviceType::Controller {
-                    hand: Hand::Right,
-                    subaction_path: xr_instance.string_to_path(Hand::Right.into()).unwrap(),
-                }),
+                XrTrackedDevice::new(TrackedDeviceType::Controller { hand: Hand::Left }),
+                XrTrackedDevice::new(TrackedDeviceType::Controller { hand: Hand::Right }),
             ],
         }
     }

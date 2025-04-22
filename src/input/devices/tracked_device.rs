@@ -14,10 +14,7 @@ use crate::{
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TrackedDeviceType {
     Hmd,
-    Controller {
-        hand: Hand,
-        subaction_path: xr::Path,
-    },
+    Controller { hand: Hand },
 }
 
 impl TryFrom<vr::TrackedDeviceIndex_t> for TrackedDeviceType {
@@ -26,14 +23,8 @@ impl TryFrom<vr::TrackedDeviceIndex_t> for TrackedDeviceType {
     fn try_from(value: vr::TrackedDeviceIndex_t) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Hmd),
-            1 => Ok(Self::Controller {
-                hand: Hand::Left,
-                subaction_path: xr::Path::default(),
-            }),
-            2 => Ok(Self::Controller {
-                hand: Hand::Right,
-                subaction_path: xr::Path::default(),
-            }),
+            1 => Ok(Self::Controller { hand: Hand::Left }),
+            2 => Ok(Self::Controller { hand: Hand::Right }),
             _ => Err(()),
         }
     }
