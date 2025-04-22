@@ -12,11 +12,14 @@ use std::iter::Iterator;
 pub struct Knuckles;
 
 static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
-    model: c"Knuckles",
+    model: Property::PerHand {
+        left: c"Knuckles Left",
+        right: c"Knuckles Right",
+    },
     openvr_controller_type: c"knuckles",
     render_model_name: Property::PerHand {
-        left: c"valve_controller_knu_1_0_left",
-        right: c"valve_controller_knu_1_0_right",
+        left: c"{indexcontroller}valve_controller_knu_1_0_left",
+        right: c"{indexcontroller}valve_controller_knu_1_0_right",
     },
     main_axis: MainAxisType::Thumbstick,
     registered_device_type: Property::PerHand {

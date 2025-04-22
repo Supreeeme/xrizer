@@ -12,7 +12,7 @@ use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};
 pub struct SimpleController;
 
 static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
-    model: c"generic",
+    model: Property::BothHands(c"generic"),
     openvr_controller_type: c"<unknown>",
     render_model_name: Property::BothHands(c"generic_controller"),
     main_axis: MainAxisType::Thumbstick,

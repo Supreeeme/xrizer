@@ -53,7 +53,7 @@ pub enum MainAxisType {
 pub struct ProfileProperties {
     /// Corresponds to Prop_ModelNumber_String
     /// Can be pulled from a SteamVR System Report
-    pub model: &'static CStr,
+    pub model: Property<&'static CStr>,
     /// Corresponds to Prop_ControllerType_String
     /// Can be pulled from a SteamVR System Report
     pub openvr_controller_type: &'static CStr,

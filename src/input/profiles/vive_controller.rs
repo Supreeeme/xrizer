@@ -12,7 +12,7 @@ use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};
 pub struct ViveWands;
 
 static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
-    model: c"Vive. Controller MV",
+    model: Property::BothHands(c"Vive. MV"),
     openvr_controller_type: c"vive_controller",
     render_model_name: Property::BothHands(c"vr_controller_vive_1_5"),
     main_axis: MainAxisType::Trackpad,

@@ -1283,7 +1283,8 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
                 // I Expect You To Die 3 identifies controllers with this property -
                 // why it couldn't just use ControllerType instead is beyond me...
-                vr::ETrackedDeviceProperty::ModelNumber_String => Some(data.model), // TODO: This seems weird
+                // Because some controllers have different model names for each hand......
+                vr::ETrackedDeviceProperty::ModelNumber_String => Some(*data.model.get(hand)),
                 // Resonite won't recognize controllers without this
                 vr::ETrackedDeviceProperty::RenderModelName_String => {
                     Some(*data.render_model_name.get(hand))
@@ -1323,7 +1324,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             _ => None,
         })
     }
-    
+
     pub fn get_controller_uint_tracked_property(
         &self,
         hand: Hand,

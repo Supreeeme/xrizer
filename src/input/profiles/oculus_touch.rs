@@ -12,7 +12,10 @@ use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Axis2, Grip, System, A}
 pub struct Touch;
 
 static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
-    model: c"Miramar",
+    model: Property::PerHand {
+        left: c"Miramar (Left Controller)",
+        right: c"Miramar (Right Controller)"
+    },
     openvr_controller_type: c"oculus_touch",
     render_model_name: Property::PerHand {
         left: c"oculus_quest_controller_left",
