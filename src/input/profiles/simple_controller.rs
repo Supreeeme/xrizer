@@ -16,7 +16,18 @@ impl InteractionProfile for SimpleController {
             openvr_controller_type: c"<unknown>",
             render_model_name: Property::BothHands(c"generic_controller"),
             main_axis: MainAxisType::Thumbstick,
-            legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 32) | (1 << 33) // TODO: This is just the one for the vive_controller. I'm not certain whether that's correct here
+            // TODO: These are just from the vive_controller. I'm not certain whether that's correct here
+            legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 32) | (1 << 33),
+            registered_device_type: Property::PerHand {
+                left: c"htc/vive_controllerLHR-00000001",
+                right: c"htc/vive_controllerLHR-00000002"
+            },
+            serial_number: Property::PerHand {
+                left: c"LHR-00000001",
+                right: c"LHR-00000002"
+            },
+            tracking_system_name: c"lighthouse",
+            manufacturer_name: c"HTC",
         }
     }
     fn profile_path(&self) -> &'static str {

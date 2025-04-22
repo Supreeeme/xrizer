@@ -17,6 +17,16 @@ impl InteractionProfile for Touch {
                 left: c"oculus_quest_controller_left",
                 right: c"oculus_quest_controller_right",
             },
+            registered_device_type: Property::PerHand {
+                left: c"oculus/WMHD315M3010GV_Controller_Left",
+                right: c"oculus/WMHD315M3010GV_Controller_Right"
+            },
+            serial_number: Property::PerHand {
+                left: c"WMHD315M3010GV_Controller_Left",
+                right: c"WMHD315M3010GV_Controller_Right"
+            },
+            tracking_system_name: c"oculus",
+            manufacturer_name: c"Oculus",
             main_axis: MainAxisType::Thumbstick,
             legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 7) | (1 << 32) | (1 << 33) | (1 << 34),
         }

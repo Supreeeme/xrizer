@@ -22,6 +22,16 @@ impl InteractionProfile for Knuckles {
                 right: c"valve_controller_knu_1_0_right",
             },
             main_axis: MainAxisType::Thumbstick,
+            registered_device_type: Property::PerHand {
+                left: c"valve/index_controllerLHR-FFFFFFF1",
+                right: c"valve/index_controllerLHR-FFFFFFF2"
+            },
+            serial_number: Property::PerHand {
+                left: c"LHR-FFFFFFF1",
+                right: c"LHR-FFFFFFF2"
+            },
+            tracking_system_name: c"lighthouse",
+            manufacturer_name: c"Valve",
             legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 7) | (1 << 32) | (1 << 33) | (1 << 34)
         }
     }

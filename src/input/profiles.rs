@@ -61,6 +61,14 @@ pub struct ProfileProperties {
     /// Can be found in SteamVR under resources/rendermodels (some are in driver subdirs)
     pub render_model_name: Property<&'static CStr>,
     pub main_axis: MainAxisType,
+    /// Corresponds to Prop_RegisteredDeviceType_String
+    pub registered_device_type: Property<&'static CStr>,
+    /// Corresponds to Prop_SerialNumber_String
+    pub serial_number: Property<&'static CStr>,
+    /// Corresponds to Prop_TrackingSystemName_String
+    pub tracking_system_name: &'static CStr,
+    /// Corresponds to Prop_ManufacturerName_String
+    pub manufacturer_name: &'static CStr,
     /// Corresponds to Prop_SupportedButtons_Uint64
     /// Can (probably) be pulled from a SteamVR System Report
     pub legacy_buttons_mask: u64

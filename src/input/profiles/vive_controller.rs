@@ -15,6 +15,16 @@ impl InteractionProfile for ViveWands {
             openvr_controller_type: c"vive_controller",
             render_model_name: Property::BothHands(c"vr_controller_vive_1_5"),
             main_axis: MainAxisType::Trackpad,
+            registered_device_type: Property::PerHand {
+                left: c"htc/vive_controllerLHR-00000001",
+                right: c"htc/vive_controllerLHR-00000002"
+            },
+            serial_number: Property::PerHand {
+                left: c"LHR-00000001",
+                right: c"LHR-00000002"
+            },
+            tracking_system_name: c"lighthouse",
+            manufacturer_name: c"HTC",
             legacy_buttons_mask: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 32) | (1 << 33)
         }
     }

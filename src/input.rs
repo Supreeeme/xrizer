@@ -1283,14 +1283,16 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
                 // I Expect You To Die 3 identifies controllers with this property -
                 // why it couldn't just use ControllerType instead is beyond me...
-                vr::ETrackedDeviceProperty::ModelNumber_String => Some(data.model),
+                vr::ETrackedDeviceProperty::ModelNumber_String => Some(data.model), // TODO: This seems weird
                 // Resonite won't recognize controllers without this
                 vr::ETrackedDeviceProperty::RenderModelName_String => {
                     Some(*data.render_model_name.get(hand))
-                }
+                },
+                vr::ETrackedDeviceProperty::RegisteredDeviceType_String => Some(*data.registered_device_type.get(hand)),
+                vr::ETrackedDeviceProperty::TrackingSystemName_String => Some(data.tracking_system_name),
                 // Required for controllers to be acknowledged in I Expect You To Die 3
-                vr::ETrackedDeviceProperty::SerialNumber_String
-                | vr::ETrackedDeviceProperty::ManufacturerName_String => Some(c"<unknown>"),
+                vr::ETrackedDeviceProperty::SerialNumber_String => Some(*data.serial_number.get(hand)),
+                vr::ETrackedDeviceProperty::ManufacturerName_String => Some(data.manufacturer_name),
                 _ => None,
             }
         })
