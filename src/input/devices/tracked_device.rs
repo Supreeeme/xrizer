@@ -36,6 +36,7 @@ pub struct XrTrackedDevice {
     profile_path: AtomicPath,
     connected: AtomicBool,
     previous_connected: AtomicBool,
+    pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
 }
 
 impl XrTrackedDevice {
@@ -50,6 +51,7 @@ impl XrTrackedDevice {
                 false.into()
             },
             previous_connected: false.into(),
+            pose_cache: Mutex::new(None),
         }
     }
 
@@ -59,12 +61,19 @@ impl XrTrackedDevice {
         session_data: &SessionData,
         origin: vr::ETrackingUniverseOrigin,
     ) -> Option<vr::TrackedDevicePose_t> {
-        match self.device_type {
+        let mut pose_cache = self.pose_cache.lock().ok()?;
+        if let Some(pose) = *pose_cache {
+            return Some(pose);
+        }
+
+        *pose_cache = match self.device_type {
             TrackedDeviceType::Hmd => self.get_hmd_pose(xr_data, session_data, origin),
             TrackedDeviceType::Controller { .. } => {
                 self.get_controller_pose(xr_data, session_data, origin)
             }
-        }
+        };
+
+        *pose_cache
     }
 
     pub fn connected(&self) -> bool {
@@ -89,6 +98,10 @@ impl XrTrackedDevice {
 
     pub fn set_profile_path(&self, path: xr::Path) {
         self.profile_path.store(path);
+    }
+
+    pub fn clear_pose_cache(&self) {
+        std::mem::take(&mut *self.pose_cache.lock().unwrap());
     }
 
     pub fn compare_exchange_connected(&self) -> Result<bool, bool> {
