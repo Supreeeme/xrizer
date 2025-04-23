@@ -15,6 +15,7 @@ mod screenshots;
 mod settings;
 mod system;
 mod debug;
+mod chaperone_setup;
 
 #[cfg(not(test))]
 mod error_dialog;

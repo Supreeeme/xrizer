@@ -139,6 +139,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         "IVRApplications",
         "IVRSettings",
         "IVRDebug",
+        "IVRChaperoneSetup",
     ];
 
     for interface in INTERFACES {
