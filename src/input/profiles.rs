@@ -70,7 +70,7 @@ pub struct ProfileProperties {
     /// Corresponds to Prop_ManufacturerName_String
     pub manufacturer_name: &'static CStr,
     /// Corresponds to Prop_SupportedButtons_Uint64
-    /// Can (probably) be pulled from a SteamVR System Report
+    /// Can be pulled from a SteamVR System Report
     pub legacy_buttons_mask: u64
 }
 
