@@ -11,6 +11,7 @@ use crate::{
     screenshots::Screenshots,
     settings::Settings,
     system::System,
+    debug::Debug,
 };
 
 use openvr::{
@@ -225,6 +226,7 @@ impl IVRClientCore003_Interface for ClientCore {
             .or_else(|| self.try_interface(interface, |_| OverlayView::default()))
             .or_else(|| self.try_interface(interface, |_| Screenshots::default()))
             .or_else(|| self.try_interface(interface, |_| Settings::default()))
+            .or_else(|| self.try_interface(interface, |_| Debug::default()))
             .or_else(|| self.try_interface(interface, |_| UnknownInterfaces::default()))
             .unwrap_or_else(|| {
                 warn!("app requested unknown interface {interface:?}");
