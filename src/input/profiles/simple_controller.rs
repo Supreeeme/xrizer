@@ -11,28 +11,26 @@ use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};
 
 pub struct SimpleController;
 
-static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
-    model: Property::BothHands(c"generic"),
-    openvr_controller_type: c"<unknown>",
-    render_model_name: Property::BothHands(c"generic_controller"),
-    main_axis: MainAxisType::Thumbstick,
-    // TODO: These are just from the vive_controller. I'm not certain whether that's correct here
-    registered_device_type: Property::PerHand {
-        left: c"htc/vive_controllerLHR-00000001",
-        right: c"htc/vive_controllerLHR-00000002"
-    },
-    serial_number: Property::PerHand {
-        left: c"LHR-00000001",
-        right: c"LHR-00000002"
-    },
-    tracking_system_name: c"lighthouse",
-    manufacturer_name: c"HTC",
-    //(1 << 0) | (1 << 1) | (1 << 2) | (1 << 32) | (1 << 33)
-    legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, Axis0, Axis1)
-};
-
 impl InteractionProfile for SimpleController {
     fn properties(&self) -> &'static ProfileProperties {
+        static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
+            model: Property::BothHands(c"generic"),
+            openvr_controller_type: c"<unknown>",
+            render_model_name: Property::BothHands(c"generic_controller"),
+            main_axis: MainAxisType::Thumbstick,
+            // TODO: These are just from the vive_controller. I'm not certain whether that's correct here
+            registered_device_type: Property::PerHand {
+                left: c"htc/vive_controllerLHR-00000001",
+                right: c"htc/vive_controllerLHR-00000002"
+            },
+            serial_number: Property::PerHand {
+                left: c"LHR-00000001",
+                right: c"LHR-00000002"
+            },
+            tracking_system_name: c"lighthouse",
+            manufacturer_name: c"HTC",
+            legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, Axis0, Axis1)
+        };
         &DEVICE_PROPERTIES
     }
     fn profile_path(&self) -> &'static str {
