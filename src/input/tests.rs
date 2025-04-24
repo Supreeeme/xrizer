@@ -439,9 +439,15 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
 
     // we need to wait two frames for the controller to be connected.
     frame();
-    assert!(f.input.get_controller_device_index(super::Hand::Left).is_none());
+    assert!(f
+        .input
+        .get_controller_device_index(super::Hand::Left)
+        .is_none());
     frame();
-    assert!(f.input.get_controller_device_index(super::Hand::Left).is_some());
+    assert!(f
+        .input
+        .get_controller_device_index(super::Hand::Left)
+        .is_some());
 
     let rot = Quat::from_rotation_x(-FRAC_PI_4);
     let pose = xr::Posef {
