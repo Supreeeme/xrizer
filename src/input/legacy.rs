@@ -54,8 +54,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         };
         let actions = &legacy.actions;
 
-        let Ok(hand) = Hand::try_from(device_index) else {
-            debug!("requested controller state for invalid device index: {device_index}");
+        let Some(hand) = self.device_index_to_hand(device_index) else {
+            debug!("tried getting controller state, but device index {device_index} is invalid or not a controller!");
             return false;
         };
 

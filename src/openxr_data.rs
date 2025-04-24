@@ -574,18 +574,6 @@ impl From<Hand> for HandPath {
     }
 }
 
-impl TryFrom<vr::TrackedDeviceIndex_t> for Hand {
-    type Error = ();
-    #[inline]
-    fn try_from(value: vr::TrackedDeviceIndex_t) -> Result<Self, Self::Error> {
-        match value {
-            x if x == Hand::Left as u32 => Ok(Hand::Left),
-            x if x == Hand::Right as u32 => Ok(Hand::Right),
-            _ => Err(()),
-        }
-    }
-}
-
 impl TryFrom<vr::ETrackedControllerRole> for Hand {
     type Error = ();
     #[inline]
@@ -595,12 +583,6 @@ impl TryFrom<vr::ETrackedControllerRole> for Hand {
             vr::ETrackedControllerRole::RightHand => Ok(Hand::Right),
             _ => Err(()),
         }
-    }
-}
-
-impl From<Hand> for vr::TrackedDeviceIndex_t {
-    fn from(hand: Hand) -> Self {
-        hand as vr::TrackedDeviceIndex_t
     }
 }
 

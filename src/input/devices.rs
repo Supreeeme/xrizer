@@ -1,7 +1,10 @@
-use std::{ffi::CStr, sync::{
-    atomic::{AtomicBool, Ordering},
-    Mutex,
-}};
+use std::{
+    ffi::CStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
+};
 
 use openvr as vr;
 use openxr as xr;
@@ -17,20 +20,6 @@ pub enum TrackedDeviceType {
     Hmd,
     Controller { hand: Hand },
 }
-
-impl TryFrom<vr::TrackedDeviceIndex_t> for TrackedDeviceType {
-    type Error = ();
-
-    fn try_from(value: vr::TrackedDeviceIndex_t) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Hmd),
-            1 => Ok(Self::Controller { hand: Hand::Left }),
-            2 => Ok(Self::Controller { hand: Hand::Right }),
-            _ => Err(()),
-        }
-    }
-}
-
 pub struct XrTrackedDevice {
     device_type: TrackedDeviceType,
     interaction_profile: Mutex<Option<&'static dyn InteractionProfile>>,
@@ -40,13 +29,25 @@ pub struct XrTrackedDevice {
     pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
 }
 
+pub struct TrackedDeviceCreateInfo {
+    pub device_type: TrackedDeviceType,
+    pub profile_path: Option<xr::Path>,
+    pub interaction_profile: Option<&'static dyn InteractionProfile>,
+}
+
 impl XrTrackedDevice {
-    pub fn new(device_type: TrackedDeviceType) -> Self {
+    pub fn new(info: TrackedDeviceCreateInfo) -> Self {
+        let profile_path = AtomicPath::new();
+
+        if let Some(path) = info.profile_path {
+            profile_path.store(path);
+        }
+
         Self {
-            device_type,
-            interaction_profile: Mutex::new(None),
-            profile_path: AtomicPath::new(),
-            connected: if device_type == TrackedDeviceType::Hmd {
+            device_type: info.device_type,
+            interaction_profile: Mutex::new(info.interaction_profile),
+            profile_path,
+            connected: if info.device_type == TrackedDeviceType::Hmd {
                 true.into()
             } else {
                 false.into()
@@ -203,26 +204,52 @@ impl SubactionPaths {
 }
 
 impl TrackedDeviceList {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
-            devices: vec![
-                XrTrackedDevice::new(TrackedDeviceType::Hmd),
-                XrTrackedDevice::new(TrackedDeviceType::Controller { hand: Hand::Left }),
-                XrTrackedDevice::new(TrackedDeviceType::Controller { hand: Hand::Right }),
-            ],
+            devices: vec![XrTrackedDevice::new(TrackedDeviceCreateInfo {
+                device_type: TrackedDeviceType::Hmd,
+                profile_path: None,
+                interaction_profile: None,
+            })],
         }
     }
 
-    pub fn get_device(&self, device_index: vr::TrackedDeviceIndex_t) -> Option<&XrTrackedDevice> {
+    pub(super) fn get_device(
+        &self,
+        device_index: vr::TrackedDeviceIndex_t,
+    ) -> Option<&XrTrackedDevice> {
         self.devices.get(device_index as usize)
     }
 
-    pub fn get_hmd(&self) -> &XrTrackedDevice {
+    pub(super) fn push_device(
+        &mut self,
+        device: XrTrackedDevice,
+    ) -> Result<vr::TrackedDeviceIndex_t, vr::EVRInputError> {
+        let index = self.devices.len() as vr::TrackedDeviceIndex_t;
+
+        if index >= vr::k_unMaxTrackedDeviceCount {
+            return Err(vr::EVRInputError::MaxCapacityReached);
+        }
+
+        self.devices.push(device);
+
+        Ok(index)
+    }
+
+    pub(super) fn get_hmd(&self) -> &XrTrackedDevice {
         unsafe { self.devices.get_unchecked(0) }
     }
 
-    pub fn get_controller(&self, hand: Hand) -> &XrTrackedDevice {
-        unsafe { self.devices.get_unchecked(hand as usize) }
+    pub(super) fn get_controller(&self, hand: Hand) -> Option<&XrTrackedDevice> {
+        self.get_device(self.get_controller_index(hand))
+    }
+
+    fn get_controller_index(&self, hand: Hand) -> vr::TrackedDeviceIndex_t {
+        self.iter()
+            .enumerate()
+            .find(|(_, device)| device.get_controller_hand() == Some(hand))
+            .map(|(i, _)| i as vr::TrackedDeviceIndex_t)
+            .unwrap_or(vr::k_unTrackedDeviceIndexInvalid)
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, XrTrackedDevice> {
@@ -260,7 +287,9 @@ impl<C: openxr_data::Compositor> Input<C> {
         hand: Hand,
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) -> Option<vr::TrackedDevicePose_t> {
-        self.get_device_pose(hand.into(), origin)
+        let controller_index = self.devices.read().ok()?.get_controller_index(hand);
+
+        self.get_device_pose(controller_index, origin)
     }
 
     pub fn get_device_pose(
@@ -291,15 +320,41 @@ impl<C: openxr_data::Compositor> Input<C> {
         device.connected()
     }
 
-    fn get_profile_data(&self, hand: Hand) -> Option<&super::profiles::ProfileProperties> {
-        let path = self
-            .devices
-            .read()
-            .ok()?
-            .get_device(hand.into())?
-            .get_profile_path();
+    pub fn device_index_to_device_type(
+        &self,
+        index: vr::TrackedDeviceIndex_t,
+    ) -> Option<TrackedDeviceType> {
+        let devices = self.devices.read().ok()?;
+        let device = devices.get_device(index)?;
 
-        self.profile_map.get(&path).map(|v| &**v)
+        Some(device.get_type())
+    }
+
+    pub fn device_index_to_hand(&self, index: vr::TrackedDeviceIndex_t) -> Option<Hand> {
+        let devices = self.devices.read().ok()?;
+        let device = devices.get_device(index)?;
+
+        device.get_controller_hand()
+    }
+
+    pub fn get_controller_device_index(&self, hand: Hand) -> Option<vr::TrackedDeviceIndex_t> {
+        let devices = self.devices.read().ok()?;
+        let controller_index = devices.get_controller_index(hand);
+
+        if controller_index == vr::k_unTrackedDeviceIndexInvalid {
+            return None;
+        }
+
+        Some(controller_index)
+    }
+
+    fn get_profile_data(&self, hand: Hand) -> Option<&super::profiles::ProfileProperties> {
+        let devices = self.devices.read().ok()?;
+        let controller = devices.get_controller(hand)?;
+
+        self.profile_map
+            .get(&controller.get_profile_path())
+            .map(|v| &**v)
     }
 
     pub fn get_controller_string_tracked_property(

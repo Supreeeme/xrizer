@@ -431,6 +431,18 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     let skel_handle = f.get_action_handle(c"/actions/set1/in/skellyl");
     f.load_actions(c"actions.json");
     f.set_interaction_profile(&Knuckles, LeftHand);
+
+    let frame = || {
+        f.input.openxr.poll_events();
+        f.input.frame_start_update();
+    };
+
+    // we need to wait two frames for the controller to be connected.
+    frame();
+    assert!(f.input.get_controller_device_index(super::Hand::Left).is_none());
+    frame();
+    assert!(f.input.get_controller_device_index(super::Hand::Left).is_some());
+
     let rot = Quat::from_rotation_x(-FRAC_PI_4);
     let pose = xr::Posef {
         position: xr::Vector3f {
@@ -877,18 +889,15 @@ fn detect_controller_after_manifest_load() {
         f.input.frame_start_update();
     };
 
-    let devices = f.input.devices.read().unwrap();
-
-    let left_hand = devices.get_controller(Hand::Left.into());
-
     frame();
-    assert!(!left_hand.connected());
+    assert!(f.input.get_controller_device_index(Hand::Left).is_none());
 
     f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
     frame();
     // Profile won't be set for this frame - we call sync after events have already been polled
-    assert!(!left_hand.connected());
+    assert!(f.input.get_controller_device_index(Hand::Left).is_none());
 
     frame();
-    assert!(left_hand.connected());
+    let index = f.input.get_controller_device_index(Hand::Left);
+    assert!(index.is_some_and(|i| f.input.is_device_connected(i)));
 }

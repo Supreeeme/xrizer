@@ -29,7 +29,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         let display_time = self.openxr.display_time.get();
         let devices = self.devices.read().unwrap();
 
-        let controller = devices.get_controller(hand);
+        let Some(controller) = devices.get_controller(hand) else {
+            self.get_estimated_bones(session_data, space, hand, transforms);
+            return;
+        };
 
         let Some(raw) = match hand {
             Hand::Left => &legacy.left_spaces,
