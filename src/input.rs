@@ -1128,6 +1128,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
     }
 
     fn SetActionManifestPath(&self, path: *const c_char) -> vr::EVRInputError {
+        if path.is_null() {
+            return vr::EVRInputError::InvalidParam;
+        }
         let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
         let path = std::path::Path::new(&*path);
         info!("loading action manifest from {path:?}");

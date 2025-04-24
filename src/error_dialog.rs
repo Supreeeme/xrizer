@@ -99,7 +99,7 @@ fn ui(ctx: &egui::Context, info: &ErrorInfo) {
                         let _ = Command::new("xdg-open").arg(path).spawn();
                     }
                     if ui.button("Report on GitHub").clicked() {
-                        let _ = webbrowser::open("https://github.com/Supreeeme/xrizer/issues/new");
+                        let _ = webbrowser::open("https://github.com/Supreeeme/xrizer/issues/new?template=bug_report.yaml");
                     }
                 })
             })

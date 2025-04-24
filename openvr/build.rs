@@ -89,8 +89,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let headers = [
         version!(2, 5, 1),
         version!(2, 0, 10),
-        version!(1, 18, 19),
+        version!(1, 16, 8),
         version!(1, 14, 15),
+        version!(1, 8, 19),
         version!(1, 7, 15),
         version!(1, 4, 18),
         version!(1, 3, 22),
@@ -99,6 +100,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version!(1, 0, 9),
         version!(1, 0, 7),
         version!(1, 0, 5),
+        version!(1, 0, 4),
     ];
     let mut pruned_headers = headers.map(|(header, version)| {
         (
@@ -217,21 +219,21 @@ fn prune_header(header: &str, version: &str) -> String {
 
 fn verify_fields_are_identical<'a, T>(
     ident: &syn::Ident,
-    a: T,
-    a_mod: &syn::Ident,
-    b: T,
-    b_mod: &syn::Ident,
+    existing: T,
+    existing_mod: &syn::Ident,
+    new: T,
+    new_mod: &syn::Ident,
 ) where
     T: IntoIterator<Item = &'a syn::Field>,
 {
-    for (existing_field, new_field) in a.into_iter().zip(b.into_iter()) {
+    for (existing_field, new_field) in existing.into_iter().zip(new.into_iter()) {
         if existing_field.ident != new_field.ident {
             let idents = [
                 existing_field.ident.as_ref().unwrap().to_string(),
                 new_field.ident.as_ref().unwrap().to_string(),
             ];
             assert!(idents.contains(&"repeatCount".into()) && idents.contains(&"unused".into()),
-                "Non-allowed differently named fields in {ident} (left = {:?} from {a_mod}, right = {:?} from {b_mod})",
+                "Non-allowed differently named fields in {ident} (left = {:?} from {existing_mod}, right = {:?} from {new_mod})",
                 existing_field.ident, new_field.ident);
         }
 
@@ -266,15 +268,39 @@ fn verify_fields_are_identical<'a, T>(
             }
         }
 
-        let existing_type = extract_type(ident, existing_field, a_mod);
-        let new_type = extract_type(ident, new_field, b_mod);
+        let existing_type = extract_type(ident, existing_field, existing_mod);
+        let existing_type = existing_type
+            .path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string());
+        let new_type = extract_type(ident, new_field, new_mod);
+        let new_type = new_type
+            .path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string());
 
-        assert_eq!(
-            existing_type.path.segments.last(),
-            new_type.path.segments.last(),
-            "Differently named final path segments (member {:?}, item {ident})",
-            new_field.ident.as_ref()
-        );
+        static KNOWN_NAME_CHANGES: &[(&str, &str)] = &[("ETextureType", "EGraphicsAPIConvention")];
+
+        if existing_type
+            .as_ref()
+            .zip(new_type.as_ref())
+            .is_none_or(|(existing, new)| !KNOWN_NAME_CHANGES.contains(&(existing, new)))
+        {
+            assert_eq!(
+                existing_type,
+                new_type,
+                concat!(
+                    "Differently named final path segments ",
+                    "(member {:?}, item {}, existing: {}, new: {})"
+                ),
+                new_field.ident.as_ref(),
+                ident,
+                existing_mod,
+                new_mod
+            );
+        }
     }
 }
 
