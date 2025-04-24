@@ -1,6 +1,6 @@
 use crate::{
     clientcore::{Injected, Injector},
-    input::{devices::tracked_device::TrackedDeviceType, Input},
+    input::{devices::TrackedDeviceType, Input},
     openxr_data::{Hand, RealOpenXrData, SessionData},
     tracy_span,
 };

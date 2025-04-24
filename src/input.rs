@@ -137,7 +137,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
     }
 
-    pub fn get_subaction_path(&self, hand: Hand) -> xr::Path {
+    fn get_subaction_path(&self, hand: Hand) -> xr::Path {
         match hand {
             Hand::Left => self.subaction_paths.left,
             Hand::Right => self.subaction_paths.right,
