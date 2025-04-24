@@ -16,7 +16,7 @@ impl InteractionProfile for Touch {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::PerHand {
                 left: c"Miramar (Left Controller)",
-                right: c"Miramar (Right Controller)"
+                right: c"Miramar (Right Controller)",
             },
             openvr_controller_type: c"oculus_touch",
             render_model_name: Property::PerHand {
@@ -25,16 +25,24 @@ impl InteractionProfile for Touch {
             },
             registered_device_type: Property::PerHand {
                 left: c"oculus/WMHD315M3010GV_Controller_Left",
-                right: c"oculus/WMHD315M3010GV_Controller_Right"
+                right: c"oculus/WMHD315M3010GV_Controller_Right",
             },
             serial_number: Property::PerHand {
                 left: c"WMHD315M3010GV_Controller_Left",
-                right: c"WMHD315M3010GV_Controller_Right"
+                right: c"WMHD315M3010GV_Controller_Right",
             },
             tracking_system_name: c"oculus",
             manufacturer_name: c"Oculus",
             main_axis: MainAxisType::Thumbstick,
-            legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, A, Axis0, Axis1, Axis2)
+            legacy_buttons_mask: button_mask_from_ids!(
+                System,
+                ApplicationMenu,
+                Grip,
+                A,
+                Axis0,
+                Axis1,
+                Axis2
+            ),
         };
         &DEVICE_PROPERTIES
     }

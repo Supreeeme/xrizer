@@ -20,15 +20,15 @@ impl InteractionProfile for ViveWands {
             main_axis: MainAxisType::Trackpad,
             registered_device_type: Property::PerHand {
                 left: c"htc/vive_controllerLHR-00000001",
-                right: c"htc/vive_controllerLHR-00000002"
+                right: c"htc/vive_controllerLHR-00000002",
             },
             serial_number: Property::PerHand {
                 left: c"LHR-00000001",
-                right: c"LHR-00000002"
+                right: c"LHR-00000002",
             },
             tracking_system_name: c"lighthouse",
             manufacturer_name: c"HTC",
-            legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, Axis0, Axis1)
+            legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, Axis0, Axis1),
         };
         &DEVICE_PROPERTIES
     }

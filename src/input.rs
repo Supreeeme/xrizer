@@ -1288,11 +1288,17 @@ impl<C: openxr_data::Compositor> Input<C> {
                 // Resonite won't recognize controllers without this
                 vr::ETrackedDeviceProperty::RenderModelName_String => {
                     Some(*data.render_model_name.get(hand))
-                },
-                vr::ETrackedDeviceProperty::RegisteredDeviceType_String => Some(*data.registered_device_type.get(hand)),
-                vr::ETrackedDeviceProperty::TrackingSystemName_String => Some(data.tracking_system_name),
+                }
+                vr::ETrackedDeviceProperty::RegisteredDeviceType_String => {
+                    Some(*data.registered_device_type.get(hand))
+                }
+                vr::ETrackedDeviceProperty::TrackingSystemName_String => {
+                    Some(data.tracking_system_name)
+                }
                 // Required for controllers to be acknowledged in I Expect You To Die 3
-                vr::ETrackedDeviceProperty::SerialNumber_String => Some(*data.serial_number.get(hand)),
+                vr::ETrackedDeviceProperty::SerialNumber_String => {
+                    Some(*data.serial_number.get(hand))
+                }
                 vr::ETrackedDeviceProperty::ManufacturerName_String => Some(data.manufacturer_name),
                 _ => None,
             }
@@ -1328,11 +1334,11 @@ impl<C: openxr_data::Compositor> Input<C> {
     pub fn get_controller_uint_tracked_property(
         &self,
         hand: Hand,
-        property: vr::ETrackedDeviceProperty
+        property: vr::ETrackedDeviceProperty,
     ) -> Option<u64> {
         self.get_profile_data(hand).and_then(|data| match property {
             vr::ETrackedDeviceProperty::SupportedButtons_Uint64 => Some(data.legacy_buttons_mask),
-            _ => None
+            _ => None,
         })
     }
 
