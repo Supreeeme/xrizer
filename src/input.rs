@@ -9,6 +9,7 @@ pub mod devices;
 #[cfg(test)]
 mod tests;
 
+use devices::SubactionPaths;
 use devices::TrackedDeviceList;
 use profiles::MainAxisType;
 pub use profiles::{InteractionProfile, Profiles};
@@ -55,7 +56,7 @@ pub struct Input<C: openxr_data::Compositor> {
     skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
     profile_map: HashMap<xr::Path, &'static profiles::ProfileProperties>,
     estimated_finger_state: [Mutex<FingerState>; 2],
-    subaction_paths: [Mutex<xr::Path>; 2],
+    subaction_paths: SubactionPaths,
     events: Mutex<VecDeque<InputEvent>>,
     devices: RwLock<TrackedDeviceList>,
 }
@@ -100,6 +101,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let mut map = SlotMap::with_key();
         let left_hand_key = map.insert(c"/user/hand/left".into());
         let right_hand_key = map.insert(c"/user/hand/right".into());
+        let subaction_paths = SubactionPaths::new(&openxr.instance);
         let profile_map = Profiles::get()
             .profiles_iter()
             .map(|profile| {
@@ -112,12 +114,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 )
             })
             .collect();
-
-        let subaction_paths = [
-            Mutex::new(openxr.instance.string_to_path("/user/hand/left").unwrap()),
-            Mutex::new(openxr.instance.string_to_path("/user/hand/right").unwrap()),
-        ];
-
+        
         Self {
             openxr,
             vtables: Default::default(),
@@ -142,8 +139,8 @@ impl<C: openxr_data::Compositor> Input<C> {
 
     pub fn get_subaction_path(&self, hand: Hand) -> xr::Path {
         match hand {
-            Hand::Left => self.subaction_paths[0].lock().unwrap().clone(),
-            Hand::Right => self.subaction_paths[1].lock().unwrap().clone(),
+            Hand::Left => self.subaction_paths.left,
+            Hand::Right => self.subaction_paths.right,
         }
     }
 

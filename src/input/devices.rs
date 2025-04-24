@@ -1,6 +1,7 @@
 use tracked_device::{TrackedDeviceType, XrTrackedDevice};
 
 use openvr as vr;
+use openxr as xr;
 
 use crate::openxr_data::Hand;
 
@@ -10,6 +11,24 @@ pub mod tracked_device;
 
 pub struct TrackedDeviceList {
     devices: Vec<XrTrackedDevice>,
+}
+
+pub struct SubactionPaths {
+    pub left: xr::Path,
+    pub right: xr::Path,
+}
+
+impl SubactionPaths {
+    pub fn new(instance: &xr::Instance) -> Self {
+        let left = instance
+            .string_to_path("/user/hand/left")
+            .expect("Failed to convert string to path");
+        let right = instance
+            .string_to_path("/user/hand/right")
+            .expect("Failed to convert string to path");
+
+        Self { left, right }
+    }
 }
 
 impl TrackedDeviceList {
