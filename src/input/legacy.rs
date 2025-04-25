@@ -1,5 +1,5 @@
-use super::{Input, Profiles};
-use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
+use super::{Input, InteractionProfile, Profiles};
+use crate::openxr_data::{self, Hand, SessionData};
 use glam::Quat;
 use log::{debug, trace, warn};
 use openvr as vr;
@@ -54,16 +54,12 @@ impl<C: openxr_data::Compositor> Input<C> {
         };
         let actions = &legacy.actions;
 
-        let Ok(hand) = Hand::try_from(device_index) else {
-            debug!("requested controller state for invalid device index: {device_index}");
+        let Some(hand) = self.device_index_to_hand(device_index) else {
+            debug!("tried getting controller state, but device index {device_index} is invalid or not a controller!");
             return false;
         };
 
-        let hand_info = match hand {
-            Hand::Left => &self.openxr.left_hand,
-            Hand::Right => &self.openxr.right_hand,
-        };
-        let hand_path = hand_info.subaction_path;
+        let hand_path = self.get_subaction_path(hand);
 
         let data = self.openxr.session_data.get();
 
@@ -308,7 +304,7 @@ impl Deref for SpaceReadGuard<'_> {
 impl HandSpaces {
     pub fn try_get_or_init_raw(
         &self,
-        xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+        hand_profile: &Option<&dyn InteractionProfile>,
         session_data: &SessionData,
         actions: &LegacyActions,
     ) -> Option<SpaceReadGuard> {
@@ -318,14 +314,7 @@ impl HandSpaces {
                 return Some(SpaceReadGuard(raw));
             }
         }
-
         {
-            let hand_profile = match self.hand {
-                Hand::Right => &xr_data.right_hand.profile,
-                Hand::Left => &xr_data.left_hand.profile,
-            };
-
-            let hand_profile = hand_profile.lock().unwrap();
             let Some(profile) = hand_profile.as_ref() else {
                 trace!("no hand profile, no raw space will be created");
                 return None;
@@ -538,7 +527,10 @@ mod tests {
         };
 
         let hands = [LeftHand, RightHand];
-        // Initial state
+
+        while let Some(event) = get_event() {
+            assert_eq!(event.ty, vr::EVREventType::TrackedDeviceActivated as u32);
+        }
 
         for hand in hands {
             let state = get_state(hand);
