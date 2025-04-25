@@ -1203,21 +1203,18 @@ impl<C: openxr_data::Compositor> Input<C> {
                 .current_interaction_profile(subaction_path)
                 .unwrap();
 
-            //controller.set_profile_path(profile_path);
             if let Some(controller) = controller {
                 controller.set_profile_path(profile_path);
             }
 
             let profile_name = match profile_path {
                 xr::Path::NULL => {
-                    //controller.set_connected(false);
                     if let Some(controller) = controller {
                         controller.set_connected(false);
                     }
                     "<null>".to_owned()
                 }
                 path => {
-                    //controller.set_connected(true);
                     if let Some(controller) = controller {
                         controller.set_connected(true);
                     }
@@ -1228,19 +1225,9 @@ impl<C: openxr_data::Compositor> Input<C> {
             let profile = Profiles::get().profile_from_name(&profile_name);
 
             if let Some(p) = profile {
-                //controller.set_interaction_profile(p);
                 if let Some(controller) = controller {
                     controller.set_interaction_profile(p);
                 } else {
-                    // let new_controller = XrTrackedDevice::new(TrackedDeviceType::Controller { hand });
-
-                    // new_controller.set_profile_path(profile_path);
-                    // new_controller.set_connected(true);
-                    // new_controller.set_interaction_profile(p);
-
-                    // devices.push_device(new_controller).unwrap_or_else(|e| {
-                    //     panic!("Failed to create new controller: {:?}", e);
-                    // });
                     devices_to_create.push(TrackedDeviceCreateInfo {
                         device_type: TrackedDeviceType::Controller { hand },
                         profile_path: Some(profile_path),
