@@ -734,7 +734,8 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         _: *const c_char,
         _: u64,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("ShowKeyboard");
+        vr::EVROverlayError::RequestFailed
     }
     fn GetPrimaryDashboardDevice(&self) -> vr::TrackedDeviceIndex_t {
         todo!()
