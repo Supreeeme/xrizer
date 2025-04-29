@@ -69,7 +69,7 @@ impl ViewCache {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRSystem"]
-#[versions(022, 021, 020, 019, 017, 016, 015)]
+#[versions(022, 021, 020, 019, 017, 016, 015, 014)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
     input: Injected<Input<crate::compositor::Compositor>>,
@@ -95,15 +95,22 @@ impl System {
 
     pub fn reset_views(&self) {
         std::mem::take(&mut *self.views.lock().unwrap());
+        let session = self.openxr.session_data.get();
+        let display_time = self.openxr.display_time.get();
+        let mut views = self.views.lock().unwrap();
+        views.get_views(&session, display_time, xr::ReferenceSpaceType::VIEW);
+        views.get_views(
+            &session,
+            display_time,
+            session.current_origin_as_reference_space(),
+        );
     }
 
     pub fn get_views(&self, ty: xr::ReferenceSpaceType) -> ViewData {
         tracy_span!();
         let session = self.openxr.session_data.get();
-        self.views
-            .lock()
-            .unwrap()
-            .get_views(&session, self.openxr.display_time.get(), ty)
+        let mut views = self.views.lock().unwrap();
+        views.get_views(&session, self.openxr.display_time.get(), ty)
     }
 }
 
@@ -791,6 +798,21 @@ impl vr::IVRSystem016On017 for System {
     fn GetOutputDevice(&self, _device: *mut u64, _texture_type: vr::ETextureType) {
         // TODO: figure out what to pass for the instance...
         todo!()
+    }
+}
+
+impl vr::IVRSystem014On015 for System {
+    fn GetProjectionMatrix(
+        &self,
+        eye: vr::EVREye,
+        near_z: f32,
+        far_z: f32,
+        _proj_type: vr::EGraphicsAPIConvention,
+    ) -> vr::HmdMatrix44_t {
+        // According to this bug: https://github.com/ValveSoftware/openvr/issues/70 the projection type
+        // is straight up ignored in SteamVR anyway, lol. Bug for bug compat!
+
+        <Self as vr::IVRSystem022_Interface>::GetProjectionMatrix(self, eye, near_z, far_z)
     }
 }
 

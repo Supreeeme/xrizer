@@ -24,7 +24,7 @@ pub struct CompositorSessionData(Mutex<Option<DynFrameController>>);
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRCompositor"]
-#[versions(028, 027, 026, 022, 021, 020, 019)]
+#[versions(028, 027, 026, 022, 021, 020, 019, 018)]
 pub struct Compositor {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Self>>,
@@ -1252,8 +1252,8 @@ where
     G::Format: Eq,
 {
     creation_format == new.format
-        && current.width == new.width
-        && current.height == new.height
+        && current.width >= new.width
+        && current.height >= new.height
         && current.array_size == new.array_size
         && current.sample_count == new.sample_count
 }
@@ -1595,7 +1595,7 @@ mod tests {
         SWAPCHAIN_WIDTH.set(20);
         assert_eq!(f.submit(vr::EVREye::Left), None);
         let newer_width = get_swapchain_width();
-        assert_ne!(newer_width, new_width);
+        assert_eq!(newer_width, new_width);
     }
 
     #[test]
