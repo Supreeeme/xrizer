@@ -16,8 +16,15 @@ struct ArtifactTarget {
     crate_types: Vec<String>,
 }
 
+#[derive(DeJson, Debug)]
+struct BuildScriptExecution {
+    env: Vec<[String; 2]>,
+    package_id: String,
+}
+
 enum Message {
     CompilerArtifact(Artifact),
+    BuildScriptExecuted(BuildScriptExecution),
     Unknown,
 }
 
@@ -40,6 +47,8 @@ fn main() {
     let mut stdout = BufReader::new(stdout);
 
     let mut lib_path: Option<String> = None;
+    let mut platform_dir: Option<String> = None;
+    let mut vrclient_name: Option<String> = None;
     let mut line = String::new();
 
     while stdout.read_line(&mut line).expect("Failed to read line") > 0 {
@@ -60,6 +69,18 @@ fn main() {
                         .unwrap(),
                 )
             }
+            Message::BuildScriptExecuted(b) => {
+                if !b.package_id.contains("xrizer#") {
+                    continue;
+                }
+                for [name, value] in b.env {
+                    match name.as_str() {
+                        "XRIZER_OPENVR_PLATFORM_DIR" => platform_dir = Some(value),
+                        "XRIZER_OPENVR_VRCLIENT_NAME" => vrclient_name = Some(value),
+                        _ => {}
+                    }
+                }
+            }
             Message::Unknown => {}
         }
     }
@@ -68,18 +89,25 @@ fn main() {
         std::process::exit(1);
     }
     let lib_path = PathBuf::from(lib_path.expect("lib path missing"));
+    let platform_dir = platform_dir.expect("openvr platform directory should be known");
+    let vrclient_name = vrclient_name.expect("vrclient name should be known");
 
     let parent = lib_path.parent().unwrap();
-    match std::fs::create_dir_all(parent.join("bin/linux64")) {
+    let platform_path = parent.join(platform_dir);
+    match std::fs::create_dir_all(&platform_path) {
         Ok(_) => (),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
         err => {
-            eprintln!("Failed to create bin/linux64 directory: {err:?}");
+            eprintln!("Failed to create directory '{platform_path:?}': {err:?}");
             std::process::exit(1);
         }
     }
 
-    let vrclient_path = parent.join("bin/linux64/vrclient.so");
+    let vrclient_path = platform_path.join(vrclient_name).with_extension(
+        lib_path
+            .extension()
+            .expect("build shared library should have an extension"),
+    );
     match std::os::unix::fs::symlink(&lib_path, vrclient_path) {
         Ok(_) => (),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
@@ -117,6 +145,11 @@ impl DeJson for Message {
                 let fixed: String = ['{', state.cur].into_iter().chain(input).collect();
                 let msg = Artifact::deserialize_json(&fixed).unwrap();
                 Ok(Self::CompilerArtifact(msg))
+            }
+            "build-script-executed" => {
+                let fixed: String = ['{', state.cur].into_iter().chain(input).collect();
+                let msg = BuildScriptExecution::deserialize_json(&fixed).unwrap();
+                Ok(Self::BuildScriptExecuted(msg))
             }
             _ => Ok(Self::Unknown),
         }
