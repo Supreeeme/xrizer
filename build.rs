@@ -27,7 +27,10 @@ fn main() {
         ("linux", "x86") => "bin/",
         ("linux", "x86_64") => "bin/linux64/",
         ("linux", "aarch64") => "bin/linuxarm64/",
-        _ => panic!("Unsupported architecture."),
+        _ => {
+            println!("cargo::error=Unsupported architecture.");
+            return;
+        },
     };
 
     println!("cargo::rustc-env=XRIZER_OPENVR_PLATFORM_DIR={platform_location}");
