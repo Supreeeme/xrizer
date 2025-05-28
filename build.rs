@@ -30,8 +30,6 @@ fn main() {
         _ => panic!("Unsupported architecture."),
     };
 
-    panic!("test");
-
     println!("cargo::rustc-env=XRIZER_OPENVR_PLATFORM_DIR={platform_location}");
     println!("cargo::rustc-env=XRIZER_OPENVR_VRCLIENT_NAME={vrclient_name}");
 }
