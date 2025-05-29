@@ -30,7 +30,7 @@ fn main() {
         _ => {
             println!("cargo::error=Unsupported architecture.");
             return;
-        },
+        }
     };
 
     println!("cargo::rustc-env=XRIZER_OPENVR_PLATFORM_DIR={platform_location}");
