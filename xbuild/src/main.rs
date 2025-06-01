@@ -70,7 +70,7 @@ fn main() {
                 )
             }
             Message::BuildScriptExecuted(b) => {
-                if !b.package_id.contains("#xrizer") {
+                if !b.package_id.contains("xrizer#") && !b.package_id.contains("xrizer@") {
                     continue;
                 }
                 for [name, value] in b.env {
