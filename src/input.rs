@@ -737,18 +737,14 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                     _ => unreachable!(),
                 };
 
+                let get_hand_pose = |hand: &XrTrackedDevice| {
+                    loaded.try_get_pose(action, hand.get_profile_path()).ok()
+                };
+
                 let get_first_bound_hand_profile = || {
-                    if let Some(left_hand) = left_hand {
-                        loaded
-                            .try_get_pose(action, left_hand.get_profile_path())
-                            .ok()
-                    } else if let Some(right_hand) = right_hand {
-                        loaded
-                            .try_get_pose(action, right_hand.get_profile_path())
-                            .ok()
-                    } else {
-                        None
-                    }
+                    left_hand
+                        .and_then(get_hand_pose)
+                        .or_else(|| right_hand.and_then(get_hand_pose))
                 };
 
                 let Some(bound) = interaction_profile
@@ -1181,9 +1177,9 @@ impl<C: openxr_data::Compositor> Input<C> {
         let mut devices = self.devices.write().unwrap();
 
         let mut devices_to_create = vec![];
+        let hmd = devices.get_hmd();
 
         for hand in [Hand::Left, Hand::Right] {
-            let hmd = devices.get_hmd();
             let controller = devices.get_controller(hand);
             let subaction_path = self.get_subaction_path(hand);
 
