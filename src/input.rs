@@ -1,20 +1,17 @@
 mod action_manifest;
 mod custom_bindings;
+mod devices;
 mod legacy;
 mod profiles;
 mod skeletal;
 
-pub mod devices;
-
 #[cfg(test)]
 mod tests;
 
-use devices::SubactionPaths;
-use devices::TrackedDeviceCreateInfo;
-use devices::TrackedDeviceList;
-use devices::TrackedDeviceType;
-use devices::XrTrackedDevice;
+pub use devices::TrackedDeviceType;
 pub use profiles::{InteractionProfile, Profiles};
+
+use devices::{SubactionPaths, TrackedDeviceCreateInfo, TrackedDeviceList, XrTrackedDevice};
 use skeletal::FingerState;
 use skeletal::SkeletalInputActionData;
 
@@ -730,20 +727,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let (active_origin, hand) = match loaded.try_get_action(action) {
             Ok(ActionData::Pose) => {
                 let (mut hand, interaction_profile) = match subaction_path {
-                    x if x == self.get_subaction_path(Hand::Left) => {
-                        if let Some(left_hand) = left_hand {
-                            (Some(Hand::Left), Some(left_hand.get_profile_path()))
-                        } else {
-                            (None, None)
-                        }
-                    }
-                    x if x == self.get_subaction_path(Hand::Right) => {
-                        if let Some(right_hand) = right_hand {
-                            (Some(Hand::Right), Some(right_hand.get_profile_path()))
-                        } else {
-                            (None, None)
-                        }
-                    }
+                    x if x == self.get_subaction_path(Hand::Left) => left_hand
+                        .map(|h| (Hand::Left, h.get_profile_path()))
+                        .unzip(),
+                    x if x == self.get_subaction_path(Hand::Right) => right_hand
+                        .map(|h| (Hand::Right, h.get_profile_path()))
+                        .unzip(),
                     x if x == xr::Path::NULL => (None, None),
                     _ => unreachable!(),
                 };
@@ -1261,9 +1250,9 @@ impl<C: openxr_data::Compositor> Input<C> {
         let data = self.openxr.session_data.get();
         let devices = self.devices.read().unwrap();
 
-        devices.iter().for_each(|device| {
+        for device in devices.iter() {
             device.clear_pose_cache();
-        });
+        }
 
         let left_hand = devices.get_controller(Hand::Left);
         let right_hand = devices.get_controller(Hand::Right);
@@ -1275,8 +1264,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             // and interaction profiles are only updated after xrSyncActions is called. So here, we
             // do an action sync to try and get the runtime to update the interaction profile.
             let loaded = loaded.read().unwrap();
-            if (left_hand.is_none() || !left_hand.unwrap().connected())
-                && (right_hand.is_none() || !right_hand.unwrap().connected())
+            if (left_hand.is_none_or(|hand| !hand.connected()))
+                && (right_hand.is_none_or(|hand| !hand.connected()))
             {
                 debug!("no controllers connected - syncing info set");
                 data.session

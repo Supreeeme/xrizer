@@ -36,7 +36,7 @@ pub struct TrackedDeviceCreateInfo {
 }
 
 impl XrTrackedDevice {
-    pub fn new(info: TrackedDeviceCreateInfo) -> Self {
+    pub(super) fn new(info: TrackedDeviceCreateInfo) -> Self {
         let profile_path = AtomicPath::new();
 
         if let Some(path) = info.profile_path {
@@ -63,7 +63,7 @@ impl XrTrackedDevice {
         session_data: &SessionData,
         origin: vr::ETrackingUniverseOrigin,
     ) -> Option<vr::TrackedDevicePose_t> {
-        let mut pose_cache = self.pose_cache.lock().ok()?;
+        let mut pose_cache = self.pose_cache.lock().unwrap();
         if let Some(pose) = *pose_cache {
             return Some(pose);
         }
