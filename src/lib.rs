@@ -5,7 +5,7 @@ mod chaperone;
 mod clientcore;
 mod compositor;
 mod graphics_backends;
-mod input;
+pub mod input;
 mod misc_unknown;
 mod openxr_data;
 mod overlay;
