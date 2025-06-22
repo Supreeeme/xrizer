@@ -6,7 +6,7 @@ use std::os::raw::c_char;
 
 #[derive(Default, macros::InterfaceImpl)]
 #[interface = "IVRSettings"]
-#[versions(003)]
+#[versions(003, 002)]
 pub struct Settings {
     vtables: Vtables,
 }
@@ -174,5 +174,14 @@ impl vr::IVRSettings003_Interface for Settings {
             *error = EVRSettingsError::None;
         }
         debug!("Removing {section}/{key}");
+    }
+}
+
+impl vr::IVRSettings002On003 for Settings {
+    fn Sync(&self, _force: bool, error: *mut EVRSettingsError) -> bool {
+        unsafe {
+            *error = EVRSettingsError::None;
+        }
+        false
     }
 }
