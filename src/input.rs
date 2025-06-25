@@ -1406,7 +1406,7 @@ impl CachedSpaces {
         let space = match origin {
             vr::ETrackingUniverseOrigin::Seated => &mut self.seated,
             vr::ETrackingUniverseOrigin::Standing => &mut self.standing,
-            vr::ETrackingUniverseOrigin::RawAndUncalibrated => unreachable!(),
+            vr::ETrackingUniverseOrigin::RawAndUncalibrated => todo!(),
         };
 
         let pose = match hand {

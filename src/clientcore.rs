@@ -11,6 +11,8 @@ use crate::{
     screenshots::Screenshots,
     settings::Settings,
     system::System,
+    debug::Debug,
+    chaperone_setup::ChaperoneSetup,
 };
 
 use openvr::{
@@ -134,6 +136,7 @@ impl IVRClientCore003_Interface for ClientCore {
             application_type,
             vr::EVRApplicationType::Scene // Standard apps
             | vr::EVRApplicationType::Background // Proton
+            | vr::EVRApplicationType::Other // Misc config utils
         ) {
             error!("Unsupported application type: {application_type:?}");
             return vr::EVRInitError::Init_InvalidApplicationType;
@@ -225,6 +228,8 @@ impl IVRClientCore003_Interface for ClientCore {
             .or_else(|| self.try_interface(interface, |_| OverlayView::default()))
             .or_else(|| self.try_interface(interface, |_| Screenshots::default()))
             .or_else(|| self.try_interface(interface, |_| Settings::default()))
+            .or_else(|| self.try_interface(interface, |_| Debug::default()))
+            .or_else(|| self.try_interface(interface, |_| ChaperoneSetup::default()))
             .or_else(|| self.try_interface(interface, |_| UnknownInterfaces::default()))
             .unwrap_or_else(|| {
                 warn!("app requested unknown interface {interface:?}");
