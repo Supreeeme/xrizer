@@ -533,8 +533,9 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
 
     let pose = match pose {
         "raw" => BoundPoseType::Raw,
+        "tip" => BoundPoseType::Tip,
         "gdc2015" => BoundPoseType::Gdc2015,
-        other => return Err(D::Error::unknown_variant(other, &["raw", "gdc2015"])),
+        other => return Err(D::Error::unknown_variant(other, &["raw", "tip", "gdc2015"])),
     };
 
     Ok((hand, pose))
