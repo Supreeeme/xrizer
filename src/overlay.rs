@@ -884,9 +884,14 @@ impl vr::IVROverlay027_Interface for OverlayMan {
     fn SetOverlayInputMethod(
         &self,
         _: vr::VROverlayHandle_t,
-        _: vr::VROverlayInputMethod,
+        input_method: vr::VROverlayInputMethod,
     ) -> vr::EVROverlayError {
-        todo!()
+        if input_method == vr::VROverlayInputMethod::Mouse {
+            crate::warn_unimplemented!("SetOverlayInputMethod::Mouse");
+        } else if input_method == vr::VROverlayInputMethod::None {
+            crate::warn_unimplemented!("SetOverlayInputMethod::None");
+        }
+        vr::EVROverlayError::RequestFailed
     }
     fn GetOverlayInputMethod(
         &self,
