@@ -2,6 +2,7 @@ use crate::{
     compositor::{is_usable_swapchain, Compositor},
     graphics_backends::{supported_apis_enum, GraphicsBackend, SupportedBackend},
     openxr_data::{GraphicalSession, OpenXrData, Session, SessionData},
+    overlayview::OverlayView,
 };
 use glam::{vec3, Quat, Vec3};
 use log::{debug, trace};
@@ -18,7 +19,7 @@ pub const SKYBOX_Z_ORDER: i64 = -1;
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVROverlay"]
-#[versions(027, 025, 024, 021, 020, 019, 018, 016)]
+#[versions(027, 025, 024, 021, 020, 019, 018, 016, 007)]
 pub struct OverlayMan {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Compositor>>,
@@ -1408,6 +1409,16 @@ impl vr::IVROverlay016On018 for OverlayMan {
         &self,
         _: vr::VROverlayHandle_t,
         _: vr::TrackedDeviceIndex_t,
+    ) -> bool {
+        todo!()
+    }
+}
+
+impl vr::IVROverlay007On013 for OverlayMan {
+    fn PollNextOverlayEvent(
+        &self,
+        _: vr::VROverlayHandle_t,
+        _: *mut vr::vr_0_9_12::VREvent_t,
     ) -> bool {
         todo!()
     }

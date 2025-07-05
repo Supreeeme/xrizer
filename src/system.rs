@@ -5,7 +5,7 @@ use crate::{
     tracy_span,
 };
 use glam::{Mat3, Quat, Vec3};
-use log::{debug, trace, warn};
+use log::{debug, error, trace, warn};
 use openvr as vr;
 use openxr as xr;
 use std::ffi::CStr;
@@ -69,7 +69,7 @@ impl ViewCache {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRSystem"]
-#[versions(022, 021, 020, 019, 017, 016, 015, 014)]
+#[versions(022, 021, 020, 019, 017, 016, 015, 014, 009)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
     input: Injected<Input<crate::compositor::Compositor>>,
@@ -813,6 +813,104 @@ impl vr::IVRSystem014On015 for System {
         // is straight up ignored in SteamVR anyway, lol. Bug for bug compat!
 
         <Self as vr::IVRSystem022_Interface>::GetProjectionMatrix(self, eye, near_z, far_z)
+    }
+}
+
+impl vr::IVRSystem009On014 for System {
+    fn ComputeDistortion(&self, eye: vr::EVREye, u: f32, v: f32) -> vr::DistortionCoordinates_t {
+        let mut ret = vr::DistortionCoordinates_t::default();
+        <Self as vr::IVRSystem022_Interface>::ComputeDistortion(self, eye, u, v, &mut ret);
+        ret
+    }
+
+    fn PollNextEvent(&self, event: *mut vr::vr_0_9_12::VREvent_t) -> bool {
+        self.PollNextEventWithPose(
+            vr::ETrackingUniverseOrigin::Seated,
+            event,
+            std::ptr::null_mut(),
+        )
+    }
+
+    fn PollNextEventWithPose(
+        &self,
+        origin: vr::ETrackingUniverseOrigin,
+        event: *mut vr::vr_0_9_12::VREvent_t,
+        pose: *mut vr::TrackedDevicePose_t,
+    ) -> bool {
+        let mut e = vr::VREvent_t::default();
+        let ret = <Self as vr::IVRSystem022_Interface>::PollNextEventWithPose(
+            self,
+            origin,
+            &mut e,
+            std::mem::size_of_val(&event) as u32,
+            pose,
+        );
+
+        if ret && !event.is_null() {
+            let event = unsafe { event.as_mut() }.unwrap();
+            event.eventType = if let Ok(t) = vr::EVREventType::try_from(e.eventType) {
+                t
+            } else {
+                error!("Unhandled event type for 0.9.12: {}", e.eventType);
+                return false;
+            };
+            event.trackedDeviceIndex = e.trackedDeviceIndex;
+            event.data = match e.eventType {
+                x if x == vr::EVREventType::ButtonPress as u32
+                    || x == vr::EVREventType::ButtonUnpress as u32
+                    || x == vr::EVREventType::ButtonTouch as u32
+                    || x == vr::EVREventType::ButtonUntouch as u32 =>
+                {
+                    vr::vr_0_9_12::VREvent_Data_t {
+                        controller: unsafe { e.data.controller },
+                    }
+                }
+                other => {
+                    error!("Unhandled event type data for 0.9.12: {other:?}");
+                    return false;
+                }
+            }
+        }
+
+        ret
+    }
+
+    fn GetHiddenAreaMesh(&self, eye: vr::EVREye) -> vr::HiddenAreaMesh_t {
+        <Self as vr::IVRSystem022_Interface>::GetHiddenAreaMesh(
+            self,
+            eye,
+            vr::EHiddenAreaMeshType::Standard,
+        )
+    }
+
+    fn GetControllerState(
+        &self,
+        device_index: vr::TrackedDeviceIndex_t,
+        state: *mut vr::VRControllerState_t,
+    ) -> bool {
+        <Self as vr::IVRSystem022_Interface>::GetControllerState(
+            self,
+            device_index,
+            state,
+            std::mem::size_of::<vr::VRControllerState_t>() as u32,
+        )
+    }
+
+    fn GetControllerStateWithPose(
+        &self,
+        origin: vr::ETrackingUniverseOrigin,
+        device_index: vr::TrackedDeviceIndex_t,
+        state: *mut vr::VRControllerState_t,
+        device_pose: *mut vr::TrackedDevicePose_t,
+    ) -> bool {
+        <Self as vr::IVRSystem022_Interface>::GetControllerStateWithPose(
+            self,
+            origin,
+            device_index,
+            state,
+            std::mem::size_of::<vr::VRControllerState_t>() as u32,
+            device_pose,
+        )
     }
 }
 

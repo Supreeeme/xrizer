@@ -24,7 +24,7 @@ pub struct CompositorSessionData(Mutex<Option<DynFrameController>>);
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRCompositor"]
-#[versions(028, 027, 026, 022, 021, 020, 019, 018)]
+#[versions(028, 027, 026, 022, 021, 020, 019, 018, 009)]
 pub struct Compositor {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Self>>,
@@ -880,6 +880,17 @@ impl vr::IVRCompositor021On022 for Compositor {
         };
 
         <Self as vr::IVRCompositor028_Interface>::SetExplicitTimingMode(self, mode);
+    }
+}
+
+impl vr::IVRCompositor009On018 for Compositor {
+    fn GetFrameTiming(
+        &self,
+        _timing: *mut vr::vr_0_9_12::Compositor_FrameTiming,
+        _frames_ago: u32,
+    ) -> bool {
+        crate::warn_unimplemented!("GetFrameTiming (v0.9.12)");
+        false
     }
 }
 

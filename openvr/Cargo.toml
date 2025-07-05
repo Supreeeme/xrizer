@@ -11,6 +11,7 @@ log = { workspace = true }
 openxr = { workspace = true }
 glam = { workspace = true }
 tracy-client = { workspace = true, optional = true }
+derive_more = { workspace = true, features = ["try_from"] }
 
 [build-dependencies]
 bindgen = "0.69.4"

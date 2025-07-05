@@ -5,7 +5,6 @@ edition = "2021"
 resolver = "2"
 rust-version = "1.83"
 license = "GPL-3.0-or-later"
-license-file = "LICENSE"
 description = "XR-ize your favorite OpenVR games"
 repository = "https://github.com/Supreeeme/xrizer"
 readme = "README.md"
@@ -30,6 +29,7 @@ slotmap = "1.0.7"
 glam = "0.30.4"
 log = "0.4.22"
 tracy-client = "0.17.6"
+derive_more = { version = "2.0.1", features = ["deref", "from", "try_into"] }
 
 [dependencies]
 ash = { workspace = true }
@@ -52,7 +52,7 @@ miniquad = "0.4.8"
 webbrowser = "1.0.5"
 glutin_glx_sys = "0.6.0"
 libc = "0.2.169"
-derive_more = { version = "2.0.1", features = ["deref", "from", "try_into"] }
+derive_more = { workspace = true }
 gl = "0.14.0"
 
 [build-dependencies]
