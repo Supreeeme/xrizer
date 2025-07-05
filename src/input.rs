@@ -276,6 +276,7 @@ enum BoundPoseType {
     /// Equivalent to what is returned by WaitGetPoses, this appears to be the same or close to
     /// OpenXR's grip pose in the same position as the aim pose.
     Raw,
+    Tip,
     /// Not sure why games still use this, but having it be equivalent to raw seems to work fine.
     Gdc2015,
 }
@@ -771,7 +772,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 });
 
                 match ty {
-                    BoundPoseType::Raw | BoundPoseType::Gdc2015 => (origin, hand),
+                    BoundPoseType::Raw | BoundPoseType::Tip | BoundPoseType::Gdc2015 => (origin, hand),
                 }
             }
             Ok(ActionData::Skeleton { hand, .. }) => {
