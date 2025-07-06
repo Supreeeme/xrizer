@@ -7,7 +7,6 @@ use crate::input::legacy::button_mask_from_id;
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
 use glam::Mat4;
-use glam::Quat;
 use glam::Vec3;
 use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Axis2, Grip, System, A};
 
@@ -139,8 +138,7 @@ impl InteractionProfile for HolographicController {
     }
 
     fn offset_grip_pose(&self, _hand: Hand) -> Mat4 {
-        Mat4::from_rotation_translation(
-            Quat::from_xyzw(0.300706, 0.0, 0.0, 0.953717),
+        Mat4::from_translation(
             Vec3::new(0.0, -0.023585, 0.079552),
         )
         .inverse()
