@@ -1,4 +1,5 @@
 pub mod knuckles;
+pub mod ms_motion_controller;
 pub mod oculus_touch;
 pub mod simple_controller;
 pub mod vive_controller;
@@ -9,6 +10,7 @@ use super::{
 use crate::openxr_data::Hand;
 use glam::Mat4;
 use knuckles::Knuckles;
+use ms_motion_controller::HolographicController;
 use oculus_touch::Touch;
 use openxr as xr;
 use simple_controller::SimpleController;
@@ -109,6 +111,10 @@ impl Profiles {
         // Add supported interaction profiles here.
         static P: Profiles = Profiles {
             list: &[
+                (
+                    ControllerType::HolographicController,
+                    &HolographicController,
+                ),
                 (ControllerType::ViveController, &ViveWands),
                 (ControllerType::Knuckles, &Knuckles),
                 (ControllerType::OculusTouch, &Touch),
