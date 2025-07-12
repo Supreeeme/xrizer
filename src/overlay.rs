@@ -872,7 +872,8 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         _: vr::VROverlayHandle_t,
         _: *const vr::HmdVector2_t,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("SetOverlayMouseScale");
+        vr::EVROverlayError::RequestFailed
     }
     fn GetOverlayMouseScale(
         &self,
