@@ -211,7 +211,8 @@ impl vr::IVRSystem022_Interface for System {
         }
     }
     fn GetTimeSinceLastVsync(&self, _: *mut f32, _: *mut u64) -> bool {
-        todo!()
+        crate::warn_unimplemented!("GetTimeSinceLastVsync");
+        false
     }
     fn GetRuntimeVersion(&self) -> *const std::os::raw::c_char {
         static VERSION: &CStr = c"2.5.1";
