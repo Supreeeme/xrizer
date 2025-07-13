@@ -1231,7 +1231,8 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         _: vr::VROverlayFlags,
         _: bool,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("SetOverlayFlag");
+        vr::EVROverlayError::None
     }
     fn GetOverlayRenderingPid(&self, _: vr::VROverlayHandle_t) -> u32 {
         todo!()
@@ -1415,7 +1416,8 @@ impl vr::IVROverlay019On020 for OverlayMan {
         unimplemented!()
     }
     fn SetHighQualityOverlay(&self, _: vr::VROverlayHandle_t) -> vr::EVROverlayError {
-        unimplemented!()
+        crate::warn_unimplemented!("SetHighQualityOverlay");
+        vr::EVROverlayError::None
     }
 }
 

@@ -417,7 +417,8 @@ impl vr::IVRCompositor028_Interface for Compositor {
         _pD3D11DeviceOrResource: *mut std::ffi::c_void,
         _ppD3D11ShaderResourceView: *mut *mut std::ffi::c_void,
     ) -> vr::EVRCompositorError {
-        todo!()
+        crate::warn_unimplemented!("GetMirrorTextureD3D11");
+        vr::EVRCompositorError::IncompatibleVersion
     }
     fn SuspendRendering(&self, bSuspend: bool) {
         #[macros::any_graphics(DynFrameController)]
