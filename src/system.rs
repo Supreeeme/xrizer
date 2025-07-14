@@ -243,10 +243,14 @@ impl vr::IVRSystem022_Interface for System {
         &self,
         _: vr::EVRControllerAxisType,
     ) -> *const std::os::raw::c_char {
-        todo!()
+        crate::warn_unimplemented!("GetControllerAxisTypeNameFromEnum");
+        static NAME: &CStr = c"Unknown";
+        NAME.as_ptr()
     }
     fn GetButtonIdNameFromEnum(&self, _: vr::EVRButtonId) -> *const std::os::raw::c_char {
-        todo!()
+        crate::warn_unimplemented!("GetButtonIdNameFromEnum");
+        static NAME: &CStr = c"Unknown";
+        NAME.as_ptr()
     }
     fn TriggerHapticPulse(&self, _: vr::TrackedDeviceIndex_t, _: u32, _: std::os::raw::c_ushort) {
         crate::warn_unimplemented!("TriggerHapticPulse");
