@@ -70,8 +70,8 @@ impl XrTrackedDevice {
 
         *pose_cache = match self.device_type {
             TrackedDeviceType::Hmd => self.get_hmd_pose(xr_data, session_data, origin),
-            TrackedDeviceType::Controller { .. } => {
-                self.get_controller_pose(xr_data, session_data, origin)
+            TrackedDeviceType::Controller { hand } => {
+                self.get_controller_pose(xr_data, session_data, hand, origin)
             }
         };
 
@@ -126,11 +126,12 @@ impl XrTrackedDevice {
         &self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
+        hand: Hand,
         origin: vr::ETrackingUniverseOrigin,
     ) -> Option<vr::TrackedDevicePose_t> {
         let legacy_actions = session_data.input_data.legacy_actions.get()?;
 
-        let spaces = match self.get_controller_hand()? {
+        let spaces = match hand {
             Hand::Left => &legacy_actions.left_spaces,
             Hand::Right => &legacy_actions.right_spaces,
         };
