@@ -331,10 +331,7 @@ impl BindingsProfileLoadContext<'_> {
         let toggle_name = format!("{name_only}_tgl");
         let as_name = format!("{action_set_name}/{toggle_name}");
 
-        let mut extra_data = self
-            .extra_actions
-            .remove(&output.path)
-            .unwrap_or_default();
+        let mut extra_data = self.extra_actions.remove(&output.path).unwrap_or_default();
 
         if extra_data.toggle_action.is_none() {
             let localized = format!("{name_only} toggle");
@@ -357,10 +354,7 @@ impl BindingsProfileLoadContext<'_> {
         action_set_name: &str,
         action_set: &xr::ActionSet,
     ) -> String {
-        let mut extra_data = self
-            .extra_actions
-            .remove(&output.path)
-            .unwrap_or_default();
+        let mut extra_data = self.extra_actions.remove(&output.path).unwrap_or_default();
         let name_only = output.cleaned_name();
         let float_name = format!("{name_only}_asfloat");
         let float_name_with_as = format!("{action_set_name}/{float_name}");
@@ -391,10 +385,7 @@ impl BindingsProfileLoadContext<'_> {
         action_set_name: &str,
         action_set: &xr::ActionSet,
     ) -> String {
-        let mut extra_data = self
-            .extra_actions
-            .remove(&output.path)
-            .unwrap_or_default();
+        let mut extra_data = self.extra_actions.remove(&output.path).unwrap_or_default();
         let name_only = output.cleaned_name();
         let float_name = format!("{name_only}_asfloat2");
         let float_name_with_as = format!("{action_set_name}/{float_name}");
@@ -432,10 +423,7 @@ impl BindingsProfileLoadContext<'_> {
         let force_full_name = format!("{action_set_name}/{force_name}");
         let value_full_name = format!("{action_set_name}/{value_name}");
 
-        let mut data = self
-            .extra_actions
-            .remove(&output.path)
-            .unwrap_or_default();
+        let mut data = self.extra_actions.remove(&output.path).unwrap_or_default();
         if data.grab_action.is_none() {
             let localized = format!("{name_only} grab action (force)");
             let force_action = action_set
