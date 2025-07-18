@@ -260,7 +260,7 @@ enum ActionType {
 
 #[derive(Deserialize)]
 struct ActionDataCommon {
-    name: String,
+    name: ActionPath,
 }
 
 #[derive(Deserialize)]
@@ -356,12 +356,10 @@ fn load_actions(
             long_name_idx: &mut usize,
         ) -> xr::Result<xr::Action<T>> {
             let localized = english
-                .and_then(|e| e.localized_names.get(&data.name))
+                .and_then(|e| e.localized_names.get(&data.name.path))
                 .map(|s| s.as_str());
 
-            let path = data.name.to_lowercase();
-            let set_end_idx = path.match_indices('/').nth(2).unwrap().0;
-            let set_name = &path[0..set_end_idx];
+            let set_name = data.name.action_set_name();
             let entry;
             let set = if let Some(set) = sets.get(set_name) {
                 set
@@ -374,7 +372,7 @@ fn load_actions(
                 entry = sets.entry(set_name.to_string()).insert_entry(set);
                 entry.get()
             };
-            let mut xr_friendly_name = path.rsplit_once('/').unwrap().1.replace([' ', ','], "_");
+            let mut xr_friendly_name = data.name.cleaned_name();
             if xr_friendly_name.len() > xr::sys::MAX_ACTION_NAME_SIZE {
                 let idx_str = ["_ln", &long_name_idx.to_string()].concat();
                 xr_friendly_name.replace_range(
@@ -428,7 +426,7 @@ fn load_actions(
             ),
             ActionType::Pose(data) => (&data.name, Pose),
             ActionType::Skeleton(SkeletonData { skeleton, data }) => {
-                trace!("Creating skeleton action {}", data.name.to_lowercase());
+                trace!("Creating skeleton action {}", data.name.path);
                 let hand_tracker = match session.create_hand_tracker(match skeleton {
                     Hand::Left => xr::Hand::LEFT,
                     Hand::Right => xr::Hand::RIGHT,
@@ -451,7 +449,7 @@ fn load_actions(
             }
             ActionType::Vibration(data) => (&data.name, Haptic(create_action!(xr::Haptic, data))),
         };
-        ret.insert(path.to_lowercase(), action);
+        ret.insert(path.path.clone(), action);
     }
     Ok(ret)
 }
@@ -473,39 +471,45 @@ struct ActionSetBinding {
     skeleton: Option<Vec<SkeletonActionBinding>>,
 }
 
-#[repr(transparent)]
-#[derive(Hash, Eq, PartialEq)]
-struct LowercaseActionPath(String);
-impl std::fmt::Debug for LowercaseActionPath {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+#[derive(Debug)]
+struct ActionPath {
+    /// This is the full path as pulled from the manifest, but set to lowercase
+    /// Action handles appear to be case insensitive.
+    path: String,
+}
+
+impl ActionPath {
+    /// Returns just the action name - the end part of the path - cleaned
+    /// so that it's compatible with the OpenXR path semantics
+    /// See Section 6.2 (Well-Formed Path Strings) of the OpenXR spec
+    fn cleaned_name(&self) -> String {
+        self.path
+            .rsplit_once('/')
+            .expect("Action path missing slash?")
+            .1
+            .replace([' ', ','], "_")
+    }
+
+    fn action_set_name(&self) -> &str {
+        let set_end_idx = self.path.match_indices('/').nth(2).unwrap().0;
+        &self.path[0..set_end_idx]
     }
 }
-impl std::fmt::Display for LowercaseActionPath {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-impl std::ops::Deref for LowercaseActionPath {
-    type Target = String;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl<'de> Deserialize<'de> for LowercaseActionPath {
+
+impl<'de> Deserialize<'de> for ActionPath {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        String::deserialize(deserializer).map(|s| Self(s.to_ascii_lowercase()))
+        String::deserialize(deserializer).map(|s| Self {
+            path: s.to_ascii_lowercase(),
+        })
     }
 }
 
 #[derive(Deserialize)]
 struct PoseBinding {
-    output: LowercaseActionPath,
+    output: ActionPath,
     #[serde(deserialize_with = "parse_pose_binding")]
     path: (Hand, BoundPoseType),
 }
@@ -543,13 +547,13 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
 
 #[derive(Deserialize)]
 struct SimpleActionBinding {
-    output: LowercaseActionPath,
+    output: ActionPath,
     path: String,
 }
 
 #[derive(Deserialize)]
 struct SkeletonActionBinding {
-    output: LowercaseActionPath,
+    output: ActionPath,
     #[serde(deserialize_with = "path_to_skeleton")]
     path: Hand,
 }
@@ -568,7 +572,7 @@ fn path_to_skeleton<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Hand, D::E
 
 #[derive(Deserialize, Debug)]
 struct ActionBindingOutput {
-    output: LowercaseActionPath,
+    output: ActionPath,
 }
 
 #[derive(Deserialize)]
@@ -659,9 +663,7 @@ struct ButtonInput {
 
 #[derive(Deserialize)]
 struct ClickThresholdParams {
-    #[allow(unused)]
     click_activate_threshold: Option<FromString<f32>>,
-    #[allow(unused)]
     click_deactivate_threshold: Option<FromString<f32>>,
 }
 
@@ -674,9 +676,7 @@ struct ScalarConstantParameters {
 
 #[derive(Deserialize)]
 struct ButtonParameters {
-    #[allow(unused)]
     force_input: Option<String>,
-    #[allow(unused)]
     #[serde(flatten)]
     click_threshold: ClickThresholdParams,
 }
@@ -998,7 +998,7 @@ fn handle_dpad_binding(
         f
     }
     let maybe_find_action = constrain(|a, direction| {
-        let output = &a.as_ref()?.output.0;
+        let output = &a.as_ref()?.output.path;
         let ret = context.actions.contains_key(output);
         if !ret {
             warn!("Couldn't find dpad action {output} (for path {parent_path}, {direction:?})");
@@ -1074,10 +1074,10 @@ fn handle_sources(
             ($path:expr, $inputs:expr) => {
                 if let Some(ActionBindingOutput { output }) = &$inputs.touch {
                     if let Ok(translated) = path_translator(&format!("{}/touch", $path))
-                        .inspect_err(translate_warn(output))
+                        .inspect_err(translate_warn(&output.path))
                     {
                         // Touch is always directly bindable
-                        context.try_get_bool_binding(output.to_string(), translated);
+                        context.try_get_bool_binding(output.path.clone(), translated);
                     };
                 }
             };
@@ -1090,12 +1090,12 @@ fn handle_sources(
 
                 if let Some(ActionBindingOutput { output }) = &inputs.click {
                     let Ok(translated) = path_translator(&format!("{path}/click"))
-                        .inspect_err(translate_warn(output))
+                        .inspect_err(translate_warn(&output.path))
                     else {
                         continue;
                     };
 
-                    if !context.find_action(output) {
+                    if !context.find_action(&output.path) {
                         continue;
                     }
 
@@ -1105,7 +1105,7 @@ fn handle_sources(
                         action_set,
                     );
 
-                    trace!("suggesting {translated} for {output} (toggle)");
+                    trace!("suggesting {translated} for {} (toggle)", output.path);
                     context.push_binding(
                         as_name,
                         context.instance.string_to_path(&translated).unwrap(),
@@ -1127,15 +1127,13 @@ fn handle_sources(
                         .and_then(|x| x.force_input.as_ref())
                         .map(|x| x.as_str())
                         .unwrap_or("value");
-                    // TODO: ^ for button bindings on clicky triggers, it's unclear how to choose between /value and /click without hints
-                    // Clicking feels bad for a lot of interaction tho, so prefer /value for now
 
                     let binding_to_2d = target == "position";
                     let translated = if binding_to_2d {
                         if let Ok(translated) = path_translator(path).inspect_err(|e| {
                             warn!(
-                                "Button binding on {output} can't bind to joystick ({})",
-                                e.0
+                                "Button binding on {} can't bind to joystick ({})",
+                                output.path, e.0
                             )
                         }) {
                             translated
@@ -1143,11 +1141,11 @@ fn handle_sources(
                             continue;
                         }
                     } else if let Ok(translated) = path_translator(&format!("{path}/{target}"))
-                        .inspect_err(|e| debug!("Falling back to click for {output} ({})", e.0))
-                    {
-                        translated
-                    } else if let Ok(translated) = path_translator(&format!("{path}/click"))
-                        .inspect_err(translate_warn(output))
+                        .inspect_err(|e| {
+                            debug!("Falling back to click for {} ({})", output.path, e.0)
+                        })
+                        .or_else(|_| path_translator(&format!("{path}/click")))
+                        .inspect_err(translate_warn(&output.path))
                     {
                         translated
                     } else {
@@ -1156,7 +1154,7 @@ fn handle_sources(
 
                     // These two sources are typically bool, so bind directly
                     if translated.ends_with("/click") || translated.ends_with("/touch") {
-                        context.try_get_bool_binding(output.to_string(), translated);
+                        context.try_get_bool_binding(output.path.clone(), translated);
                     } else {
                         // for everything actually binding to /value or /force, use custom thresholds
                         let float_name_with_as = if binding_to_2d {
@@ -1183,7 +1181,10 @@ fn handle_sources(
                 }
 
                 if let Some(ActionBindingOutput { output }) = &inputs.double {
-                    warn!("Double click binding for {output} currently unsupported.");
+                    warn!(
+                        "Double click binding for {} currently unsupported.",
+                        output.path
+                    );
                 }
             }
             ActionBinding::Dpad {
@@ -1221,12 +1222,12 @@ fn handle_sources(
                     .filter_map(|(sfx, input)| Some(sfx).zip(input.as_ref().map(|i| &i.output)));
                 for (suffix, output) in suffixes_and_outputs {
                     let Ok(translated) = path_translator(&format!("{path}/{suffix}"))
-                        .inspect_err(translate_warn(output))
+                        .inspect_err(translate_warn(&output.path))
                     else {
                         continue;
                     };
 
-                    context.try_get_bool_binding(output.to_string(), translated);
+                    context.try_get_bool_binding(output.path.clone(), translated);
                 }
             }
             ActionBinding::ScalarConstant {
@@ -1243,12 +1244,12 @@ fn handle_sources(
                         trace!("Invalid scalar constant path {vpath}, trying click");
                         path_translator(&format!("{path}/click"))
                     })
-                    .inspect_err(translate_warn(output))
+                    .inspect_err(translate_warn(&output.path))
                 else {
                     continue;
                 };
 
-                context.try_get_float_binding(output.to_string(), translated)
+                context.try_get_float_binding(output.path.clone(), translated)
             }
             ActionBinding::ForceSensor {
                 path,
@@ -1258,13 +1259,13 @@ fn handle_sources(
                     },
                 ..
             } => {
-                let Ok(translated) =
-                    path_translator(&format!("{path}/force")).inspect_err(translate_warn(output))
+                let Ok(translated) = path_translator(&format!("{path}/force"))
+                    .inspect_err(translate_warn(&output.path))
                 else {
                     continue;
                 };
 
-                context.try_get_float_binding(output.to_string(), translated);
+                context.try_get_float_binding(output.path.clone(), translated);
             }
             ActionBinding::Grab {
                 path,
@@ -1276,19 +1277,19 @@ fn handle_sources(
             } => {
                 let Ok((translated_force, translated_value)) =
                     path_translator(&[path, "/force"].concat())
-                        .inspect_err(translate_warn(output))
+                        .inspect_err(translate_warn(&output.path))
                         .and_then(|f| {
                             Ok((
                                 f,
                                 path_translator(&[path, "/value"].concat())
-                                    .inspect_err(translate_warn(output))?,
+                                    .inspect_err(translate_warn(&output.path))?,
                             ))
                         })
                 else {
                     continue;
                 };
 
-                if !context.find_action(output) {
+                if !context.find_action(&output.path) {
                     continue;
                 }
 
@@ -1308,7 +1309,7 @@ fn handle_sources(
                 );
             }
             ActionBinding::Scroll { inputs, .. } => {
-                warn!("Got scroll binding for input {}, but these are currently unimplemented, skipping", inputs.scroll.output);
+                warn!("Got scroll binding for input {}, but these are currently unimplemented, skipping", inputs.scroll.output.path);
             }
             ActionBinding::Trackpad(data) | ActionBinding::Joystick(data) => {
                 let Vector2Mode { path, inputs } = data;
@@ -1327,25 +1328,25 @@ fn handle_sources(
                 if let Some((output, click_path)) = click.as_ref().and_then(|b| {
                     Some(&b.output).zip(
                         path_translator(&format!("{translated}/click"))
-                            .inspect_err(translate_warn(&b.output))
+                            .inspect_err(translate_warn(&b.output.path))
                             .ok(),
                     )
                 }) {
-                    context.try_get_bool_binding(output.to_string(), click_path);
+                    context.try_get_bool_binding(output.path.clone(), click_path);
                 }
 
                 if let Some((output, touch_path)) = touch.as_ref().and_then(|b| {
                     Some(&b.output).zip(
                         path_translator(&format!("{translated}/touch"))
-                            .inspect_err(translate_warn(&b.output))
+                            .inspect_err(translate_warn(&b.output.path))
                             .ok(),
                     )
                 }) {
-                    context.try_get_bool_binding(output.to_string(), touch_path);
+                    context.try_get_bool_binding(output.path.clone(), touch_path);
                 }
 
                 if let Some(position) = position.as_ref() {
-                    context.try_get_v2_binding(position.output.to_string(), translated);
+                    context.try_get_v2_binding(position.output.path.clone(), translated);
                 }
             }
         }
@@ -1357,14 +1358,17 @@ fn handle_skeleton_bindings(
     bindings: &[SkeletonActionBinding],
 ) {
     for SkeletonActionBinding { output, path } in bindings {
-        trace!("binding skeleton action {output} to {path:?}");
-        if !context.find_action(output) {
+        trace!("binding skeleton action {} to {path:?}", output.path);
+        if !context.find_action(&output.path) {
             continue;
         };
 
-        match &context.actions[&output.0] {
+        match &context.actions[&output.path] {
             super::ActionData::Skeleton { hand, .. } => assert_eq!(hand, path),
-            _ => panic!("Expected skeleton action for skeleton binding {output}"),
+            _ => panic!(
+                "Expected skeleton action for skeleton binding {}",
+                output.path
+            ),
         }
     }
 }
@@ -1376,19 +1380,20 @@ fn handle_haptic_bindings(
     bindings: &[SimpleActionBinding],
 ) {
     for SimpleActionBinding { output, path } in bindings {
-        let Ok(translated) = path_translator(path).inspect_err(translate_warn(output)) else {
+        let Ok(translated) = path_translator(path).inspect_err(translate_warn(&output.path)) else {
             continue;
         };
-        if !context.find_action(output) {
+        if !context.find_action(&output.path) {
             continue;
         };
 
         assert!(
-            matches!(&context.actions[&output.0], super::ActionData::Haptic(_)),
-            "expected haptic action for haptic binding {translated}, got {output}"
+            matches!(&context.actions[&output.path], super::ActionData::Haptic(_)),
+            "expected haptic action for haptic binding {translated}, got {}",
+            output.path
         );
         let xr_path = instance.string_to_path(&translated).unwrap();
-        context.push_binding(output.0.clone(), xr_path);
+        context.push_binding(output.path.clone(), xr_path);
     }
 }
 
@@ -1398,25 +1403,33 @@ fn handle_pose_bindings(context: &mut BindingsProfileLoadContext, bindings: &[Po
         path: (hand, pose_ty),
     } in bindings
     {
-        if !context.find_action(output) {
+        if !context.find_action(&output.path) {
             continue;
         };
 
         assert!(
             matches!(
-                context.actions.get_mut(&output.0).unwrap(),
+                context.actions.get_mut(&output.path).unwrap(),
                 ActionData::Pose
             ),
-            "Expected pose action for pose binding on {output}"
+            "Expected pose action for pose binding on {}",
+            output.path
         );
 
-        let bound = context.pose_bindings.entry(output.0.clone()).or_default();
+        let bound = context
+            .pose_bindings
+            .entry(output.path.clone())
+            .or_default();
 
         let b = match hand {
             Hand::Left => &mut bound.left,
             Hand::Right => &mut bound.right,
         };
         *b = Some(*pose_ty);
-        trace!("bound {:?} to pose {output} for hand {hand:?}", *pose_ty);
+        trace!(
+            "bound {:?} to pose {} for hand {hand:?}",
+            *pose_ty,
+            output.path
+        );
     }
 }

@@ -1,0 +1,20 @@
+{
+    "bindings": {
+        "/actions/set1": {
+            "sources": [
+                {
+                    "inputs": {
+                        "click": {
+                            "output": "/actions/set1/in/action with spaces"
+                        }
+                    },
+                    "mode": "button",
+                    "parameters": {
+                        "force_input": "value"
+                    },
+                    "path" : "/user/hand/left/input/trigger"
+                }
+            ]
+        }
+    }
+}

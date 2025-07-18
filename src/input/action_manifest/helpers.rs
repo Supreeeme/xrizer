@@ -1,5 +1,5 @@
 use crate::input::action_manifest::{
-    ButtonParameters, ControllerType, GrabParameters, LoadedActionDataMap, LowercaseActionPath,
+    ActionPath, ButtonParameters, ControllerType, GrabParameters, LoadedActionDataMap,
 };
 use crate::input::custom_bindings::{
     BindingData, DpadActions, DpadData, DpadDirection, GrabActions, GrabBindingData,
@@ -207,10 +207,10 @@ impl BindingsProfileLoadContext<'_> {
         self.try_get_binding(action_path, input_path, action_match!(Vector2 { .. }));
     }
 
-    pub fn add_custom_toggle_binding(&mut self, output: &LowercaseActionPath, translated: &str) {
+    pub fn add_custom_toggle_binding(&mut self, output: &ActionPath, translated: &str) {
         if let Some(binding_hand) = parse_hand_from_path(self.instance, translated) {
             self.bindings_parsed
-                .entry(output.to_lowercase())
+                .entry(output.path.clone())
                 .or_default()
                 .push(BindingData::Toggle(Default::default(), binding_hand));
         } else {
@@ -220,14 +220,14 @@ impl BindingsProfileLoadContext<'_> {
 
     pub fn add_custom_button_binding(
         &mut self,
-        output: &LowercaseActionPath,
+        output: &ActionPath,
         translated: &str,
         parameters: Option<&ButtonParameters>,
     ) {
         if let Some(binding_hand) = parse_hand_from_path(self.instance, translated) {
             let thresholds = parameters.map(|x| &x.click_threshold);
             self.bindings_parsed
-                .entry(output.to_lowercase())
+                .entry(output.path.clone())
                 .or_default()
                 .push(BindingData::Threshold(
                     ThresholdBindingData::new(
@@ -250,13 +250,13 @@ impl BindingsProfileLoadContext<'_> {
 
     pub fn add_custom_grab_binding(
         &mut self,
-        output: &LowercaseActionPath,
+        output: &ActionPath,
         translated_force: &str,
         parameters: &Option<GrabParameters>,
     ) {
         if let Some(binding_hand) = parse_hand_from_path(self.instance, translated_force) {
             self.bindings_parsed
-                .entry(output.to_lowercase())
+                .entry(output.path.clone())
                 .or_default()
                 .push(BindingData::Grab(
                     GrabBindingData::new(
@@ -323,17 +323,17 @@ impl BindingsProfileLoadContext<'_> {
 
     pub fn get_or_create_toggle_extra_action(
         &mut self,
-        output: &LowercaseActionPath,
+        output: &ActionPath,
         action_set_name: &str,
         action_set: &xr::ActionSet,
     ) -> String {
-        let name_only = output.rsplit_once('/').unwrap().1;
+        let name_only = output.cleaned_name();
         let toggle_name = format!("{name_only}_tgl");
         let as_name = format!("{action_set_name}/{toggle_name}");
 
         let mut extra_data = self
             .extra_actions
-            .remove(&output.to_lowercase())
+            .remove(&output.path)
             .unwrap_or_default();
 
         if extra_data.toggle_action.is_none() {
@@ -346,22 +346,22 @@ impl BindingsProfileLoadContext<'_> {
 
             extra_data.toggle_action = Some(action);
         }
-        self.extra_actions.insert(output.to_lowercase(), extra_data);
+        self.extra_actions.insert(output.path.clone(), extra_data);
 
         as_name
     }
 
     pub fn get_or_create_analog_extra_action(
         &mut self,
-        output: &LowercaseActionPath,
+        output: &ActionPath,
         action_set_name: &str,
         action_set: &xr::ActionSet,
     ) -> String {
         let mut extra_data = self
             .extra_actions
-            .remove(&output.to_lowercase())
+            .remove(&output.path)
             .unwrap_or_default();
-        let name_only = output.rsplit_once('/').unwrap().1;
+        let name_only = output.cleaned_name();
         let float_name = format!("{name_only}_asfloat");
         let float_name_with_as = format!("{action_set_name}/{float_name}");
         if extra_data.analog_action.is_none() {
@@ -380,22 +380,22 @@ impl BindingsProfileLoadContext<'_> {
 
             extra_data.analog_action = Some(float_action);
         }
-        self.extra_actions.insert(output.to_lowercase(), extra_data);
+        self.extra_actions.insert(output.path.clone(), extra_data);
 
         float_name_with_as
     }
 
     pub fn get_or_create_v2_extra_action(
         &mut self,
-        output: &LowercaseActionPath,
+        output: &ActionPath,
         action_set_name: &str,
         action_set: &xr::ActionSet,
     ) -> String {
         let mut extra_data = self
             .extra_actions
-            .remove(&output.to_lowercase())
+            .remove(&output.path)
             .unwrap_or_default();
-        let name_only = output.rsplit_once('/').unwrap().1;
+        let name_only = output.cleaned_name();
         let float_name = format!("{name_only}_asfloat2");
         let float_name_with_as = format!("{action_set_name}/{float_name}");
         if extra_data.vector2_action.is_none() {
@@ -414,18 +414,18 @@ impl BindingsProfileLoadContext<'_> {
 
             extra_data.vector2_action = Some(float_action);
         }
-        self.extra_actions.insert(output.to_lowercase(), extra_data);
+        self.extra_actions.insert(output.path.clone(), extra_data);
 
         float_name_with_as
     }
 
     pub fn get_or_create_grab_action_pair(
         &mut self,
-        output: &LowercaseActionPath,
+        output: &ActionPath,
         action_set_name: &str,
         action_set: &xr::ActionSet,
     ) -> (String, String) {
-        let name_only = output.rsplit_once('/').unwrap().1;
+        let name_only = output.cleaned_name();
         let force_name = format!("{name_only}_grabactionf");
         let value_name = format!("{name_only}_grabactionv");
 
@@ -434,7 +434,7 @@ impl BindingsProfileLoadContext<'_> {
 
         let mut data = self
             .extra_actions
-            .remove(&output.to_lowercase())
+            .remove(&output.path)
             .unwrap_or_default();
         if data.grab_action.is_none() {
             let localized = format!("{name_only} grab action (force)");
@@ -466,7 +466,7 @@ impl BindingsProfileLoadContext<'_> {
                 value_action,
             });
         }
-        self.extra_actions.insert(output.to_string(), data);
+        self.extra_actions.insert(output.path.clone(), data);
 
         (force_full_name, value_full_name)
     }

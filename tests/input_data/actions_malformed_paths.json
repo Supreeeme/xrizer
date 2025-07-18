@@ -27,7 +27,12 @@
 			"type": "boolean"
 		}
 	],
-	"default_bindings": [],
+	"default_bindings": [
+    	{
+        	"binding_url": "knuckles_malformed.json",
+        	"controller_type": "knuckles"
+    	}
+	],
 	"localization": [
 		{
 			"language_tag": "en_US",
