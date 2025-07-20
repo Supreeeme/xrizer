@@ -740,7 +740,7 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         todo!()
     }
     fn HideKeyboard(&self) {
-        todo!()
+        crate::warn_unimplemented!("HideKeyboard");
     }
     fn GetKeyboardText(&self, _: *mut c_char, _: u32) -> u32 {
         todo!()
