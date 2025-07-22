@@ -1136,25 +1136,21 @@ fn handle_sources(
 
                     let binding_to_2d = target == "position";
                     let translated = if binding_to_2d {
-                        if let Ok(translated) = path_translator(path).inspect_err(|e| {
+                        path_translator(path).inspect_err(|e| {
                             warn!(
                                 "Button binding on {} can't bind to joystick ({})",
                                 output.path, e.0
                             )
-                        }) {
-                            translated
-                        } else {
-                            continue;
-                        }
-                    } else if let Ok(translated) = path_translator(&format!("{path}/{target}"))
-                        .inspect_err(|e| {
-                            debug!("Falling back to click for {} ({})", output.path, e.0)
                         })
-                        .or_else(|_| path_translator(&format!("{path}/click")))
-                        .inspect_err(translate_warn(&output.path))
-                    {
-                        translated
                     } else {
+                        path_translator(&format!("{path}/{target}"))
+                            .inspect_err(|e| {
+                                debug!("Falling back to click for {} ({})", output.path, e.0)
+                            })
+                            .or_else(|_| path_translator(&format!("{path}/click")))
+                            .inspect_err(translate_warn(&output.path))
+                    };
+                    let Ok(translated) = translated else {
                         continue;
                     };
 
