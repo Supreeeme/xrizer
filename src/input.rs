@@ -17,7 +17,8 @@ use crate::{
     tracy_span, AtomicF32,
 };
 use custom_bindings::{BindingData, GrabActions};
-use legacy::{setup_legacy_bindings, LegacyActionData};
+use glam::Quat;
+use legacy::LegacyActionData;
 use log::{debug, info, trace, warn};
 use openvr::{self as vr, space_relation_to_openvr_pose};
 use openxr as xr;
@@ -26,8 +27,9 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::ffi::{c_char, CStr, CString};
 use std::mem::ManuallyDrop;
+use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
 
 new_key_type! {
     struct InputSourceKey;
@@ -106,6 +108,18 @@ impl<C: openxr_data::Compositor> Input<C> {
                 )
             })
             .collect();
+        let pose_data = PoseData::new(
+            &openxr.instance,
+            openxr.left_hand.subaction_path,
+            openxr.right_hand.subaction_path,
+        );
+        openxr
+            .session_data
+            .get()
+            .input_data
+            .pose_data
+            .set(pose_data)
+            .unwrap_or_else(|_| panic!("PoseData already setup"));
 
         Self {
             openxr,
@@ -182,7 +196,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
 
         let session = self.openxr.session_data.get();
-        let Ok(loaded_actions) = session.input_data.loaded_actions.get()?.read() else {
+        let LoadedActions::Manifest(loaded_actions) = session.input_data.actions.get()? else {
             return None;
         };
 
@@ -219,23 +233,32 @@ impl<C: openxr_data::Compositor> Input<C> {
 
 #[derive(Default)]
 pub struct InputSessionData {
-    loaded_actions: OnceLock<RwLock<LoadedActions>>,
-    legacy_actions: OnceLock<LegacyActionData>,
+    actions: OnceLock<LoadedActions>,
     estimated_skeleton_actions: OnceLock<SkeletalInputActionData>,
+    pose_data: OnceLock<PoseData>,
 }
 
 impl InputSessionData {
     #[inline]
-    fn get_loaded_actions(&self) -> Option<std::sync::RwLockReadGuard<'_, LoadedActions>> {
-        self.loaded_actions.get().map(|l| l.read().unwrap())
+    fn get_loaded_actions(&self) -> Option<&ManifestLoadedActions> {
+        match self.actions.get()? {
+            LoadedActions::Manifest(m) => Some(m),
+            _ => None,
+        }
+    }
+    #[inline]
+    fn get_legacy_actions(&self) -> Option<&LegacyActionData> {
+        match self.actions.get()? {
+            LoadedActions::Legacy(l) => Some(l),
+            _ => None,
+        }
     }
 
     pub(crate) fn interaction_profile_changed(&self) {
-        if let Some(legacy) = self.legacy_actions.get() {
+        if let Some(data) = self.pose_data.get() {
             // If the interaction profile changes the offsets must be updated too
             // Delete the current raw spaces so they can be recreated later
-            legacy.left_spaces.reset_raw();
-            legacy.right_spaces.reset_raw();
+            data.reset_spaces();
         }
     }
 }
@@ -660,12 +683,11 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             Ok(_) => return vr::EVRInputError::WrongType,
             Err(e) => return e,
         };
-        let legacy = data.input_data.legacy_actions.get().unwrap();
+        let pose_data = data.input_data.pose_data.get().unwrap();
         unsafe {
             std::ptr::addr_of_mut!((*action_data).bActive).write(
-                legacy
-                    .actions
-                    .grip_pose
+                pose_data
+                    .grip
                     .is_active(&data.session, xr::Path::NULL)
                     .unwrap(),
             );
@@ -795,13 +817,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             Err(e) => return e,
         };
 
-        drop(loaded);
         drop(data);
         unsafe {
             action_data.write(vr::InputPoseActionData_t {
                 bActive: true,
                 activeOrigin: active_origin,
-                pose: self.get_controller_pose(hand, Some(origin)).expect("wtf"),
+                pose: self.get_controller_pose(hand, Some(origin)),
             })
         }
 
@@ -1001,9 +1022,10 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 sync_sets.push(set.into());
             }
 
-            let legacy = data.input_data.legacy_actions.get().unwrap();
             let skeletal_input = data.input_data.estimated_skeleton_actions.get().unwrap();
-            sync_sets.push(xr::ActiveActionSet::new(&legacy.set));
+            sync_sets.push(xr::ActiveActionSet::new(
+                &data.input_data.pose_data.get().unwrap().set,
+            ));
             sync_sets.push(xr::ActiveActionSet::new(&skeletal_input.set));
             self.legacy_state.on_action_sync();
         }
@@ -1108,7 +1130,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         // We need to restart the session if the legacy actions have already been attached.
         let mut data = self.openxr.session_data.get();
-        if data.input_data.legacy_actions.get().is_some() {
+        if data.input_data.get_legacy_actions().is_some() {
             drop(data);
             self.openxr.restart_session();
             data = self.openxr.session_data.get();
@@ -1167,14 +1189,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         poses[0] = self.get_hmd_pose(origin);
 
         if poses.len() > Hand::Left as usize {
-            poses[Hand::Left as usize] = self
-                .get_controller_pose(Hand::Left, origin)
-                .unwrap_or_default();
+            poses[Hand::Left as usize] = self.get_controller_pose(Hand::Left, origin);
         }
         if poses.len() > Hand::Right as usize {
-            poses[Hand::Right as usize] = self
-                .get_controller_pose(Hand::Right, origin)
-                .unwrap_or_default();
+            poses[Hand::Right as usize] = self.get_controller_pose(Hand::Right, origin);
         }
     }
 
@@ -1182,23 +1200,20 @@ impl<C: openxr_data::Compositor> Input<C> {
         tracy_span!();
         let mut spaces = self.cached_poses.lock().unwrap();
         let data = self.openxr.session_data.get();
-        spaces
-            .get_pose_impl(
-                &self.openxr,
-                &data,
-                self.openxr.display_time.get(),
-                None,
-                origin.unwrap_or(data.current_origin),
-            )
-            .unwrap()
+        spaces.get_pose_impl(
+            &self.openxr,
+            &data,
+            self.openxr.display_time.get(),
+            None,
+            origin.unwrap_or(data.current_origin),
+        )
     }
 
-    /// Returns None if legacy actions haven't been set up yet.
     pub fn get_controller_pose(
         &self,
         hand: Hand,
         origin: Option<vr::ETrackingUniverseOrigin>,
-    ) -> Option<vr::TrackedDevicePose_t> {
+    ) -> vr::TrackedDevicePose_t {
         tracy_span!();
         let mut spaces = self.cached_poses.lock().unwrap();
         let data = self.openxr.session_data.get();
@@ -1215,13 +1230,13 @@ impl<C: openxr_data::Compositor> Input<C> {
         tracy_span!();
         std::mem::take(&mut *self.cached_poses.lock().unwrap());
         let data = self.openxr.session_data.get();
-        if let Some(loaded) = data.input_data.loaded_actions.get() {
+        let input_data = &data.input_data;
+        if let Some(loaded) = input_data.get_loaded_actions() {
             // If the game has loaded actions, we shouldn't need to sync the state because the game
             // should be doing it itself with UpdateActionState. However, some games (Tea for God)
             // don't actually call UpdateActionState if no controllers are reported as connected,
             // and interaction profiles are only updated after xrSyncActions is called. So here, we
             // do an action sync to try and get the runtime to update the interaction profile.
-            let loaded = loaded.read().unwrap();
             if !self.openxr.left_hand.connected() || !self.openxr.right_hand.connected() {
                 debug!("no controllers connected - syncing info set");
                 data.session
@@ -1231,10 +1246,13 @@ impl<C: openxr_data::Compositor> Input<C> {
             return;
         }
 
-        match data.input_data.legacy_actions.get() {
+        match input_data.get_legacy_actions() {
             Some(actions) => {
                 data.session
-                    .sync_actions(&[xr::ActiveActionSet::new(&actions.set)])
+                    .sync_actions(&[
+                        xr::ActiveActionSet::new(&actions.set),
+                        xr::ActiveActionSet::new(&input_data.pose_data.get().unwrap().set),
+                    ])
                     .unwrap();
 
                 self.legacy_state.on_action_sync();
@@ -1259,16 +1277,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                     );
                     return;
                 }
-                let legacy = LegacyActionData::new(
-                    &self.openxr.instance,
-                    self.openxr.left_hand.subaction_path,
-                    self.openxr.right_hand.subaction_path,
-                );
-                setup_legacy_bindings(&self.openxr.instance, &data.session, &legacy);
-                data.input_data
-                    .legacy_actions
-                    .set(legacy)
-                    .unwrap_or_else(|_| unreachable!());
+                self.setup_legacy_actions();
             }
         }
     }
@@ -1357,6 +1366,14 @@ impl<C: openxr_data::Compositor> Input<C> {
     pub fn post_session_restart(&self, data: &SessionData) {
         // This function is called while a write lock is called on the session, and as such should
         // not use self.openxr.session_data.get().
+        data.input_data
+            .pose_data
+            .set(PoseData::new(
+                &self.openxr.instance,
+                self.openxr.left_hand.subaction_path,
+                self.openxr.right_hand.subaction_path,
+            ))
+            .unwrap_or_else(|_| panic!("PoseData already setup"));
         if let Some(path) = self.loaded_actions_path.get() {
             let _ = self.load_action_manifest(data, path);
         }
@@ -1413,7 +1430,7 @@ impl CachedSpaces {
         display_time: xr::Time,
         hand: Option<Hand>,
         origin: vr::ETrackingUniverseOrigin,
-    ) -> Option<vr::TrackedDevicePose_t> {
+    ) -> vr::TrackedDevicePose_t {
         tracy_span!();
         let space = match origin {
             vr::ETrackingUniverseOrigin::Seated => &mut self.seated,
@@ -1428,17 +1445,17 @@ impl CachedSpaces {
         };
 
         if let Some(pose) = pose {
-            return Some(*pose);
+            return *pose;
         }
 
         let (loc, velo) = if let Some(hand) = hand {
-            let legacy = session_data.input_data.legacy_actions.get()?;
+            let pose_data = session_data.input_data.pose_data.get().unwrap();
             let spaces = match hand {
-                Hand::Left => &legacy.left_spaces,
-                Hand::Right => &legacy.right_spaces,
+                Hand::Left => &pose_data.left_space,
+                Hand::Right => &pose_data.right_space,
             };
 
-            if let Some(raw) = spaces.try_get_or_init_raw(xr_data, session_data, &legacy.actions) {
+            if let Some(raw) = spaces.try_get_or_init_raw(xr_data, session_data, pose_data) {
                 raw.relate(session_data.get_space_for_origin(origin), display_time)
                     .unwrap()
             } else {
@@ -1453,11 +1470,16 @@ impl CachedSpaces {
         };
 
         let ret = space_relation_to_openvr_pose(loc, velo);
-        Some(*pose.insert(ret))
+        *pose.insert(ret)
     }
 }
 
-struct LoadedActions {
+enum LoadedActions {
+    Legacy(LegacyActionData),
+    Manifest(ManifestLoadedActions),
+}
+
+struct ManifestLoadedActions {
     sets: SecondaryMap<ActionSetKey, xr::ActionSet>,
     actions: SecondaryMap<ActionKey, ActionData>,
     extra_actions: SecondaryMap<ActionKey, ExtraActionData>,
@@ -1467,7 +1489,7 @@ struct LoadedActions {
     _info_action: xr::Action<bool>,
 }
 
-impl LoadedActions {
+impl ManifestLoadedActions {
     fn try_get_bindings(
         &self,
         handle: vr::VRActionHandle_t,
@@ -1489,6 +1511,7 @@ impl LoadedActions {
         self.actions
             .get(key)
             .ok_or(vr::EVRInputError::InvalidHandle)
+            .inspect_err(|_| trace!("didn't find action for {key:?}"))
     }
 
     fn try_get_extra(
@@ -1512,5 +1535,118 @@ impl LoadedActions {
             .ok_or(vr::EVRInputError::InvalidHandle)?
             .get(key)
             .ok_or(vr::EVRInputError::InvalidHandle)
+    }
+}
+
+struct PoseData {
+    set: xr::ActionSet,
+    grip: xr::Action<xr::Posef>,
+    left_space: HandSpace,
+    right_space: HandSpace,
+}
+
+impl PoseData {
+    fn new(instance: &xr::Instance, left_path: xr::Path, right_path: xr::Path) -> Self {
+        let set = instance
+            .create_action_set("xrizer-pose-data", "xrizer pose data", 0)
+            .unwrap();
+        let grip = set
+            .create_action("grip-pose", "Grip Pose", &[left_path, right_path])
+            .unwrap();
+        Self {
+            set,
+            grip,
+            left_space: HandSpace {
+                hand: Hand::Left,
+                hand_path: left_path,
+                raw: RwLock::default(),
+            },
+            right_space: HandSpace {
+                hand: Hand::Right,
+                hand_path: right_path,
+                raw: RwLock::default(),
+            },
+        }
+    }
+    fn reset_spaces(&self) {
+        self.left_space.reset_raw();
+        self.right_space.reset_raw();
+    }
+}
+
+struct HandSpace {
+    hand: Hand,
+    hand_path: xr::Path,
+
+    /// Based on the controller jsons in SteamVR, the "raw" pose
+    /// This is stored as a space so we can locate hand joints relative to it for skeletal data.
+    raw: RwLock<Option<xr::Space>>,
+}
+
+struct SpaceReadGuard<'a>(RwLockReadGuard<'a, Option<xr::Space>>);
+impl Deref for SpaceReadGuard<'_> {
+    type Target = xr::Space;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().unwrap()
+    }
+}
+
+impl HandSpace {
+    pub fn try_get_or_init_raw(
+        &self,
+        xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+        session_data: &SessionData,
+        pose_data: &PoseData,
+    ) -> Option<SpaceReadGuard> {
+        {
+            let raw = self.raw.read().unwrap();
+            if raw.is_some() {
+                return Some(SpaceReadGuard(raw));
+            }
+        }
+
+        {
+            let hand_profile = match self.hand {
+                Hand::Right => &xr_data.right_hand.profile,
+                Hand::Left => &xr_data.left_hand.profile,
+            };
+
+            let hand_profile = hand_profile.lock().unwrap();
+            let Some(profile) = hand_profile.as_ref() else {
+                trace!("no hand profile, no raw space will be created");
+                return None;
+            };
+
+            let offset = profile.offset_grip_pose(self.hand);
+            let translation = offset.w_axis.truncate();
+            let rotation = Quat::from_mat4(&offset);
+
+            let offset_pose = xr::Posef {
+                orientation: xr::Quaternionf {
+                    x: rotation.x,
+                    y: rotation.y,
+                    z: rotation.z,
+                    w: rotation.w,
+                },
+                position: xr::Vector3f {
+                    x: translation.x,
+                    y: translation.y,
+                    z: translation.z,
+                },
+            };
+
+            *self.raw.write().unwrap() = Some(
+                pose_data
+                    .grip
+                    .create_space(&session_data.session, self.hand_path, offset_pose)
+                    .unwrap(),
+            );
+        }
+
+        Some(SpaceReadGuard(self.raw.read().unwrap()))
+    }
+
+    pub fn reset_raw(&self) {
+        *self.raw.write().unwrap() = None;
     }
 }

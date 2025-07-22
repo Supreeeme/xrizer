@@ -3,8 +3,7 @@ use super::{
     SkeletalInputBindings, StringToPath,
 };
 use crate::button_mask_from_ids;
-use crate::input::legacy::button_mask_from_id;
-use crate::input::legacy::LegacyBindings;
+use crate::input::legacy::{self, button_mask_from_id, LegacyBindings};
 use crate::openxr_data::Hand;
 use glam::Mat4;
 use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};
@@ -87,8 +86,9 @@ impl InteractionProfile for ViveWands {
 
     fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
         LegacyBindings {
-            grip_pose: stp.leftright("input/grip/pose"),
-            aim_pose: stp.leftright("input/aim/pose"),
+            extra: legacy::Bindings {
+                grip_pose: stp.leftright("input/grip/pose"),
+            },
             trigger: stp.leftright("input/trigger/value"),
             trigger_click: stp.leftright("input/trigger/click"),
             app_menu: stp.leftright("input/menu/click"),

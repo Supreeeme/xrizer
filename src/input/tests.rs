@@ -338,9 +338,8 @@ fn input_state_flow() {
         .session_data
         .get()
         .input_data
-        .legacy_actions
-        .get()
-        .is_some());
+        .get_legacy_actions()
+        .is_none());
 
     f.sync(vr::VRActiveActionSet_t {
         ulActionSet: set1,
@@ -451,8 +450,7 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     let seated_origin = vr::ETrackingUniverseOrigin::Seated;
     let waitgetposes_pose = f
         .input
-        .get_controller_pose(super::Hand::Left, Some(seated_origin))
-        .expect("WaitGetPoses should succeed");
+        .get_controller_pose(super::Hand::Left, Some(seated_origin));
 
     let mut raw_pose = vr::InputPoseActionData_t {
         pose: vr::TrackedDevicePose_t {

@@ -5,7 +5,6 @@ use crate::input::custom_bindings::{
     BindingData, DpadActions, DpadData, DpadDirection, GrabActions, GrabBindingData,
     ThresholdBindingData,
 };
-use crate::input::legacy::LegacyActions;
 use crate::input::skeletal::SkeletalInputActionData;
 use crate::input::ActionData::{Bool, Vector1, Vector2};
 use crate::input::{ActionData, BoundPose, ExtraActionData, InteractionProfile};
@@ -21,7 +20,7 @@ pub(super) struct BindingsLoadContext<'a> {
     pub extra_actions: HashMap<String, ExtraActionData>,
     pub per_profile_bindings: HashMap<xr::Path, HashMap<String, Vec<BindingData>>>,
     pub per_profile_pose_bindings: HashMap<xr::Path, HashMap<String, BoundPose>>,
-    pub legacy_actions: &'a LegacyActions,
+    pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
     pub skeletal_input: &'a SkeletalInputActionData,
 }
@@ -30,7 +29,7 @@ impl<'a> BindingsLoadContext<'a> {
     pub fn new(
         action_sets: &'a HashMap<String, xr::ActionSet>,
         actions: LoadedActionDataMap,
-        legacy_actions: &'a LegacyActions,
+        grip_action: &'a xr::Action<xr::Posef>,
         info_action: &'a xr::Action<bool>,
         skeletal_input: &'a SkeletalInputActionData,
     ) -> Self {
@@ -40,7 +39,7 @@ impl<'a> BindingsLoadContext<'a> {
             extra_actions: Default::default(),
             per_profile_bindings: Default::default(),
             per_profile_pose_bindings: Default::default(),
-            legacy_actions,
+            grip_action,
             info_action,
             skeletal_input,
         }
@@ -81,7 +80,7 @@ impl BindingsLoadContext<'_> {
             extra_actions: &mut self.extra_actions,
             bindings_parsed,
             pose_bindings,
-            legacy_actions: self.legacy_actions,
+            grip_action: self.grip_action,
             info_action: self.info_action,
             skeletal_input: self.skeletal_input,
             instance,
@@ -99,7 +98,7 @@ pub(super) struct BindingsProfileLoadContext<'a> {
     extra_actions: &'a mut HashMap<String, ExtraActionData>,
     bindings_parsed: &'a mut HashMap<String, Vec<BindingData>>,
     pub pose_bindings: &'a mut HashMap<String, BoundPose>,
-    pub legacy_actions: &'a LegacyActions,
+    pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
     pub skeletal_input: &'a SkeletalInputActionData,
     pub instance: &'a xr::Instance,

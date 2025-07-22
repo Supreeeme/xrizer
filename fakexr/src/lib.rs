@@ -14,7 +14,8 @@ use std::sync::{
 #[derive(Clone, Copy, PartialEq)]
 pub enum ActionState {
     Bool(bool),
-    Pose,
+    /// True if locatable (action set was synced this frame).
+    Pose(bool),
     Float(f32),
     Vector2(f32, f32),
     Haptic,
@@ -547,6 +548,19 @@ impl Space {
             return Ok(default());
         };
 
+        // Check if this action has been synced
+        let state = match hand {
+            UserPath::LeftHand => &action.state.left,
+            UserPath::RightHand => &action.state.right,
+        };
+
+        let ActionState::Pose(state) = state.load().state else {
+            unreachable!();
+        };
+        if !state {
+            return Ok(default());
+        }
+
         // Find what it's bound to
         let instance = session
             .instance
@@ -838,7 +852,7 @@ extern "system" fn create_action(
 
     let state = match info.action_type {
         xr::ActionType::BOOLEAN_INPUT => ActionState::Bool(false),
-        xr::ActionType::POSE_INPUT => ActionState::Pose,
+        xr::ActionType::POSE_INPUT => ActionState::Pose(false),
         xr::ActionType::FLOAT_INPUT => ActionState::Float(0.0),
         xr::ActionType::VECTOR2F_INPUT => ActionState::Vector2(0.0, 0.0),
         xr::ActionType::VIBRATION_OUTPUT => ActionState::Haptic,
@@ -887,7 +901,7 @@ extern "system" fn create_action_space(
     let session = get_handle!(session);
     let info = unsafe { info.as_ref() }.unwrap();
     let action = get_handle!(info.action);
-    if !matches!(action.state.left.load().state, ActionState::Pose) {
+    if !matches!(action.state.left.load().state, ActionState::Pose(_)) {
         return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
     }
 
@@ -1157,20 +1171,54 @@ extern "system" fn sync_actions(
         set.active.store(true, Ordering::Relaxed);
 
         for action in actions {
-            let data = action.pending_state.take();
-            for (new, state) in [
-                (data.left, &action.state.left),
-                (data.right, &action.state.right),
-            ] {
-                let mut d = state.load();
-                d.changed = false;
-                if let Some(new_state) = new {
-                    if d.state != new_state {
-                        d.changed = true;
-                        d.state = new_state;
-                    }
+            // activate pose actions
+            if matches!(action.state.left.load().state, ActionState::Pose(_)) {
+                for state in [&action.state.left, &action.state.right] {
+                    let mut d = state.load();
+                    d.state = ActionState::Pose(true);
+                    state.store(d);
                 }
-                state.store(d);
+            } else {
+                // other actions
+                let data = action.pending_state.take();
+                for (new, state) in [
+                    (data.left, &action.state.left),
+                    (data.right, &action.state.right),
+                ] {
+                    let mut d = state.load();
+                    d.changed = false;
+                    if let Some(new_state) = new {
+                        if d.state != new_state {
+                            d.changed = true;
+                            d.state = new_state;
+                        }
+                    }
+                    state.store(d);
+                }
+            }
+        }
+    }
+
+    let instance = session.instance.upgrade().unwrap();
+    for inactive_set in instance
+        .action_sets
+        .lock()
+        .unwrap()
+        .iter()
+        .copied()
+        .filter(|set| !sets.iter().any(|active_set| *set == active_set.action_set))
+    {
+        let inactive_set = get_handle!(inactive_set);
+        let Some(actions) = inactive_set.actions.get() else {
+            continue;
+        };
+        for action in actions {
+            if matches!(action.state.left.load().state, ActionState::Pose(_)) {
+                for state in [&action.state.left, &action.state.right] {
+                    let mut d = state.load();
+                    d.state = ActionState::Pose(false);
+                    state.store(d);
+                }
             }
         }
     }

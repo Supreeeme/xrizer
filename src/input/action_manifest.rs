@@ -1,6 +1,5 @@
 use super::{
     custom_bindings::DpadDirection,
-    legacy::LegacyActionData,
     profiles::{PathTranslation, Profiles},
     skeletal::SkeletalInputActionData,
     ActionData, ActionKey, BoundPoseType, Input,
@@ -18,7 +17,6 @@ use slotmap::{SecondaryMap, SlotMap};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::RwLock;
 use std::{cell::LazyCell, env::current_dir};
 
 mod helpers;
@@ -48,11 +46,26 @@ impl<C: openxr_data::Compositor> Input<C> {
         match self.loaded_actions_path.get() {
             Some(p) => {
                 assert_eq!(p, manifest_path);
+                if session_data.input_data.actions.get().is_some() {
+                    return Ok(());
+                }
             }
-            None => self
-                .loaded_actions_path
-                .set(manifest_path.to_path_buf())
-                .unwrap(),
+            None => {
+                if let Some(loaded) = session_data.input_data.actions.get() {
+                    error!(
+                        "{} actions are already loaded!",
+                        if matches!(loaded, super::LoadedActions::Legacy(_)) {
+                            "Legacy"
+                        } else {
+                            "Manifest"
+                        }
+                    );
+                    return Err(vr::EVRInputError::MismatchedActionManifest);
+                }
+                self.loaded_actions_path
+                    .set(manifest_path.to_path_buf())
+                    .unwrap();
+            }
         }
 
         let data = std::fs::read(manifest_path).map_err(|e| {
@@ -88,16 +101,6 @@ impl<C: openxr_data::Compositor> Input<C> {
         )?;
         debug!("Loaded {} actions.", actions.len());
 
-        // Games can mix legacy and normal input, and the legacy bindings are used for
-        // WaitGetPoses, so attach the legacy set here as well.
-        let legacy = session_data.input_data.legacy_actions.get_or_init(|| {
-            LegacyActionData::new(
-                &self.openxr.instance,
-                self.openxr.left_hand.subaction_path,
-                self.openxr.right_hand.subaction_path,
-            )
-        });
-
         let skeletal_input = session_data
             .input_data
             .estimated_skeleton_actions
@@ -122,7 +125,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let mut binding_context = BindingsLoadContext::new(
             &sets,
             actions,
-            &legacy.actions,
+            &session_data.input_data.pose_data.get().unwrap().grip,
             &info_action,
             skeletal_input,
         );
@@ -143,7 +146,11 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let xr_sets: Vec<_> = sets
             .values()
-            .chain([&legacy.set, &info_set, &skeletal_input.set])
+            .chain([
+                &session_data.input_data.pose_data.get().unwrap().set,
+                &info_set,
+                &skeletal_input.set,
+            ])
             .collect();
         session_data.session.attach_action_sets(&xr_sets).unwrap();
 
@@ -184,7 +191,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
             .collect();
 
-        let loaded = super::LoadedActions {
+        let loaded = super::ManifestLoadedActions {
             sets,
             actions,
             extra_actions,
@@ -194,18 +201,11 @@ impl<C: openxr_data::Compositor> Input<C> {
             info_set,
         };
 
-        match session_data.input_data.loaded_actions.get() {
-            Some(lock) => {
-                *lock.write().unwrap() = loaded;
-            }
-            None => {
-                session_data
-                    .input_data
-                    .loaded_actions
-                    .set(RwLock::new(loaded))
-                    .unwrap_or_else(|_| unreachable!());
-            }
-        }
+        session_data
+            .input_data
+            .actions
+            .set(super::LoadedActions::Manifest(loaded))
+            .unwrap_or_else(|_| unreachable!());
         Ok(())
     }
 }
@@ -950,7 +950,13 @@ impl<C: openxr_data::Compositor> Input<C> {
                     Skeleton { .. } | Pose => unreachable!(),
                 }
             })
-            .chain(legacy_bindings.binding_iter(context.legacy_actions))
+            .chain(
+                legacy_bindings
+                    .extra
+                    .grip_pose
+                    .into_iter()
+                    .map(|path| xr::Binding::new(context.grip_action, path)),
+            )
             .chain(std::iter::once(xr::Binding::new(
                 context.info_action,
                 info_action_binding,

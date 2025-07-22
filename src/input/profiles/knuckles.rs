@@ -3,7 +3,7 @@ use super::{
     SkeletalInputBindings, StringToPath,
 };
 use crate::button_mask_from_ids;
-use crate::input::legacy::{button_mask_from_id, LegacyBindings};
+use crate::input::legacy::{self, button_mask_from_id, LegacyBindings};
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
 use openvr::EVRButtonId;
@@ -119,8 +119,9 @@ impl InteractionProfile for Knuckles {
 
     fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
         LegacyBindings {
-            grip_pose: stp.leftright("input/grip/pose"),
-            aim_pose: stp.leftright("input/aim/pose"),
+            extra: legacy::Bindings {
+                grip_pose: stp.leftright("input/grip/pose"),
+            },
             app_menu: stp.leftright("input/b/click"),
             a: stp.leftright("input/a/click"),
             trigger: stp.leftright("input/trigger/value"),

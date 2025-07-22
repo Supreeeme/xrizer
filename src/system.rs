@@ -269,8 +269,7 @@ impl vr::IVRSystem022_Interface for System {
                     .input
                     .get()
                     .unwrap()
-                    .get_controller_pose(Hand::try_from(device_index).unwrap(), Some(origin))
-                    .unwrap_or_default();
+                    .get_controller_pose(Hand::try_from(device_index).unwrap(), Some(origin));
             }
             true
         } else {
@@ -399,8 +398,7 @@ impl vr::IVRSystem022_Interface for System {
                         pose.write(
                             self.input
                                 .force(|_| Input::new(self.openxr.clone()))
-                                .get_controller_pose(hand, Some(origin))
-                                .unwrap_or_default(),
+                                .get_controller_pose(hand, Some(origin)),
                         );
                     }
                 }
@@ -413,11 +411,7 @@ impl vr::IVRSystem022_Interface for System {
             if got_event && !pose.is_null() {
                 unsafe {
                     let index = (&raw const (*event).trackedDeviceIndex).read();
-                    pose.write(
-                        input
-                            .get_controller_pose(Hand::try_from(index).unwrap(), None)
-                            .unwrap(),
-                    );
+                    pose.write(input.get_controller_pose(Hand::try_from(index).unwrap(), None));
                 }
             }
             got_event
