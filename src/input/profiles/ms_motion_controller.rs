@@ -6,9 +6,7 @@ use crate::button_mask_from_ids;
 use crate::input::legacy::button_mask_from_id;
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
-use glam::EulerRot;
 use glam::Mat4;
-use glam::Quat;
 use glam::Vec3;
 use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Axis2, Grip, System, A};
 
@@ -107,7 +105,7 @@ impl InteractionProfile for HolographicController {
             thumb_touch: stp.leftright("input/trackpad/touch"),
             index_touch: stp.leftright("input/trigger/value"),
             index_curl: stp.leftright("input/trigger/value"),
-            rest_curl: stp.leftright("input/trackpad/touch"), // This probably differs from the official runtime, but on VRChat reads no buttons touched as a full open hand, which messes with gestures.
+            rest_curl: Vec::new(), // This probably differs from the official runtime, but on VRChat reads no buttons touched as a full open hand, which messes with gestures.
         }
     }
 
@@ -140,18 +138,9 @@ impl InteractionProfile for HolographicController {
     }
 
     fn offset_grip_pose(&self, _hand: Hand) -> Mat4 {
-        Mat4::from_rotation_translation(
-            Quat::from_euler(
-                // TODO: From the steam VR driver data, not sure how to calculate this for the other controller types.
-                EulerRot::XYZ,
-                5.0370001792907719_f32.to_radians(),
-                0.0,
-                0.0,
-            ),
-            Vec3::new(
-                // From the models found here https://www.microsoft.com/en-us/download/details.aspx?id=56414
-                0.0, 0.026310, -0.078693,
-            ),
-        )
+        Mat4::from_translation(Vec3::new(
+            // From the models found here https://www.microsoft.com/en-us/download/details.aspx?id=56414
+            0.0, 0.026310, -0.078693,
+        ))
     }
 }
