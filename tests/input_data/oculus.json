@@ -114,6 +114,24 @@
 				},
 				{
 					"inputs": {
+						"touch": {
+							"output": "/actions/set1/in/boolact2"
+						}
+					},
+					"mode": "trigger",
+					"path": "/user/hand/left/input/grip"
+				},
+				{
+					"inputs": {
+						"touch": {
+							"output": "/actions/set1/in/boolact3"
+						}
+					},
+					"mode": "trigger",
+					"path": "/user/hand/left/input/trigger"
+				},
+				{
+					"inputs": {
 						"click": {
 							"output": "/actions/set1/in/boolact"
 						}

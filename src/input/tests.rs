@@ -90,6 +90,16 @@ impl_action_type!(xr::Vector2f, "vector2", ActionData::Vector2{ action, .. } => 
 impl_action_type!(xr::Haptic, "haptic", ActionData::Haptic(a) => a.as_raw());
 //impl_action_type!(xr::Posef, "pose", ActionData::Pose { action, .. } => action.as_raw());
 
+#[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
+pub enum ExtraActionType {
+    Analog,
+    GrabTouch,
+    GrabForce,
+    DpadDirection,
+    ToggleAction,
+}
+
 impl Fixture {
     pub fn new() -> Self {
         crate::init_logging();
@@ -117,23 +127,20 @@ impl Fixture {
         );
     }
 
-    #[track_caller]
-    pub fn verify_bindings<T: ActionType>(
+    fn verify_bindings_core(
         &self,
+        action: xr::sys::Action,
         interaction_profile: &str,
         action_name: &CStr,
-        expected_bindings: impl Into<HashSet<String>>,
+        action_type: &str,
+        mut expected_bindings: HashSet<String>,
     ) {
-        let mut expected_bindings = expected_bindings.into();
         let profile = self
             .input
             .openxr
             .instance
             .string_to_path(interaction_profile)
             .unwrap();
-
-        let handle = self.get_action_handle(action_name);
-        let action = self.get_action::<T>(handle);
 
         let bindings = fakexr::get_suggested_bindings(action, profile);
 
@@ -148,7 +155,7 @@ impl Fixture {
                     "remaining bindings: {:#?}"
                 ),
                 binding,
-                std::any::type_name::<T>(),
+                action_type,
                 action_name,
                 found_bindings,
                 expected_bindings,
@@ -159,9 +166,68 @@ impl Fixture {
 
         assert!(
             expected_bindings.is_empty(),
-            "Missing expected bindings for {} action {action_name:?}: {expected_bindings:#?}",
-            std::any::type_name::<T>(),
+            "Missing expected bindings for {action_type} action {action_name:?}: {expected_bindings:#?}",
         );
+    }
+
+    #[track_caller]
+    pub fn verify_bindings<T: ActionType>(
+        &self,
+        interaction_profile: &str,
+        action_name: &CStr,
+        expected_bindings: impl Into<HashSet<String>>,
+    ) {
+        let handle = self.get_action_handle(action_name);
+        let action = self.get_action::<T>(handle);
+
+        self.verify_bindings_core(
+            action,
+            interaction_profile,
+            action_name,
+            std::any::type_name::<T>(),
+            expected_bindings.into(),
+        )
+    }
+
+    #[track_caller]
+    pub fn verify_extra_bindings(
+        &self,
+        interaction_profile: &str,
+        action_name: &CStr,
+        extra_action_type: ExtraActionType,
+        expected_bindings: impl Into<HashSet<String>>,
+    ) {
+        let handle = self.get_action_handle(action_name);
+        let action = self
+            .get_extra_action(handle, extra_action_type)
+            .unwrap_or_else(|| panic!("No extra action {extra_action_type:?} for {action_name:?}"));
+
+        self.verify_bindings_core(
+            action,
+            interaction_profile,
+            action_name,
+            &format!("{extra_action_type:?}"),
+            expected_bindings.into(),
+        );
+    }
+
+    #[track_caller]
+    pub fn verify_no_extra_bindings(
+        &self,
+        interaction_profile: &str,
+        action_name: &CStr,
+        extra_action_type: ExtraActionType,
+    ) {
+        let handle = self.get_action_handle(action_name);
+        if let Some(action) = self.get_extra_action(handle, extra_action_type) {
+            self.verify_bindings_core(
+                action,
+                interaction_profile,
+                action_name,
+                &format!("{extra_action_type:?}"),
+                [].into(),
+            );
+        }
     }
 }
 
@@ -218,6 +284,28 @@ impl Fixture {
             .expect("Couldn't find action for handle");
 
         T::get_xr_action(action).expect("Couldn't get OpenXR handle for action")
+    }
+
+    #[track_caller]
+    pub fn get_extra_action(
+        &self,
+        handle: vr::VRActionHandle_t,
+        extra_action_type: ExtraActionType,
+    ) -> Option<xr::sys::Action> {
+        let data = self.input.openxr.session_data.get();
+        let actions = data
+            .input_data
+            .get_loaded_actions()
+            .expect("Actions aren't loaded");
+        let extras = actions.try_get_extra(handle).ok()?;
+
+        Some(match extra_action_type {
+            ExtraActionType::Analog => extras.analog_action.as_ref()?.as_raw(),
+            ExtraActionType::GrabTouch => extras.grab_action.as_ref()?.value_action.as_raw(),
+            ExtraActionType::GrabForce => extras.grab_action.as_ref()?.force_action.as_raw(),
+            ExtraActionType::DpadDirection => extras.vector2_action.as_ref()?.as_raw(),
+            ExtraActionType::ToggleAction => extras.toggle_action.as_ref()?.as_raw(),
+        })
     }
 
     pub fn get_pose(

@@ -349,9 +349,11 @@ impl BindingData {
 mod tests {
     use super::*;
     use crate::input::profiles::knuckles::Knuckles;
+    use crate::input::profiles::oculus_touch::Touch;
     use crate::input::profiles::vive_controller::ViveWands;
-    use crate::input::tests::Fixture;
+    use crate::input::tests::{ExtraActionType, Fixture};
     use crate::input::InteractionProfile;
+    use fakexr::ActionState;
     use fakexr::UserPath::*;
     use openvr as vr;
 
@@ -362,6 +364,16 @@ mod tests {
             let ExtraActionData { toggle_action, .. } = actions.try_get_extra($handle).unwrap();
 
             let $toggle_data = toggle_action.as_ref().unwrap();
+        };
+    }
+
+    macro_rules! get_analog_action {
+        ($fixture:expr, $handle:expr, $analog_data:ident) => {
+            let data = $fixture.input.openxr.session_data.get();
+            let actions = data.input_data.get_loaded_actions().unwrap();
+            let ExtraActionData { analog_action, .. } = actions.try_get_extra($handle).unwrap();
+
+            let $analog_data = analog_action.as_ref().unwrap();
         };
     }
 
@@ -883,5 +895,70 @@ mod tests {
         assert!(s_right.bActive);
         assert!(s_right.bState);
         assert!(s_right.bChanged);
+    }
+
+    #[test]
+    fn grip_touch_from_pull_oculus() {
+        let f = Fixture::new();
+        let set1 = f.get_action_set_handle(c"/actions/set1");
+        let boolact = f.get_action_handle(c"/actions/set1/in/boolact2");
+        let left = f.get_input_source_handle(c"/user/hand/left");
+
+        f.load_actions(c"actions.json");
+        get_analog_action!(f, boolact, analog_data);
+
+        let act = analog_data.as_raw();
+        f.verify_extra_bindings(
+            Touch.profile_path(),
+            c"/actions/set1/in/boolact2",
+            ExtraActionType::Analog,
+            ["/user/hand/left/input/squeeze/value".into()],
+        );
+
+        f.set_interaction_profile(&Touch, LeftHand);
+        fakexr::set_action_state(act, ActionState::Float(0.0), LeftHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        let s_left = f.get_bool_state_hand(boolact, left).unwrap();
+        assert!(s_left.bActive);
+        assert!(!s_left.bState);
+        assert!(!s_left.bChanged);
+
+        fakexr::set_action_state(act, ActionState::Float(0.01), LeftHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        let s_left = f.get_bool_state_hand(boolact, left).unwrap();
+        assert!(s_left.bActive);
+        assert!(s_left.bState);
+        assert!(s_left.bChanged);
+
+        fakexr::set_action_state(act, ActionState::Float(0.0), LeftHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        let s_left = f.get_bool_state_hand(boolact, left).unwrap();
+        assert!(s_left.bActive);
+        assert!(!s_left.bState);
+        assert!(s_left.bChanged);
+    }
+
+    #[test]
+    fn trigger_no_touch_from_pull_oculus() {
+        let f = Fixture::new();
+
+        f.load_actions(c"actions.json");
+        f.verify_no_extra_bindings(
+            Touch.profile_path(),
+            c"/actions/set1/in/boolact3",
+            ExtraActionType::Analog,
+        );
     }
 }
