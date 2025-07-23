@@ -107,7 +107,7 @@ impl InteractionProfile for HolographicController {
             thumb_touch: stp.leftright("input/trackpad/touch"),
             index_touch: stp.leftright("input/trigger/value"),
             index_curl: stp.leftright("input/trigger/value"),
-            rest_curl: Vec::new(), // This probably differs from the official runtime, but on VRChat reads no buttons touched as a full open hand, which messes with gestures.
+            rest_curl: stp.leftright("input/squeeze/click"),
         }
     }
 
