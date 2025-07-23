@@ -25,7 +25,7 @@ impl vr::IVRChaperone004_Interface for Chaperone {
     }
 
     fn ForceBoundsVisible(&self, _: bool) {
-        todo!()
+        crate::warn_unimplemented!("ForceBoundsVisible");
     }
     fn AreBoundsVisible(&self) -> bool {
         false
