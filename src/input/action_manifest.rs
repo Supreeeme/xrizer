@@ -639,6 +639,12 @@ impl<T: FromStr> FromStr for FromString<T> {
     }
 }
 
+impl<T> From<T> for FromString<T> {
+    fn from(t: T) -> Self {
+        FromString(t)
+    }
+}
+
 impl<'de, T: Deserialize<'de> + FromStr> Deserialize<'de> for FromString<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -679,6 +685,18 @@ struct ButtonParameters {
     force_input: Option<String>,
     #[serde(flatten)]
     click_threshold: ClickThresholdParams,
+}
+
+impl ButtonParameters {
+    fn new_for_touch_conversion() -> Self {
+        ButtonParameters {
+            force_input: None,
+            click_threshold: ClickThresholdParams {
+                click_activate_threshold: Some(0.01f32.into()),
+                click_deactivate_threshold: Some(0.005f32.into()),
+            },
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -1223,13 +1241,41 @@ fn handle_sources(
                     .into_iter()
                     .filter_map(|(sfx, input)| Some(sfx).zip(input.as_ref().map(|i| &i.output)));
                 for (suffix, output) in suffixes_and_outputs {
-                    let Ok(translated) = path_translator(&format!("{path}/{suffix}"))
-                        .inspect_err(translate_warn(&output.path))
-                    else {
-                        continue;
-                    };
+                    match path_translator(&format!("{path}/{suffix}")) {
+                        Ok(translated) => {
+                            context.try_get_bool_binding(output.path.clone(), translated);
+                        }
+                        Err(_) if suffix == "touch" => {
+                            debug!(
+                                "Falling back to pull for touch on {path} (action {:?})",
+                                &output.path
+                            );
+                            // SteamVR fallbacks "touch" bindings on triggers to "any pull amount" if there's no native capsense
+                            if let Ok(translated_pull) = path_translator(&format!("{path}/pull")) {
+                                let float_name_with_as = context.get_or_create_analog_extra_action(
+                                    output,
+                                    action_set_name,
+                                    action_set,
+                                );
+                                context.push_binding(
+                                    float_name_with_as,
+                                    context.instance.string_to_path(&translated_pull).unwrap(),
+                                );
 
-                    context.try_get_bool_binding(output.path.clone(), translated);
+                                let parameters = ButtonParameters::new_for_touch_conversion();
+                                context.add_custom_button_binding(
+                                    output,
+                                    &translated_pull,
+                                    Some(&parameters),
+                                );
+                            } else {
+                                warn!("Couldn't bind touch to {} as there's neither touch nor pull input available", &output.path);
+                            }
+                        }
+                        Err(err) => {
+                            translate_warn(&output.path)(&err);
+                        }
+                    }
                 }
             }
             ActionBinding::ScalarConstant {
