@@ -3,6 +3,7 @@ use super::{
     SkeletalInputBindings, StringToPath,
 };
 use crate::button_mask_from_ids;
+use crate::input::legacy;
 use crate::input::legacy::button_mask_from_id;
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
@@ -86,8 +87,9 @@ impl InteractionProfile for HolographicController {
         // but most users would probably prefer to use it, so let's use it.
         // And also, games that use the face button can instead use the trackpad as one big button
         LegacyBindings {
-            grip_pose: stp.leftright("input/grip/pose"),
-            aim_pose: stp.leftright("input/aim/pose"),
+            extra: legacy::Bindings {
+                grip_pose: stp.leftright("input/grip/pose"),
+            },
             trigger: stp.leftright("input/trigger/value"),
             trigger_click: stp.leftright("input/trigger/value"),
             app_menu: stp.leftright("input/menu/click"),
