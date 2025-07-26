@@ -1,4 +1,4 @@
-use super::{Input, PoseData, Profiles};
+use super::{Input, PoseData, Profiles, WriteOnDrop};
 use crate::{
     input::LoadedActions,
     openxr_data::{self, Hand},
@@ -92,17 +92,24 @@ impl<C: openxr_data::Compositor> Input<C> {
         state: *mut vr::VRControllerState_t,
         state_size: u32,
     ) -> bool {
-        let data = self.openxr.session_data.get();
-        if data.input_data.get_loaded_actions().is_some() {
-            debug!("not returning legacy controller state due to loaded actions");
-            return false;
-        }
-
         if state_size as usize != std::mem::size_of::<vr::VRControllerState_t>() {
             warn!(
                 "Got an unexpected size for VRControllerState_t (expected {}, got {state_size})",
                 std::mem::size_of::<vr::VRControllerState_t>()
             );
+            return false;
+        }
+
+        if state.is_null() {
+            return false;
+        }
+
+        let mut state = WriteOnDrop::new(state);
+        let state = &mut state.value;
+
+        let data = self.openxr.session_data.get();
+        if data.input_data.get_loaded_actions().is_some() {
+            debug!("not returning legacy controller state due to loaded actions");
             return false;
         }
 
@@ -124,9 +131,6 @@ impl<C: openxr_data::Compositor> Input<C> {
         let hand_path = hand_info.subaction_path;
 
         let data = self.openxr.session_data.get();
-
-        let state = unsafe { state.as_mut() }.unwrap();
-        *state = Default::default();
 
         state.unPacketNum = self.legacy_state.packet_num.load(Ordering::Relaxed);
 
@@ -701,5 +705,22 @@ mod tests {
                 .mDeviceToAbsoluteTracking
                 .into(),
         );
+    }
+
+    #[test]
+    fn init_controller_state_on_failure() {
+        let f = Fixture::new();
+        f.load_actions(c"actions.json");
+        f.input.frame_start_update();
+
+        let mut state = std::mem::MaybeUninit::<vr::VRControllerState_t>::uninit();
+        assert!(!f.input.get_legacy_controller_state(
+            0,
+            state.as_mut_ptr(),
+            std::mem::size_of_val(&state) as u32
+        ));
+
+        let state = unsafe { state.assume_init() };
+        assert_eq!({ state.ulButtonPressed }, 0);
     }
 }
