@@ -4,7 +4,16 @@ use super::{
     skeletal::SkeletalInputActionData,
     ActionData, ActionKey, BoundPoseType, Input,
 };
-use crate::openxr_data::{self, Hand, SessionData};
+use crate::{
+    input::{
+        custom_bindings::{
+            DpadActions, DpadBindingParams, DpadData, GrabBindingData, ThresholdBindingFloat,
+            ThresholdBindingVector2, ToggleData,
+        },
+        GrabActions,
+    },
+    openxr_data::{self, Hand, SessionData},
+};
 use helpers::{BindingsLoadContext, BindingsProfileLoadContext, DpadActivatorData, DpadHapticData};
 use log::{debug, error, info, trace, warn};
 use openvr as vr;
@@ -630,7 +639,8 @@ enum ActionBinding {
 }
 
 #[repr(transparent)]
-struct FromString<T>(pub T);
+#[derive(Copy, Clone, derive_more::Deref)]
+pub(super) struct FromString<T>(T);
 
 impl<T: FromStr> FromStr for FromString<T> {
     type Err = T::Err;
@@ -668,9 +678,18 @@ struct ButtonInput {
 }
 
 #[derive(Deserialize)]
-struct ClickThresholdParams {
-    click_activate_threshold: Option<FromString<f32>>,
-    click_deactivate_threshold: Option<FromString<f32>>,
+pub(super) struct ClickThresholdParams {
+    pub click_activate_threshold: Option<FromString<f32>>,
+    pub click_deactivate_threshold: Option<FromString<f32>>,
+}
+
+impl ClickThresholdParams {
+    fn new_for_touch_conversion() -> Self {
+        Self {
+            click_activate_threshold: Some(0.01f32.into()),
+            click_deactivate_threshold: Some(0.005f32.into()),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -685,18 +704,6 @@ struct ButtonParameters {
     force_input: Option<String>,
     #[serde(flatten)]
     click_threshold: ClickThresholdParams,
-}
-
-impl ButtonParameters {
-    fn new_for_touch_conversion() -> Self {
-        ButtonParameters {
-            force_input: None,
-            click_threshold: ClickThresholdParams {
-                click_activate_threshold: Some(0.01f32.into()),
-                click_deactivate_threshold: Some(0.005f32.into()),
-            },
-        }
-    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -764,11 +771,9 @@ struct GrabInput {
 }
 
 #[derive(Deserialize)]
-struct GrabParameters {
-    #[allow(unused)]
-    value_hold_threshold: Option<FromString<f32>>,
-    #[allow(unused)]
-    value_release_threshold: Option<FromString<f32>>,
+pub(super) struct GrabParameters {
+    pub value_hold_threshold: Option<FromString<f32>>,
+    pub value_release_threshold: Option<FromString<f32>>,
 }
 
 #[derive(Deserialize)]
@@ -1017,22 +1022,25 @@ fn handle_dpad_binding(
     // Workaround weird closure lifetime quirks.
     const fn constrain<F>(f: F) -> F
     where
-        F: for<'a> Fn(&'a Option<ActionBindingOutput>, DpadDirection) -> Option<&'a str>,
+        F: for<'a> Fn(&'a Option<ActionBindingOutput>, DpadDirection) -> Option<&'a ActionPath>,
     {
         f
     }
     let maybe_find_action = constrain(|a, direction| {
-        let output = &a.as_ref()?.output.path;
-        let ret = context.actions.contains_key(output);
+        let output = &a.as_ref()?.output;
+        let ret = context.actions.contains_key(&output.path);
         if !ret {
-            warn!("Couldn't find dpad action {output} (for path {parent_path}, {direction:?})");
+            warn!(
+                "Couldn't find dpad action {} (for path {parent_path}, {direction:?})",
+                output.path
+            );
         }
         ret.then_some(output)
     });
 
     use DpadDirection::*;
 
-    let bound_actions: Vec<(&str, DpadDirection)> = [
+    let bound_actions: Vec<(&ActionPath, DpadDirection)> = [
         (maybe_find_action(north, North), North),
         (maybe_find_action(east, East), East),
         (maybe_find_action(south, South), South),
@@ -1050,7 +1058,7 @@ fn handle_dpad_binding(
 
     let parent_action_key = format!("{parent_path}-{action_set_name}");
 
-    let created_actions = context.get_dpad_parent(
+    let (xy, click_or_touch_data, haptic_data) = context.get_dpad_parent(
         &string_to_path,
         parent_path,
         &parent_action_key,
@@ -1059,16 +1067,28 @@ fn handle_dpad_binding(
         parameters,
     );
 
-    for (action_name, direction) in bound_actions {
-        context.add_custom_dpad_binding(parent_path, action_name, direction, &created_actions);
+    let hand = helpers::parse_hand_from_path(context.instance, parent_path).unwrap();
+    for (path, direction) in bound_actions {
+        context.add_custom_binding::<DpadData>(
+            path,
+            hand,
+            action_set_name,
+            action_set,
+            Some(&DpadBindingParams {
+                actions: DpadActions {
+                    xy: xy.clone(),
+                    click_or_touch: click_or_touch_data.as_ref().map(|d| d.action.clone()),
+                    haptic: haptic_data.as_ref().map(|d| d.action.clone()),
+                },
+                direction,
+            }),
+        );
     }
 
-    let activator_binding = created_actions
-        .1
+    let activator_binding = click_or_touch_data
         .as_ref()
         .map(|DpadActivatorData { key, binding, .. }| (key.clone(), *binding));
-    let haptic_binding = created_actions
-        .2
+    let haptic_binding = haptic_data
         .as_ref()
         .map(|DpadHapticData { key, binding, .. }| (key.clone(), *binding));
     context.push_binding(parent_action_key, string_to_path(parent_path).unwrap());
@@ -1123,19 +1143,19 @@ fn handle_sources(
                         continue;
                     }
 
-                    let as_name = context.get_or_create_toggle_extra_action(
+                    let action = context.add_custom_binding::<ToggleData>(
                         output,
+                        helpers::parse_hand_from_path(context.instance, &translated).unwrap(),
                         action_set_name,
                         action_set,
+                        None,
                     );
 
                     trace!("suggesting {translated} for {} (toggle)", output.path);
                     context.push_binding(
-                        as_name,
+                        action,
                         context.instance.string_to_path(&translated).unwrap(),
                     );
-
-                    context.add_custom_toggle_binding(output, &translated);
                 }
             }
             ActionBinding::Button {
@@ -1177,17 +1197,24 @@ fn handle_sources(
                         context.try_get_bool_binding(output.path.clone(), translated);
                     } else {
                         // for everything actually binding to /value or /force, use custom thresholds
+                        let params = parameters.map(|b| &b.click_threshold);
+                        let hand =
+                            helpers::parse_hand_from_path(context.instance, &translated).unwrap();
                         let float_name_with_as = if binding_to_2d {
-                            context.get_or_create_v2_extra_action(
+                            context.add_custom_binding::<ThresholdBindingVector2>(
                                 output,
+                                hand,
                                 action_set_name,
                                 action_set,
+                                params,
                             )
                         } else {
-                            context.get_or_create_analog_extra_action(
+                            context.add_custom_binding::<ThresholdBindingFloat>(
                                 output,
+                                hand,
                                 action_set_name,
                                 action_set,
+                                params,
                             )
                         };
 
@@ -1195,8 +1222,6 @@ fn handle_sources(
                             float_name_with_as,
                             context.instance.string_to_path(&translated).unwrap(),
                         );
-
-                        context.add_custom_button_binding(output, &translated, parameters)
                     }
                 }
 
@@ -1213,7 +1238,7 @@ fn handle_sources(
                 parameters,
             } => {
                 let Ok(parent_translated) =
-                    path_translator(path).inspect_err(translate_warn(&format!("{inputs:?}")))
+                    path_translator(path).inspect_err(translate_warn(&format!("{inputs:#?}")))
                 else {
                     continue;
                 };
@@ -1252,21 +1277,23 @@ fn handle_sources(
                             );
                             // SteamVR fallbacks "touch" bindings on triggers to "any pull amount" if there's no native capsense
                             if let Ok(translated_pull) = path_translator(&format!("{path}/pull")) {
-                                let float_name_with_as = context.get_or_create_analog_extra_action(
-                                    output,
-                                    action_set_name,
-                                    action_set,
-                                );
+                                let parameters = ClickThresholdParams::new_for_touch_conversion();
+                                let hand = helpers::parse_hand_from_path(
+                                    context.instance,
+                                    &translated_pull,
+                                )
+                                .unwrap();
+                                let float_name_with_as = context
+                                    .add_custom_binding::<ThresholdBindingFloat>(
+                                        output,
+                                        hand,
+                                        action_set_name,
+                                        action_set,
+                                        Some(&parameters),
+                                    );
                                 context.push_binding(
                                     float_name_with_as,
                                     context.instance.string_to_path(&translated_pull).unwrap(),
-                                );
-
-                                let parameters = ButtonParameters::new_for_touch_conversion();
-                                context.add_custom_button_binding(
-                                    output,
-                                    &translated_pull,
-                                    Some(&parameters),
                                 );
                             } else {
                                 warn!("Couldn't bind touch to {} as there's neither touch nor pull input available", &output.path);
@@ -1341,18 +1368,24 @@ fn handle_sources(
                     continue;
                 }
 
-                let (force_full_name, value_full_name) =
-                    context.get_or_create_grab_action_pair(output, action_set_name, action_set);
+                let GrabActions {
+                    force_action,
+                    value_action,
+                } = context.add_custom_binding::<GrabBindingData>(
+                    output,
+                    helpers::parse_hand_from_path(context.instance, &translated_force).unwrap(),
+                    action_set_name,
+                    action_set,
+                    parameters.as_ref(),
+                );
 
-                context.add_custom_grab_binding(output, &translated_force, parameters);
-
-                trace!("suggesting {translated_force} and {translated_value} for {force_full_name} (grab binding)");
+                trace!("suggesting {translated_force} and {translated_value} for {force_action} (grab binding)");
                 context.push_binding(
-                    force_full_name.clone(),
+                    force_action,
                     context.instance.string_to_path(&translated_force).unwrap(),
                 );
                 context.push_binding(
-                    value_full_name.clone(),
+                    value_action,
                     context.instance.string_to_path(&translated_value).unwrap(),
                 );
             }

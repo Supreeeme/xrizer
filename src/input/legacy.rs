@@ -213,40 +213,35 @@ impl<C: openxr_data::Compositor> Input<C> {
     }
 }
 
-// Some type magic to parameterize our legacy actions to act as actions or bindings
-trait ActionOrBindingMarker {}
-struct Actions;
-pub(super) struct Bindings {
-    // This pose is handled separately, in the PoseData struct,
-    // so we don't use an action for it, but we still need the binding.
-    pub grip_pose: Vec<xr::Path>,
-}
-impl ActionOrBindingMarker for Actions {}
-impl ActionOrBindingMarker for Bindings {}
+mod marker {
+    use openxr as xr;
+    // Some type magic to parameterize our legacy actions to act as actions or bindings
+    pub trait ActionsMarker {
+        type T<U: xr::ActionTy>;
+    }
+    pub struct Actions;
+    pub struct Bindings {
+        // This pose is handled separately, in the PoseData struct,
+        // so we don't use an action for it, but we still need the binding.
+        pub grip_pose: Vec<xr::Path>,
+    }
+    impl ActionsMarker for Actions {
+        type T<U: xr::ActionTy> = xr::Action<U>;
+    }
+    impl ActionsMarker for Bindings {
+        type T<U: xr::ActionTy> = Vec<xr::Path>;
+    }
 
-trait ActionT<M: ActionOrBindingMarker>: xr::ActionTy {
-    type T;
+    pub type Action<T, M> = <M as ActionsMarker>::T<T>;
 }
-
-impl<T: xr::ActionTy> ActionT<Actions> for T {
-    type T = xr::Action<T>;
-}
-impl<T: xr::ActionTy> ActionT<Bindings> for T {
-    type T = Vec<xr::Path>;
-}
-
-type Action<T, M> = <T as ActionT<M>>::T;
+pub(super) use marker::Bindings;
+use marker::*;
 
 ////////////////////////
 // Whenever a field is added to this struct, it also needs to be added to LegacyBindings::into_iter below
 ///////////////////////
 #[allow(private_interfaces, private_bounds)]
-pub(super) struct Legacy<M: ActionOrBindingMarker>
-where
-    bool: ActionT<M>,
-    f32: ActionT<M>,
-    xr::Vector2f: ActionT<M>,
-{
+pub(super) struct Legacy<M: ActionsMarker> {
     pub app_menu: Action<bool, M>,
     pub a: Action<bool, M>,
     pub trigger_click: Action<bool, M>,
@@ -260,7 +255,6 @@ where
     pub extra: M,
 }
 
-#[allow(private_interfaces)]
 pub(super) type LegacyActions = Legacy<Actions>;
 pub(super) type LegacyBindings = Legacy<Bindings>;
 

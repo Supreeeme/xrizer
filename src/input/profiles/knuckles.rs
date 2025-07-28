@@ -225,7 +225,7 @@ mod tests {
             panic!("no");
         };
 
-        let grab_data = extra.grab_action.as_ref().unwrap();
+        let grab_data = extra.grab_actions.as_ref().unwrap();
         let p = f.input.openxr.instance.string_to_path(path).unwrap();
         let suggested = fakexr::get_suggested_bindings(grab_data.force_action.as_raw(), p);
         assert!(suggested.contains(&"/user/hand/right/input/squeeze/force".to_string()));

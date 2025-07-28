@@ -1,16 +1,13 @@
-use crate::input::action_manifest::{
-    ActionPath, ButtonParameters, ControllerType, GrabParameters, LoadedActionDataMap,
-};
+use crate::input::action_manifest::{ActionPath, ControllerType, LoadedActionDataMap};
 use crate::input::custom_bindings::{
-    BindingData, DpadActions, DpadData, DpadDirection, GrabActions, GrabBindingData,
-    ThresholdBindingData,
+    AsActionData, AsIter, BindingData, CustomBindingHelper, Names,
 };
 use crate::input::skeletal::SkeletalInputActionData;
 use crate::input::ActionData::{Bool, Vector1, Vector2};
 use crate::input::{ActionData, BoundPose, ExtraActionData, InteractionProfile};
 use crate::openxr_data;
 use crate::openxr_data::OpenXrData;
-use log::{info, trace, warn};
+use log::{trace, warn};
 use openxr as xr;
 use std::collections::HashMap;
 
@@ -128,7 +125,7 @@ fn get_hand_prefix(path: &str) -> Option<&str> {
     }
 }
 
-fn parse_hand_from_path(instance: &xr::Instance, path: &str) -> Option<xr::Path> {
+pub(super) fn parse_hand_from_path(instance: &xr::Instance, path: &str) -> Option<xr::Path> {
     let hand_prefix = get_hand_prefix(path)?;
 
     let path = instance.string_to_path(hand_prefix).ok();
@@ -206,256 +203,43 @@ impl BindingsProfileLoadContext<'_> {
         self.try_get_binding(action_path, input_path, action_match!(Vector2 { .. }));
     }
 
-    pub fn add_custom_toggle_binding(&mut self, output: &ActionPath, translated: &str) {
-        if let Some(binding_hand) = parse_hand_from_path(self.instance, translated) {
-            self.bindings_parsed
-                .entry(output.path.clone())
-                .or_default()
-                .push(BindingData::Toggle(Default::default(), binding_hand));
-        } else {
-            warn!("Binding on {translated} has unknown hand path, it will be ignored")
-        }
-    }
-
-    pub fn add_custom_button_binding(
+    pub fn add_custom_binding<T: CustomBindingHelper>(
         &mut self,
         output: &ActionPath,
-        translated: &str,
-        parameters: Option<&ButtonParameters>,
-    ) {
-        if let Some(binding_hand) = parse_hand_from_path(self.instance, translated) {
-            let thresholds = parameters.map(|x| &x.click_threshold);
-            self.bindings_parsed
-                .entry(output.path.clone())
-                .or_default()
-                .push(BindingData::Threshold(
-                    ThresholdBindingData::new(
-                        thresholds
-                            .and_then(|x| x.click_activate_threshold.as_ref())
-                            .map(|x| x.0),
-                        thresholds
-                            .and_then(|x| x.click_deactivate_threshold.as_ref())
-                            .map(|x| x.0),
-                    ),
-                    binding_hand,
-                ));
-        } else {
-            info!(
-                "Binding on {} has unknown hand path, it will be ignored",
-                &translated
-            )
-        }
-    }
+        hand: xr::Path,
+        action_set_name: &str,
+        action_set: &xr::ActionSet,
+        params: Option<&T::BindingParams>,
+    ) -> T::ExtraActions<Names> {
+        let extra_data = self.extra_actions.entry(output.path.clone()).or_default();
+        let names = T::extra_action_names(&output.cleaned_name());
+        let full_names: Vec<String> = names
+            .as_iter()
+            .map(|name| format!("{action_set_name}/{name}"))
+            .collect();
 
-    pub fn add_custom_grab_binding(
-        &mut self,
-        output: &ActionPath,
-        translated_force: &str,
-        parameters: &Option<GrabParameters>,
-    ) {
-        if let Some(binding_hand) = parse_hand_from_path(self.instance, translated_force) {
-            self.bindings_parsed
-                .entry(output.path.clone())
-                .or_default()
-                .push(BindingData::Grab(
-                    GrabBindingData::new(
-                        parameters
-                            .as_ref()
-                            .and_then(|x| x.value_hold_threshold.as_ref())
-                            .map(|x| x.0),
-                        parameters
-                            .as_ref()
-                            .and_then(|x| x.value_release_threshold.as_ref())
-                            .map(|x| x.0),
-                    ),
-                    binding_hand,
-                ));
-        } else {
-            info!(
-                "Binding on {} has unknown hand path, it will be ignored",
-                &translated_force
-            )
-        }
-    }
+        if let Some(actions) = T::get_actions(extra_data) {
+            if actions.is_none() {
+                let extra_actions = T::create_actions(&names, action_set, &self.hands);
+                for (name, action) in full_names.iter().zip(extra_actions.as_action_data()) {
+                    trace!("creating custom binding: {name}");
+                    self.actions.insert(name.clone(), action);
+                }
 
-    pub fn add_custom_dpad_binding(
-        &mut self,
-        parent_path: &str,
-        action_name: &str,
-        direction: DpadDirection,
-        created_actions: &(
-            xr::Action<xr::Vector2f>,
-            Option<DpadActivatorData>,
-            Option<DpadHapticData>,
-        ),
-    ) {
-        if let Some(binding_hand) = parse_hand_from_path(self.instance, parent_path) {
-            let (parent_action, click_or_touch, haptic) = created_actions;
-            // Add an empty extra actions holder - custom bindings are gated by their presence
-            self.extra_actions
-                .entry(action_name.to_string())
-                .or_default();
-            let dpad_actions = DpadActions {
-                xy: parent_action.clone(),
-                click_or_touch: click_or_touch.as_ref().map(|d| d.action.clone()),
-                haptic: haptic.as_ref().map(|x| x.action.clone()),
-            };
-            self.bindings_parsed
-                .entry(action_name.to_string())
-                .or_default()
-                .push(BindingData::Dpad(
-                    DpadData {
-                        dpad_actions,
-                        direction,
-                        last_state: false.into(),
-                    },
-                    binding_hand,
-                ));
-        } else {
-            warn!("Binding on {parent_path} has unknown hand path, it will be ignored")
+                *actions = Some(extra_actions);
+            }
         }
+
+        self.bindings_parsed
+            .entry(output.path.clone())
+            .or_default()
+            .push(T::create_binding_data(hand, params));
+
+        T::ExtraActions::from_iter(full_names)
     }
 
     pub fn push_binding(&mut self, action: String, path: xr::Path) {
         self.bindings.push((action, path));
-    }
-
-    pub fn get_or_create_toggle_extra_action(
-        &mut self,
-        output: &ActionPath,
-        action_set_name: &str,
-        action_set: &xr::ActionSet,
-    ) -> String {
-        let name_only = output.cleaned_name();
-        let toggle_name = format!("{name_only}_tgl");
-        let as_name = format!("{action_set_name}/{toggle_name}");
-
-        let mut extra_data = self.extra_actions.remove(&output.path).unwrap_or_default();
-
-        if extra_data.toggle_action.is_none() {
-            let localized = format!("{name_only} toggle");
-            let action = action_set
-                .create_action(&toggle_name, &localized, &self.hands)
-                .unwrap();
-
-            self.actions.insert(as_name.clone(), Bool(action.clone()));
-
-            extra_data.toggle_action = Some(action);
-        }
-        self.extra_actions.insert(output.path.clone(), extra_data);
-
-        as_name
-    }
-
-    pub fn get_or_create_analog_extra_action(
-        &mut self,
-        output: &ActionPath,
-        action_set_name: &str,
-        action_set: &xr::ActionSet,
-    ) -> String {
-        let mut extra_data = self.extra_actions.remove(&output.path).unwrap_or_default();
-        let name_only = output.cleaned_name();
-        let float_name = format!("{name_only}_asfloat");
-        let float_name_with_as = format!("{action_set_name}/{float_name}");
-        if extra_data.analog_action.is_none() {
-            let localized = format!("{name_only} from float");
-            let float_action = action_set
-                .create_action(&float_name, &localized, &self.hands)
-                .unwrap();
-
-            self.actions.insert(
-                float_name_with_as.clone(),
-                Vector1 {
-                    action: float_action.clone(),
-                    last_value: 0.0.into(),
-                },
-            );
-
-            extra_data.analog_action = Some(float_action);
-        }
-        self.extra_actions.insert(output.path.clone(), extra_data);
-
-        float_name_with_as
-    }
-
-    pub fn get_or_create_v2_extra_action(
-        &mut self,
-        output: &ActionPath,
-        action_set_name: &str,
-        action_set: &xr::ActionSet,
-    ) -> String {
-        let mut extra_data = self.extra_actions.remove(&output.path).unwrap_or_default();
-        let name_only = output.cleaned_name();
-        let float_name = format!("{name_only}_asfloat2");
-        let float_name_with_as = format!("{action_set_name}/{float_name}");
-        if extra_data.vector2_action.is_none() {
-            let localized = format!("{name_only} from float2");
-            let float_action = action_set
-                .create_action(&float_name, &localized, &self.hands)
-                .unwrap();
-
-            self.actions.insert(
-                float_name_with_as.clone(),
-                Vector2 {
-                    action: float_action.clone(),
-                    last_value: (0.0.into(), 0.0.into()),
-                },
-            );
-
-            extra_data.vector2_action = Some(float_action);
-        }
-        self.extra_actions.insert(output.path.clone(), extra_data);
-
-        float_name_with_as
-    }
-
-    pub fn get_or_create_grab_action_pair(
-        &mut self,
-        output: &ActionPath,
-        action_set_name: &str,
-        action_set: &xr::ActionSet,
-    ) -> (String, String) {
-        let name_only = output.cleaned_name();
-        let force_name = format!("{name_only}_grabactionf");
-        let value_name = format!("{name_only}_grabactionv");
-
-        let force_full_name = format!("{action_set_name}/{force_name}");
-        let value_full_name = format!("{action_set_name}/{value_name}");
-
-        let mut data = self.extra_actions.remove(&output.path).unwrap_or_default();
-        if data.grab_action.is_none() {
-            let localized = format!("{name_only} grab action (force)");
-            let force_action = action_set
-                .create_action(&force_name, &localized, &self.hands)
-                .unwrap();
-            let localizedv = format!("{name_only} grab action (value)");
-            let value_action = action_set
-                .create_action(&value_name, &localizedv, &self.hands)
-                .unwrap();
-
-            self.actions.insert(
-                force_full_name.clone(),
-                Vector1 {
-                    action: force_action.clone(),
-                    last_value: Default::default(),
-                },
-            );
-            self.actions.insert(
-                value_full_name.clone(),
-                Vector1 {
-                    action: value_action.clone(),
-                    last_value: Default::default(),
-                },
-            );
-
-            data.grab_action = Some(GrabActions {
-                force_action,
-                value_action,
-            });
-        }
-        self.extra_actions.insert(output.path.clone(), data);
-
-        (force_full_name, value_full_name)
     }
 
     pub fn get_dpad_parent(

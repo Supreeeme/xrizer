@@ -7,12 +7,14 @@ use super::{
 };
 use crate::{
     graphics_backends::GraphicsBackend,
+    input::ActionKey,
     openxr_data::{FrameStream, Hand, OpenXrData, SessionCreateInfo},
     vr::{self, IVRInput010_Interface},
 };
 use fakexr::UserPath::*;
 use glam::{Mat4, Quat};
 use openxr as xr;
+use slotmap::KeyData;
 use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_4;
 use std::ffi::CStr;
@@ -279,9 +281,13 @@ impl Fixture {
             .input_data
             .get_loaded_actions()
             .expect("Actions aren't loaded");
-        let action = actions
-            .try_get_action(handle)
-            .expect("Couldn't find action for handle");
+        let action = actions.try_get_action(handle).unwrap_or_else(|_| {
+            let key = ActionKey::from(KeyData::from_ffi(handle));
+            panic!(
+                "Couldn't find action ({}) for handle ({handle})",
+                self.input.action_map.read().unwrap()[key].path
+            );
+        });
 
         T::get_xr_action(action).expect("Couldn't get OpenXR handle for action")
     }
@@ -301,8 +307,8 @@ impl Fixture {
 
         Some(match extra_action_type {
             ExtraActionType::Analog => extras.analog_action.as_ref()?.as_raw(),
-            ExtraActionType::GrabTouch => extras.grab_action.as_ref()?.value_action.as_raw(),
-            ExtraActionType::GrabForce => extras.grab_action.as_ref()?.force_action.as_raw(),
+            ExtraActionType::GrabTouch => extras.grab_actions.as_ref()?.value_action.as_raw(),
+            ExtraActionType::GrabForce => extras.grab_actions.as_ref()?.force_action.as_raw(),
             ExtraActionType::DpadDirection => extras.vector2_action.as_ref()?.as_raw(),
             ExtraActionType::ToggleAction => extras.toggle_action.as_ref()?.as_raw(),
         })

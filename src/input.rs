@@ -282,10 +282,10 @@ enum ActionData {
 
 #[derive(Default)]
 struct ExtraActionData {
-    pub toggle_action: Option<xr::Action<bool>>,
-    pub analog_action: Option<xr::Action<f32>>,
-    pub vector2_action: Option<xr::Action<xr::Vector2f>>,
-    pub grab_action: Option<GrabActions>,
+    toggle_action: Option<xr::Action<bool>>,
+    analog_action: Option<xr::Action<f32>>,
+    vector2_action: Option<xr::Action<xr::Vector2f>>,
+    grab_actions: Option<GrabActions<custom_bindings::Actions>>,
 }
 
 #[derive(Debug, Default)]
