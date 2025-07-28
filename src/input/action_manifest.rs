@@ -23,7 +23,7 @@ use serde::{
     Deserialize,
 };
 use slotmap::{SecondaryMap, SlotMap};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{cell::LazyCell, env::current_dir};
@@ -190,9 +190,34 @@ impl<C: openxr_data::Compositor> Input<C> {
         let actions = action_map_to_secondary(&mut act_guard, actions);
         let extra_actions = action_map_to_secondary(&mut act_guard, extra_actions);
 
+        let mut dpad_actions = HashSet::new();
         let per_profile_bindings = per_profile_bindings
             .into_iter()
-            .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
+            .map(|(k, v)| {
+                (k, {
+                    v.into_iter()
+                        .map(|(name, actions)| {
+                            let key = act_guard
+                                .iter()
+                                .find_map(|(key, super::Action { path })| {
+                                    (*path == name).then_some(key)
+                                })
+                                .unwrap_or_else(|| {
+                                    act_guard.insert(super::Action { path: name.clone() })
+                                });
+
+                            if actions
+                                .iter()
+                                .any(|data| matches!(*data, super::BindingData::Dpad(..)))
+                            {
+                                dpad_actions.insert(key);
+                            }
+
+                            (key, actions)
+                        })
+                        .collect()
+                })
+            })
             .collect();
 
         let per_profile_pose_bindings = per_profile_pose_bindings
@@ -203,6 +228,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let loaded = super::ManifestLoadedActions {
             sets,
             actions,
+            dpad_actions,
             extra_actions,
             per_profile_bindings,
             per_profile_pose_bindings,
@@ -999,7 +1025,6 @@ impl<C: openxr_data::Compositor> Input<C> {
     }
 }
 
-/// Returns a tuple of a parent action index and a path for its bindng
 fn handle_dpad_binding(
     string_to_path: impl Fn(&str) -> Option<xr::Path>,
     parent_path: &str,

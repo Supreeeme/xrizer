@@ -1,0 +1,22 @@
+{
+	"action_sets": [
+		{
+			"name": "/actions/set1",
+			"usage": "leftright"
+		}
+	],
+	"actions": [
+		{
+			"name": "/actions/set1/in/boolact",
+			"requirement": "mandatory",
+			"type": "boolean"
+		}
+	],
+	"default_bindings": [
+		{
+			"binding_url": "touch_dpad_two_inputs.json",
+			"controller_type": "oculus_touch"
+		}
+	],
+	"localization": []
+}

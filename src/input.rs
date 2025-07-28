@@ -23,8 +23,7 @@ use log::{debug, info, trace, warn};
 use openvr::{self as vr, space_relation_to_openvr_pose};
 use openxr as xr;
 use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::{c_char, CStr, CString};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
@@ -1035,6 +1034,34 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             data.session.sync_actions(&sync_sets).unwrap();
         }
 
+        let left_profile = self.openxr.left_hand.profile_path.load();
+        let right_profile = self.openxr.right_hand.profile_path.load();
+        for key in &actions.dpad_actions {
+            let unsync_dpad_actions = |key, profile| {
+                if profile == xr::Path::NULL {
+                    return;
+                }
+
+                let Some(bindings) = actions
+                    .per_profile_bindings
+                    .get(&profile)
+                    .and_then(|map| map.get(key))
+                else {
+                    return;
+                };
+
+                for binding in bindings {
+                    if let BindingData::Dpad(data, _) = binding {
+                        data.unsynced();
+                    }
+                }
+            };
+            unsync_dpad_actions(*key, left_profile);
+            if left_profile != right_profile {
+                unsync_dpad_actions(*key, right_profile);
+            }
+        }
+
         vr::EVRInputError::None
     }
 
@@ -1483,6 +1510,7 @@ struct ManifestLoadedActions {
     sets: SecondaryMap<ActionSetKey, xr::ActionSet>,
     actions: SecondaryMap<ActionKey, ActionData>,
     extra_actions: SecondaryMap<ActionKey, ExtraActionData>,
+    dpad_actions: HashSet<ActionKey>,
     per_profile_pose_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, BoundPose>>,
     per_profile_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, Vec<BindingData>>>,
     info_set: xr::ActionSet,

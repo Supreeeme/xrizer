@@ -1,0 +1,32 @@
+{
+	"bindings": {
+		"/actions/set1": {
+			"sources": [
+				{
+					"inputs": {
+						"east": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "dpad",
+					"path": "/user/hand/left/input/thumbstick",
+					"parameters": {
+						"sub_mode": "touch"
+					}
+				},
+				{
+					"inputs": {
+						"east": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "dpad",
+					"path": "/user/hand/right/input/thumbstick",
+					"parameters": {
+						"sub_mode": "touch"
+					}
+				}
+			]
+		}
+	}
+}
