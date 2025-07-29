@@ -474,15 +474,13 @@ impl CustomBinding for ToggleData {
         action_set: &xr::ActionSet,
         subaction_paths: &[xr::Path],
     ) -> Self::ExtraActions<Actions> {
-        let action = action_set
+        action_set
             .create_action(
                 action_name,
                 &format!("{action_name} (toggle)"),
                 subaction_paths,
             )
-            .unwrap();
-
-        action
+            .unwrap()
     }
 
     fn create_binding_data(hand: xr::Path, _: Option<&()>) -> BindingData {
