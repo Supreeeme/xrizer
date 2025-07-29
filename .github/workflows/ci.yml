@@ -89,5 +89,5 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: xrizer (click me to download)
+        name: xrizer-nightly-release
         path: out
