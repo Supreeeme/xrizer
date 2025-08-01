@@ -45,7 +45,7 @@ impl InteractionProfile for ReverbG2Controller {
         &DEVICE_PROPERTIES
     }
     fn profile_path(&self) -> &'static str {
-        "/interaction_profiles/microsoft/motion_controller"
+        "/interaction_profiles/hp/mixed_reality_controller"
     }
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
