@@ -8,6 +8,7 @@ use crate::input::legacy::button_mask_from_id;
 use crate::input::legacy::LegacyBindings;
 use crate::openxr_data::Hand;
 use glam::Mat4;
+use glam::Quat;
 use glam::Vec3;
 use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Axis2, Grip, System, A};
 
@@ -149,10 +150,20 @@ impl InteractionProfile for ReverbG2Controller {
         left_only.chain(right_only).chain(both).collect()
     }
 
-    fn offset_grip_pose(&self, _hand: Hand) -> Mat4 {
-        Mat4::from_translation(Vec3::new(
-            // From Monado
-            0.0, 0.026310, -0.078693,
-        ))
+    fn offset_grip_pose(&self, hand: Hand) -> Mat4 {
+        // From Monado
+        Mat4::from_rotation_translation(
+            Quat::from_xyzw(0.300705, 0.000000, 0.000000, 0.953717),
+            Vec3::new(
+                0.000683 * {
+                    match hand {
+                        Hand::Left => 1.0,
+                        Hand::Right => -1.0,
+                    }
+                },
+                -0.015332,
+                0.068270,
+            ),
+        )
     }
 }
