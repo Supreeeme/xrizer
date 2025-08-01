@@ -1,5 +1,6 @@
 pub mod knuckles;
 pub mod ms_motion_controller;
+pub mod hp_motion_controller;
 pub mod oculus_touch;
 pub mod samsung_odyssey_controller;
 pub mod simple_controller;
@@ -15,6 +16,7 @@ use crate::{
 use glam::Mat4;
 use knuckles::Knuckles;
 use ms_motion_controller::HolographicController;
+use hp_motion_controller::ReverbG2Controller;
 use oculus_touch::Touch;
 use openxr as xr;
 use simple_controller::SimpleController;
@@ -114,7 +116,10 @@ impl Profiles {
     pub fn get() -> &'static Self {
         // Add supported interaction profiles here.
         static P: Profiles = Profiles {
-            list: &[
+            list: &[                (
+                    ControllerType::HPMotionController,
+                    &ReverbG2Controller,
+                ),
                 (
                     ControllerType::SamsungOdysseyController,
                     &SamsungOdysseyController,

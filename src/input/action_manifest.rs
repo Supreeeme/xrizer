@@ -272,6 +272,7 @@ pub(super) enum ControllerType {
     OculusTouch,
     HolographicController,
     SamsungOdysseyController,
+    HPMotionController,
     #[serde(untagged)]
     Unknown(String),
 }
