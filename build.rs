@@ -35,4 +35,8 @@ fn main() {
 
     println!("cargo::rustc-env=XRIZER_OPENVR_PLATFORM_DIR={platform_location}");
     println!("cargo::rustc-env=XRIZER_OPENVR_VRCLIENT_NAME={vrclient_name}");
+
+    // Pass the manifest directory so xbuild can find the templates folder
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    println!("cargo::rustc-env=XRIZER_MANIFEST_DIR={manifest_dir}");
 }

@@ -49,6 +49,7 @@ fn main() {
     let mut lib_path: Option<String> = None;
     let mut platform_dir: Option<String> = None;
     let mut vrclient_name: Option<String> = None;
+    let mut manifest_dir: Option<String> = None;
     let mut line = String::new();
 
     while stdout.read_line(&mut line).expect("Failed to read line") > 0 {
@@ -77,6 +78,7 @@ fn main() {
                     match name.as_str() {
                         "XRIZER_OPENVR_PLATFORM_DIR" => platform_dir = Some(value),
                         "XRIZER_OPENVR_VRCLIENT_NAME" => vrclient_name = Some(value),
+                        "XRIZER_MANIFEST_DIR" => manifest_dir = Some(value),
                         _ => {}
                     }
                 }
@@ -120,7 +122,8 @@ fn main() {
     // Generate openvrpaths.vrpath file from template
     // This file tells OpenVR/SteamVR where to find the runtime (xrizer in this case)
     // The template contains placeholders that we replace with actual paths
-    let template_path = PathBuf::from("templates/openvrpaths.vrpath.in");
+    let manifest_dir = manifest_dir.expect("xrizer manifest directory should be known");
+    let template_path = PathBuf::from(&manifest_dir).join("templates/openvrpaths.vrpath.in");
     let output_path = parent.join("openvrpaths.vrpath");
 
     // Use XRIZER_INSTALL_PREFIX environment variable if set, otherwise use the parent directory
