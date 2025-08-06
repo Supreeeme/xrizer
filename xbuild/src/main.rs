@@ -1,5 +1,5 @@
 use nanoserde::DeJson;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -114,6 +114,31 @@ fn main() {
         err => {
             eprintln!("Failed to create vrclient symlink: {err:?}");
             std::process::exit(1);
+        }
+    }
+
+    // Generate openvrpaths.vrpath file from template
+    // This file tells OpenVR/SteamVR where to find the runtime (xrizer in this case)
+    // The template contains placeholders that we replace with actual paths
+    let template_path =
+        PathBuf::from(std::env!("CARGO_MANIFEST_DIR")).join("openvrpaths.vrpath.in");
+    let output_path = parent.join("openvrpaths.vrpath");
+
+    // Use XRIZER_INSTALL_PREFIX environment variable if set, otherwise use the parent directory
+    let install_prefix = std::env::var("XRIZER_INSTALL_PREFIX")
+        .unwrap_or_else(|_| parent.to_str().unwrap().to_string());
+
+    match std::fs::read_to_string(&template_path) {
+        Ok(template_content) => {
+            // Replace ${XRIZER_INSTALL_PREFIX} with the install prefix
+            let content = template_content.replace("${XRIZER_INSTALL_PREFIX}", &install_prefix);
+
+            if let Err(e) = std::fs::write(&output_path, content.as_bytes()) {
+                eprintln!("Failed to create openvrpaths.vrpath: {e}");
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to read template file {template_path:?}: {e}");
         }
     }
 
