@@ -1,5 +1,5 @@
 use nanoserde::DeJson;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -117,12 +117,54 @@ fn main() {
         }
     }
 
+    // Generate openvrpaths.vrpath file from template
+    // This file tells OpenVR/SteamVR where to find the runtime (xrizer in this case)
+    // The template contains placeholders that we replace with actual paths
+    let manifest_dir = manifest_dir.expect("xrizer manifest directory should be known");
+    let template_path = PathBuf::from(&manifest_dir).join("openvrpaths.vrpath.in");
+    let output_path = parent.join("openvrpaths.vrpath");
+
+    // Use XRIZER_INSTALL_PREFIX environment variable if set, otherwise use the parent directory
+    let install_prefix = std::env::var("XRIZER_INSTALL_PREFIX")
+        .unwrap_or_else(|_| parent.to_str().unwrap().to_string());
+
+    match std::fs::read_to_string(&template_path) {
+        Ok(template_content) => {
+            // Replace ${XRIZER_INSTALL_PREFIX} with the install prefix
+            let content = template_content.replace("${XRIZER_INSTALL_PREFIX}", &install_prefix);
+
+            match std::fs::File::create(&output_path) {
+                Ok(mut file) => {
+                    if let Err(e) = file.write_all(content.as_bytes()) {
+                        eprintln!("Failed to write openvrpaths.vrpath: {e}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to create openvrpaths.vrpath: {e}");
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to read template file {template_path:?}: {e}");
+        }
+    }
+
     // This file seems to prevent Steam from overwriting xrizer as a runtime path in the openvrpaths.
-    let version = parent.join("bin/version.txt");
+    let bin_dir = parent.join("bin");
+    match std::fs::create_dir_all(&bin_dir) {
+        Ok(_) => (),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
+        err => {
+            eprintln!("Failed to create bin directory: {err:?}");
+            std::process::exit(1);
+        }
+    }
+
+    let version = bin_dir.join("version.txt");
     match std::fs::File::create(version) {
         Ok(_) => (),
         err => {
-            eprintln!("Failed to create bin/linux64 directory: {err:?}");
+            eprintln!("Failed to create version.txt file: {err:?}");
             std::process::exit(1);
         }
     }
