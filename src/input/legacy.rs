@@ -405,7 +405,7 @@ mod tests {
         touch: bool,
     ) {
         use fakexr::UserPath::*;
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         f.input.openxr.restart_session();
 
         f.set_interaction_profile(&Knuckles, LeftHand);
@@ -646,7 +646,7 @@ mod tests {
     #[test]
     fn poses_updated() {
         use fakexr::UserPath::*;
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         f.input.openxr.restart_session();
         f.set_interaction_profile(&SimpleController, LeftHand);
         f.set_interaction_profile(&SimpleController, RightHand);

@@ -16,7 +16,7 @@ use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span, AtomicF32,
 };
-use custom_bindings::{BindingData, BindingType, GrabActions};
+use custom_bindings::{BindingData, GrabActions};
 use glam::Quat;
 use legacy::LegacyActionData;
 use log::{debug, info, trace, warn};
@@ -1036,8 +1036,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         let left_profile = self.openxr.left_hand.profile_path.load();
         let right_profile = self.openxr.right_hand.profile_path.load();
-        for key in &actions.dpad_actions {
-            let unsync_dpad_actions = |key, profile| {
+        for key in &actions.actions_with_custom_bindings {
+            let unsync_custom_bindings = |key, profile| {
                 if profile == xr::Path::NULL {
                     return;
                 }
@@ -1051,14 +1051,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 };
 
                 for binding in bindings {
-                    if let BindingType::Dpad(data) = &binding.ty {
-                        data.unsynced();
-                    }
+                    binding.unsync();
                 }
             };
-            unsync_dpad_actions(*key, left_profile);
+            unsync_custom_bindings(*key, left_profile);
             if left_profile != right_profile {
-                unsync_dpad_actions(*key, right_profile);
+                unsync_custom_bindings(*key, right_profile);
             }
         }
 
@@ -1510,7 +1508,7 @@ struct ManifestLoadedActions {
     sets: SecondaryMap<ActionSetKey, xr::ActionSet>,
     actions: SecondaryMap<ActionKey, ActionData>,
     extra_actions: SecondaryMap<ActionKey, ExtraActionData>,
-    dpad_actions: HashSet<ActionKey>,
+    actions_with_custom_bindings: HashSet<ActionKey>,
     per_profile_pose_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, BoundPose>>,
     per_profile_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, Vec<BindingData>>>,
     info_set: xr::ActionSet,

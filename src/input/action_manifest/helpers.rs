@@ -233,10 +233,7 @@ impl BindingsProfileLoadContext<'_> {
         self.bindings_parsed
             .entry(output.path.clone())
             .or_default()
-            .push(BindingData {
-                ty: T::create_binding_data(params),
-                hand,
-            });
+            .push(BindingData::new(T::create_binding_data(params), hand));
 
         T::ExtraActions::from_iter(full_names)
     }

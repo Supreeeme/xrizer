@@ -66,6 +66,7 @@ impl crate::openxr_data::Compositor for FakeCompositor {
 
 pub(super) struct Fixture {
     pub input: Arc<Input<FakeCompositor>>,
+    pending_profile_change: bool,
     _comp: Arc<FakeCompositor>,
 }
 
@@ -112,6 +113,7 @@ impl Fixture {
         xr.compositor.set(Arc::downgrade(&comp));
         let ret = Self {
             input: Input::new(xr.clone()).into(),
+            pending_profile_change: false,
             _comp: comp,
         };
         xr.input.set(Arc::downgrade(&ret.input));
@@ -263,7 +265,7 @@ impl Fixture {
         src
     }
 
-    pub fn sync(&self, mut active: vr::VRActiveActionSet_t) {
+    pub fn sync(&mut self, mut active: vr::VRActiveActionSet_t) {
         assert_eq!(
             self.input.UpdateActionState(
                 &mut active,
@@ -272,6 +274,10 @@ impl Fixture {
             ),
             vr::EVRInputError::None
         );
+        if self.pending_profile_change {
+            self.input.openxr.poll_events();
+            self.pending_profile_change = false;
+        }
     }
 
     #[track_caller]
@@ -364,7 +370,7 @@ impl Fixture {
     }
 
     pub fn set_interaction_profile(
-        &self,
+        &mut self,
         profile: &dyn InteractionProfile,
         hand: fakexr::UserPath,
     ) {
@@ -377,6 +383,7 @@ impl Fixture {
                 .string_to_path(profile.profile_path())
                 .unwrap(),
         );
+        self.pending_profile_change = true;
     }
 
     pub fn raw_session(&self) -> xr::sys::Session {
@@ -419,7 +426,7 @@ fn handles_dont_change_after_load() {
 
 #[test]
 fn input_state_flow() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
 
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
@@ -474,7 +481,7 @@ fn input_state_flow() {
 
 #[test]
 fn reload_manifest_on_session_restart() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
 
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
@@ -518,7 +525,7 @@ pub fn compare_pose(expected: xr::Posef, actual: xr::Posef) {
 
 #[test]
 fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let left_hand = f.get_input_source_handle(c"/user/hand/left");
     let pose_handle = f.get_action_handle(c"/actions/set1/in/pose");
     let skel_handle = f.get_action_handle(c"/actions/set1/in/skellyl");
@@ -585,7 +592,7 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
 
 #[test]
 fn actions_with_bad_paths() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let spaces = f.get_action_handle(c"/actions/set1/in/action with spaces");
     let commas = f.get_action_handle(c"/actions/set1/in/action,with,commas");
     let mixed = f.get_action_handle(c"/actions/set1/in/mixed, action");
@@ -656,7 +663,7 @@ fn actions_with_bad_paths() {
 
 #[test]
 fn pose_action_no_restrict() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
 
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let posel = f.get_action_handle(c"/actions/set1/in/posel");
@@ -702,7 +709,7 @@ fn pose_action_no_restrict() {
 
 #[test]
 fn raw_pose_switch_profile() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
 
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let posel = f.get_action_handle(c"/actions/set1/in/posel");
@@ -793,7 +800,7 @@ fn raw_pose_switch_profile() {
 
 #[test]
 fn cased_actions() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let set1 = f.get_action_set_handle(c"/actions/set1");
     f.load_actions(c"actions_cased.json");
 
@@ -945,7 +952,7 @@ fn analog_action_initialize_on_failure() {
 
 #[test]
 fn implicit_action_sets() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
     f.load_actions(c"actions_missing_sets.json");
@@ -961,12 +968,13 @@ fn implicit_action_sets() {
 
 #[test]
 fn detect_controller_after_manifest_load() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     f.load_actions(c"actions.json");
 
+    let input = f.input.clone();
     let frame = || {
-        f.input.openxr.poll_events();
-        f.input.frame_start_update();
+        input.openxr.poll_events();
+        input.frame_start_update();
     };
 
     frame();

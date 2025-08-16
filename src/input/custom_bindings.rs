@@ -6,6 +6,7 @@ use log::error;
 use openxr as xr;
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use xr::{Haptic, HapticVibration};
 
 mod marker {
@@ -143,7 +144,6 @@ pub(super) struct DpadData {
     last_state: AtomicBool,
     active: AtomicBool,
     changed: AtomicBool,
-    synced: AtomicBool,
 }
 
 impl DpadData {
@@ -152,10 +152,6 @@ impl DpadData {
     // Thresholds for force-activated dpads, experimentally chosen to match SteamVR
     const DPAD_CLICK_THRESHOLD: f32 = 0.33;
     const DPAD_RELEASE_THRESHOLD: f32 = 0.2;
-
-    pub fn unsynced(&self) {
-        self.synced.store(false, Ordering::Relaxed);
-    }
 }
 
 impl CustomBinding for DpadData {
@@ -181,7 +177,6 @@ impl CustomBinding for DpadData {
             last_state: false.into(),
             active: false.into(),
             changed: false.into(),
-            synced: false.into(),
         })
     }
 
@@ -191,18 +186,6 @@ impl CustomBinding for DpadData {
         session: &xr::Session<xr::AnyGraphics>,
         subaction_path: xr::Path,
     ) -> xr::Result<Option<xr::ActionState<bool>>> {
-        if self.synced.swap(true, Ordering::Relaxed) {
-            return Ok(self
-                .active
-                .load(Ordering::Relaxed)
-                .then(|| xr::ActionState {
-                    current_state: self.last_state.load(Ordering::Relaxed),
-                    last_change_time: xr::Time::from_nanos(0),
-                    changed_since_last_sync: self.changed.load(Ordering::Relaxed),
-                    is_active: true,
-                }));
-        }
-
         let action = &self.actions;
         let parent_state = action.xy.state(session, subaction_path)?;
         let mut ret_state = xr::ActionState {
@@ -409,12 +392,6 @@ impl CustomBinding for GrabBindingData {
         session: &xr::Session<xr::AnyGraphics>,
         subaction_path: xr::Path,
     ) -> xr::Result<Option<xr::ActionState<bool>>> {
-        // FIXME: the way this function calculates changed_since_last_sync is incorrect, as it will
-        // always be false if this is called more than once between syncs. What should be done is
-        // the state should be updated in UpdateActionState, but that may have other implications
-        // I currently don't feel like thinking about, as this works and I haven't seen games grab action
-        // state more than once beteween syncs.
-
         let force_state = grabs.force_action.state(session, subaction_path)?;
         let value_state = grabs.value_action.state(session, subaction_path)?;
         if !force_state.is_active || !value_state.is_active {
@@ -677,10 +654,27 @@ impl<T: ThresholdType> CustomBinding for ThresholdBindingData<T> {
     }
 }
 
+enum BindingState {
+    Unsynced,
+    Synced(Option<xr::ActionState<bool>>),
+}
+
 pub struct BindingData {
     pub ty: BindingType,
     pub hand: xr::Path,
+    last_state: Mutex<BindingState>,
 }
+
+impl BindingData {
+    pub fn new(ty: BindingType, hand: xr::Path) -> Self {
+        Self {
+            ty,
+            hand,
+            last_state: Mutex::new(BindingState::Unsynced),
+        }
+    }
+}
+
 pub enum BindingType {
     // For all cases where the action can be read directly, such as matching type or bool-to-float conversion,
     //  the xr::Action is read from ActionData
@@ -693,6 +687,10 @@ pub enum BindingType {
 }
 
 impl BindingData {
+    pub fn unsync(&self) {
+        *self.last_state.lock().unwrap() = BindingState::Unsynced;
+    }
+
     pub fn state(
         &self,
         session: &SessionData,
@@ -712,7 +710,13 @@ impl BindingData {
         if self.hand != subaction_path {
             return Ok(None);
         }
-        match &self.ty {
+
+        let mut last_state = self.last_state.lock().unwrap();
+        if let BindingState::Synced(state) = *last_state {
+            return Ok(state);
+        }
+
+        let state = match &self.ty {
             BindingType::Dpad(dpad) => dpad.state(&(), &session.session, subaction_path),
             BindingType::Toggle(toggle) => {
                 get_state!(toggle, toggle_action)
@@ -726,7 +730,10 @@ impl BindingData {
             BindingType::ThresholdVec2(threshold) => {
                 get_state!(threshold, vector2_action)
             }
-        }
+        }?;
+
+        *last_state = BindingState::Synced(state);
+        Ok(state)
     }
 }
 
@@ -745,7 +752,8 @@ mod tests {
 
     macro_rules! get_toggle_action {
         ($fixture:expr, $handle:expr, $toggle_data:ident) => {
-            let data = $fixture.input.openxr.session_data.get();
+            let input = $fixture.input.clone();
+            let data = input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
             let ExtraActionData { toggle_action, .. } = actions.try_get_extra($handle).unwrap();
 
@@ -755,7 +763,8 @@ mod tests {
 
     macro_rules! get_analog_action {
         ($fixture:expr, $handle:expr, $analog_data:ident) => {
-            let data = $fixture.input.openxr.session_data.get();
+            let input = $fixture.input.clone();
+            let data = input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
             let ExtraActionData { analog_action, .. } = actions.try_get_extra($handle).unwrap();
 
@@ -765,7 +774,8 @@ mod tests {
 
     macro_rules! get_dpad_action {
         ($fixture:expr, $handle:expr, $dpad_data:ident, $profile:ident) => {
-            let data = $fixture.input.openxr.session_data.get();
+            let input = $fixture.input.clone();
+            let data = input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
             let path = $fixture
                 .input
@@ -795,7 +805,8 @@ mod tests {
 
     macro_rules! get_grab_action {
         ($fixture:expr, $handle:expr, $grab_data:ident) => {
-            let data = $fixture.input.openxr.session_data.get();
+            let input = $fixture.input.clone();
+            let data = input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
             let ExtraActionData { grab_actions, .. } = actions.try_get_extra($handle).unwrap();
 
@@ -805,7 +816,7 @@ mod tests {
 
     #[test]
     fn dpad_input() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
 
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
@@ -831,7 +842,6 @@ mod tests {
             ulActionSet: set1,
             ..Default::default()
         });
-        f.input.openxr.poll_events();
 
         let state = f.get_bool_state(boolact).unwrap();
         assert!(state.bActive);
@@ -881,7 +891,7 @@ mod tests {
 
     #[test]
     fn dpad_input_use_non_dpad_when_available() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
 
@@ -918,7 +928,7 @@ mod tests {
 
     #[test]
     fn dpad_cross_profile_actions() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
 
@@ -947,7 +957,6 @@ mod tests {
             ulActionSet: set1,
             ..Default::default()
         });
-        f.input.openxr.poll_events();
 
         let state = f.get_bool_state(boolact).unwrap();
         assert!(state.bActive);
@@ -964,7 +973,6 @@ mod tests {
             ulActionSet: set1,
             ..Default::default()
         });
-        f.input.openxr.poll_events();
 
         // Any input on touchpad shouldn't trigger thumbstick dpad
         let state = f.get_bool_state(boolact).unwrap();
@@ -993,7 +1001,6 @@ mod tests {
             ulActionSet: set1,
             ..Default::default()
         });
-        f.input.openxr.poll_events();
 
         // Verify action state stickiness across interaction profiles that this test assumes
         let state = f.get_bool_state(boolact).unwrap();
@@ -1021,13 +1028,14 @@ mod tests {
 
     #[test]
     fn dpad_input_same_action_on_different_inputs() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
         f.load_actions(c"actions_dpad_two_inputs.json");
 
         f.set_interaction_profile(&Touch, LeftHand);
-        let data = f.input.openxr.session_data.get();
+        let input = f.input.clone();
+        let data = input.openxr.session_data.get();
         let actions = data.input_data.get_loaded_actions().unwrap();
         let path = f
             .input
@@ -1043,6 +1051,7 @@ mod tests {
                 BindingData {
                     hand,
                     ty: BindingType::Dpad(a),
+                    ..
                 } => Some((a, *hand)),
                 _ => None,
             })
@@ -1073,7 +1082,6 @@ mod tests {
             ulActionSet: set1,
             ..Default::default()
         });
-        f.input.openxr.poll_events();
 
         let s = f.get_bool_state(boolact).unwrap();
         assert!(s.bActive);
@@ -1114,14 +1122,14 @@ mod tests {
 
     #[test]
     fn grab_binding() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact2");
         f.load_actions(c"actions.json");
         get_grab_action!(f, boolact, grab_data);
 
         f.set_interaction_profile(&Knuckles, LeftHand);
-        let value_state_check = |force, value, state, changed, line| {
+        let mut value_state_check = |force, value, state, changed, line| {
             fakexr::set_action_state(
                 grab_data.force_action.as_raw(),
                 fakexr::ActionState::Float(force),
@@ -1155,7 +1163,7 @@ mod tests {
 
     #[test]
     fn grab_per_hand() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
 
@@ -1169,7 +1177,7 @@ mod tests {
         f.set_interaction_profile(&Knuckles, LeftHand);
         f.set_interaction_profile(&Knuckles, RightHand);
 
-        let value_state_check = |force, value, hand, state, changed, line| {
+        let mut value_state_check = |force, value, hand, state, changed, line| {
             fakexr::set_action_state(
                 grab_data.force_action.as_raw(),
                 fakexr::ActionState::Float(force),
@@ -1209,14 +1217,14 @@ mod tests {
 
     #[test]
     fn grab_binding_custom_threshold() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
         f.load_actions(c"actions.json");
         get_grab_action!(f, boolact, grab_data);
 
         f.set_interaction_profile(&Knuckles, RightHand);
-        let value_state_check = |force, value, state, changed, line| {
+        let mut value_state_check = |force, value, state, changed, line| {
             fakexr::set_action_state(
                 grab_data.force_action.as_raw(),
                 fakexr::ActionState::Float(force),
@@ -1249,7 +1257,7 @@ mod tests {
 
     #[test]
     fn toggle_button() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
         f.load_actions(c"actions_toggle.json");
@@ -1319,7 +1327,7 @@ mod tests {
 
     #[test]
     fn toggle_button_per_hand() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
         let left = f.get_input_source_handle(c"/user/hand/left");
@@ -1385,7 +1393,7 @@ mod tests {
 
     #[test]
     fn grip_touch_from_pull_oculus() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact2");
         let left = f.get_input_source_handle(c"/user/hand/left");

@@ -190,7 +190,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let actions = action_map_to_secondary(&mut act_guard, actions);
         let extra_actions = action_map_to_secondary(&mut act_guard, extra_actions);
 
-        let mut dpad_actions = HashSet::new();
+        let mut actions_with_custom_bindings = HashSet::new();
         let per_profile_bindings = per_profile_bindings
             .into_iter()
             .map(|(k, v)| {
@@ -206,11 +206,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                                     act_guard.insert(super::Action { path: name.clone() })
                                 });
 
-                            if actions.iter().any(|data| {
-                                matches!(data.ty, super::custom_bindings::BindingType::Dpad(..))
-                            }) {
-                                dpad_actions.insert(key);
-                            }
+                            actions_with_custom_bindings.insert(key);
 
                             (key, actions)
                         })
@@ -227,7 +223,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let loaded = super::ManifestLoadedActions {
             sets,
             actions,
-            dpad_actions,
+            actions_with_custom_bindings,
             extra_actions,
             per_profile_bindings,
             per_profile_pose_bindings,
