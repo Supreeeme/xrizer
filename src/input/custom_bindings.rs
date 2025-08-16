@@ -106,7 +106,7 @@ pub(super) trait CustomBinding: Sized {
         action_set: &xr::ActionSet,
         subaction_paths: &[xr::Path],
     ) -> Self::ExtraActions<Actions>;
-    fn create_binding_data(hand: xr::Path, params: Option<&Self::BindingParams>) -> BindingData;
+    fn create_binding_data(params: Option<&Self::BindingParams>) -> BindingType;
 
     fn state(
         &self,
@@ -173,19 +173,16 @@ impl CustomBinding for DpadData {
         _: &[xr::Path],
     ) -> Self::ExtraActions<Actions> {
     }
-    fn create_binding_data(hand: xr::Path, params: Option<&Self::BindingParams>) -> BindingData {
+    fn create_binding_data(params: Option<&Self::BindingParams>) -> BindingType {
         let DpadBindingParams { actions, direction } = params.unwrap();
-        BindingData::Dpad(
-            DpadData {
-                actions: actions.clone(),
-                direction: *direction,
-                last_state: false.into(),
-                active: false.into(),
-                changed: false.into(),
-                synced: false.into(),
-            },
-            hand,
-        )
+        BindingType::Dpad(DpadData {
+            actions: actions.clone(),
+            direction: *direction,
+            last_state: false.into(),
+            active: false.into(),
+            changed: false.into(),
+            synced: false.into(),
+        })
     }
 
     fn state(
@@ -395,18 +392,15 @@ impl CustomBinding for GrabBindingData {
         }
     }
 
-    fn create_binding_data(hand: xr::Path, params: Option<&Self::BindingParams>) -> BindingData {
-        BindingData::Grab(
-            GrabBindingData::new(
-                params
-                    .and_then(|x| x.value_hold_threshold.as_deref())
-                    .copied(),
-                params
-                    .and_then(|x| x.value_release_threshold.as_deref())
-                    .copied(),
-            ),
-            hand,
-        )
+    fn create_binding_data(params: Option<&Self::BindingParams>) -> BindingType {
+        BindingType::Grab(GrabBindingData::new(
+            params
+                .and_then(|x| x.value_hold_threshold.as_deref())
+                .copied(),
+            params
+                .and_then(|x| x.value_release_threshold.as_deref())
+                .copied(),
+        ))
     }
 
     fn state(
@@ -483,8 +477,8 @@ impl CustomBinding for ToggleData {
             .unwrap()
     }
 
-    fn create_binding_data(hand: xr::Path, _: Option<&()>) -> BindingData {
-        BindingData::Toggle(ToggleData::default(), hand)
+    fn create_binding_data(_: Option<&()>) -> BindingType {
+        BindingType::Toggle(ToggleData::default())
     }
 
     fn state(
@@ -535,7 +529,7 @@ pub(super) trait ThresholdType: Sized {
     type T: xr::ActionTy;
     const SUFFIX: &str;
     fn action(actions: &mut ExtraActionData) -> &mut Option<xr::Action<Self::T>>;
-    fn binding_data(data: ThresholdBindingData<Self>, hand: xr::Path) -> BindingData;
+    fn binding_data(data: ThresholdBindingData<Self>) -> BindingType;
     fn state(
         action: &xr::Action<Self::T>,
         session: &xr::Session<xr::AnyGraphics>,
@@ -551,8 +545,8 @@ impl ThresholdType for Vector2 {
     fn action(actions: &mut ExtraActionData) -> &mut Option<xr::Action<Self::T>> {
         &mut actions.vector2_action
     }
-    fn binding_data(data: ThresholdBindingData<Self>, hand: xr::Path) -> BindingData {
-        BindingData::ThresholdVec2(data, hand)
+    fn binding_data(data: ThresholdBindingData<Self>) -> BindingType {
+        BindingType::ThresholdVec2(data)
     }
     fn state(
         action: &xr::Action<Self::T>,
@@ -575,8 +569,8 @@ impl ThresholdType for Float {
     fn action(actions: &mut ExtraActionData) -> &mut Option<xr::Action<Self::T>> {
         &mut actions.analog_action
     }
-    fn binding_data(data: ThresholdBindingData<Self>, hand: xr::Path) -> BindingData {
-        BindingData::ThresholdFloat(data, hand)
+    fn binding_data(data: ThresholdBindingData<Self>) -> BindingType {
+        BindingType::ThresholdFloat(data)
     }
     fn state(
         action: &xr::Action<Self::T>,
@@ -634,18 +628,15 @@ impl<T: ThresholdType> CustomBinding for ThresholdBindingData<T> {
             .unwrap()
     }
 
-    fn create_binding_data(hand: xr::Path, params: Option<&Self::BindingParams>) -> BindingData {
-        T::binding_data(
-            ThresholdBindingData::new(
-                params
-                    .and_then(|x| x.click_activate_threshold.as_deref())
-                    .copied(),
-                params
-                    .and_then(|x| x.click_deactivate_threshold.as_deref())
-                    .copied(),
-            ),
-            hand,
-        )
+    fn create_binding_data(params: Option<&Self::BindingParams>) -> BindingType {
+        T::binding_data(ThresholdBindingData::new(
+            params
+                .and_then(|x| x.click_activate_threshold.as_deref())
+                .copied(),
+            params
+                .and_then(|x| x.click_deactivate_threshold.as_deref())
+                .copied(),
+        ))
     }
 
     fn state(
@@ -686,15 +677,19 @@ impl<T: ThresholdType> CustomBinding for ThresholdBindingData<T> {
     }
 }
 
-pub enum BindingData {
+pub struct BindingData {
+    pub ty: BindingType,
+    pub hand: xr::Path,
+}
+pub enum BindingType {
     // For all cases where the action can be read directly, such as matching type or bool-to-float conversion,
     //  the xr::Action is read from ActionData
     // This can include actions where behavior is customized via OXR extensions
-    Dpad(DpadData, xr::Path),
-    Toggle(ToggleData, xr::Path),
-    Grab(GrabBindingData, xr::Path),
-    ThresholdFloat(ThresholdBindingFloat, xr::Path),
-    ThresholdVec2(ThresholdBindingVector2, xr::Path),
+    Dpad(DpadData),
+    Toggle(ToggleData),
+    Grab(GrabBindingData),
+    ThresholdFloat(ThresholdBindingFloat),
+    ThresholdVec2(ThresholdBindingVector2),
 }
 
 impl BindingData {
@@ -713,23 +708,24 @@ impl BindingData {
                 $data.state(action, &session.session, subaction_path)
             }};
         }
-        match self {
-            BindingData::Dpad(dpad, x) if x == &subaction_path => {
-                dpad.state(&(), &session.session, subaction_path)
-            }
-            BindingData::Toggle(toggle, x) if x == &subaction_path => {
+
+        if self.hand != subaction_path {
+            return Ok(None);
+        }
+        match &self.ty {
+            BindingType::Dpad(dpad) => dpad.state(&(), &session.session, subaction_path),
+            BindingType::Toggle(toggle) => {
                 get_state!(toggle, toggle_action)
             }
-            BindingData::Grab(grab, x) if x == &subaction_path => {
+            BindingType::Grab(grab) => {
                 get_state!(grab, grab_actions)
             }
-            BindingData::ThresholdFloat(threshold, x) if x == &subaction_path => {
+            BindingType::ThresholdFloat(threshold) => {
                 get_state!(threshold, analog_action)
             }
-            BindingData::ThresholdVec2(threshold, x) if x == &subaction_path => {
+            BindingType::ThresholdVec2(threshold) => {
                 get_state!(threshold, vector2_action)
             }
-            _ => Ok(None),
         }
     }
 }
@@ -782,7 +778,10 @@ mod tests {
             let bindings: Vec<&DpadData> = bindings
                 .iter()
                 .filter_map(|x| match x {
-                    BindingData::Dpad(a, _) => Some(a),
+                    BindingData {
+                        ty: BindingType::Dpad(a),
+                        ..
+                    } => Some(a),
                     _ => None,
                 })
                 .collect();
@@ -1041,7 +1040,10 @@ mod tests {
         let bindings: Vec<(&DpadData, xr::Path)> = bindings
             .iter()
             .filter_map(|x| match x {
-                BindingData::Dpad(a, hand) => Some((a, *hand)),
+                BindingData {
+                    hand,
+                    ty: BindingType::Dpad(a),
+                } => Some((a, *hand)),
                 _ => None,
             })
             .collect();

@@ -16,7 +16,7 @@ use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span, AtomicF32,
 };
-use custom_bindings::{BindingData, GrabActions};
+use custom_bindings::{BindingData, BindingType, GrabActions};
 use glam::Quat;
 use legacy::LegacyActionData;
 use log::{debug, info, trace, warn};
@@ -1051,7 +1051,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 };
 
                 for binding in bindings {
-                    if let BindingData::Dpad(data, _) = binding {
+                    if let BindingType::Dpad(data) = &binding.ty {
                         data.unsynced();
                     }
                 }

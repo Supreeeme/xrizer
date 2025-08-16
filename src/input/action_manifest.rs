@@ -206,10 +206,9 @@ impl<C: openxr_data::Compositor> Input<C> {
                                     act_guard.insert(super::Action { path: name.clone() })
                                 });
 
-                            if actions
-                                .iter()
-                                .any(|data| matches!(*data, super::BindingData::Dpad(..)))
-                            {
+                            if actions.iter().any(|data| {
+                                matches!(data.ty, super::custom_bindings::BindingType::Dpad(..))
+                            }) {
                                 dpad_actions.insert(key);
                             }
 
