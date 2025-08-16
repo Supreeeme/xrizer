@@ -1625,7 +1625,7 @@ impl HandSpace {
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
         pose_data: &PoseData,
-    ) -> Option<SpaceReadGuard> {
+    ) -> Option<SpaceReadGuard<'_>> {
         {
             let raw = self.raw.read().unwrap();
             if raw.is_some() {
