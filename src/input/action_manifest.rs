@@ -363,8 +363,58 @@ fn load_action_sets(
     Ok(action_sets)
 }
 
-type LoadedActionDataMap = HashMap<String, super::ActionData>;
+fn create_action<T: xr::ActionTy>(
+    instance: &xr::Instance,
+    data: &ActionDataCommon,
+    sets: &mut HashMap<String, xr::ActionSet>,
+    english: Option<&Localization>,
+    paths: &[xr::Path],
+    long_name_idx: &mut usize,
+) -> xr::Result<xr::Action<T>> {
+    let localized = english
+        .and_then(|e| e.localized_names.get(&data.name.path))
+        .map(|s| s.as_str());
 
+    let set_name = data.name.action_set_name();
+    let entry;
+    let set = if let Some(set) = sets.get(set_name) {
+        set
+    } else {
+        warn!("Action set {set_name} is missing from manifest, creating it...");
+        let set = create_action_set(instance, set_name, None).map_err(|e| {
+            error!("Creating implicit action set failed: {e:?}");
+            xr::sys::Result::ERROR_INITIALIZATION_FAILED
+        })?;
+        entry = sets.entry(set_name.to_string()).insert_entry(set);
+        entry.get()
+    };
+    let mut xr_friendly_name = data.name.cleaned_name();
+    if xr_friendly_name.len() > xr::sys::MAX_ACTION_NAME_SIZE {
+        let idx_str = ["_ln", &long_name_idx.to_string()].concat();
+        xr_friendly_name.replace_range(
+            xr::sys::MAX_ACTION_NAME_SIZE - idx_str.len() - 1..,
+            &idx_str,
+        );
+        *long_name_idx += 1;
+    }
+    let localized = localized.unwrap_or(&xr_friendly_name);
+    trace!("Creating action {xr_friendly_name} (localized: {localized}) in set {set_name:?}");
+
+    set.create_action(&xr_friendly_name, localized, paths)
+        .or_else(|err| {
+            // If we get a duplicated localized name, just deduplicate it and try again
+            if err == xr::sys::Result::ERROR_LOCALIZED_NAME_DUPLICATED {
+                // Action names are inherently unique, so just throw it at the end of the
+                // localized name to make it a unique
+                let localized = format!("{localized} ({xr_friendly_name})");
+                set.create_action(&xr_friendly_name, &localized, paths)
+            } else {
+                Err(err)
+            }
+        })
+}
+
+type LoadedActionDataMap = HashMap<String, super::ActionData>;
 fn load_actions(
     instance: &xr::Instance,
     session: &xr::Session<xr::AnyGraphics>,
@@ -373,63 +423,10 @@ fn load_actions(
     actions: Vec<ActionType>,
     left_hand: xr::Path,
     right_hand: xr::Path,
-) -> Result<HashMap<String, super::ActionData>, vr::EVRInputError> {
+) -> Result<LoadedActionDataMap, vr::EVRInputError> {
     let mut ret = HashMap::with_capacity(actions.len());
     let mut long_name_idx = 0;
     for action in actions {
-        fn create_action<T: xr::ActionTy>(
-            instance: &xr::Instance,
-            data: &ActionDataCommon,
-            sets: &mut HashMap<String, xr::ActionSet>,
-            english: Option<&Localization>,
-            paths: &[xr::Path],
-            long_name_idx: &mut usize,
-        ) -> xr::Result<xr::Action<T>> {
-            let localized = english
-                .and_then(|e| e.localized_names.get(&data.name.path))
-                .map(|s| s.as_str());
-
-            let set_name = data.name.action_set_name();
-            let entry;
-            let set = if let Some(set) = sets.get(set_name) {
-                set
-            } else {
-                warn!("Action set {set_name} is missing from manifest, creating it...");
-                let set = create_action_set(instance, set_name, None).map_err(|e| {
-                    error!("Creating implicit action set failed: {e:?}");
-                    xr::sys::Result::ERROR_INITIALIZATION_FAILED
-                })?;
-                entry = sets.entry(set_name.to_string()).insert_entry(set);
-                entry.get()
-            };
-            let mut xr_friendly_name = data.name.cleaned_name();
-            if xr_friendly_name.len() > xr::sys::MAX_ACTION_NAME_SIZE {
-                let idx_str = ["_ln", &long_name_idx.to_string()].concat();
-                xr_friendly_name.replace_range(
-                    xr::sys::MAX_ACTION_NAME_SIZE - idx_str.len() - 1..,
-                    &idx_str,
-                );
-                *long_name_idx += 1;
-            }
-            let localized = localized.unwrap_or(&xr_friendly_name);
-            trace!(
-                "Creating action {xr_friendly_name} (localized: {localized}) in set {set_name:?}"
-            );
-
-            set.create_action(&xr_friendly_name, localized, paths)
-                .or_else(|err| {
-                    // If we get a duplicated localized name, just deduplicate it and try again
-                    if err == xr::sys::Result::ERROR_LOCALIZED_NAME_DUPLICATED {
-                        // Action names are inherently unique, so just throw it at the end of the
-                        // localized name to make it a unique
-                        let localized = format!("{localized} ({xr_friendly_name})");
-                        set.create_action(&xr_friendly_name, &localized, paths)
-                    } else {
-                        Err(err)
-                    }
-                })
-        }
-
         let paths = &[left_hand, right_hand];
         macro_rules! create_action {
             ($ty:ty, $data:expr) => {
@@ -498,7 +495,7 @@ struct ActionSetBinding {
     sources: Vec<ActionBinding>,
     poses: Option<Vec<PoseBinding>>,
     haptics: Option<Vec<SimpleActionBinding>>,
-    skeleton: Option<Vec<SkeletonActionBinding>>,
+    skeleton: Option<Vec<SimpleActionBinding>>,
 }
 
 #[derive(Debug)]
@@ -579,25 +576,6 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
 struct SimpleActionBinding {
     output: ActionPath,
     path: String,
-}
-
-#[derive(Deserialize)]
-struct SkeletonActionBinding {
-    output: ActionPath,
-    #[serde(deserialize_with = "path_to_skeleton")]
-    path: Hand,
-}
-
-fn path_to_skeleton<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Hand, D::Error> {
-    let path: &str = Deserialize::deserialize(d)?;
-    match path {
-        "/user/hand/left/input/skeleton/left" => Ok(Hand::Left),
-        "/user/hand/right/input/skeleton/right" => Ok(Hand::Right),
-        other => Err(D::Error::invalid_value(
-            Unexpected::Str(other),
-            &"/user/hand/left/input/skeleton/left or /user/hand/right/input/skeleton/right",
-        )),
-    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -1468,16 +1446,32 @@ fn handle_sources(
 
 fn handle_skeleton_bindings(
     context: &BindingsProfileLoadContext,
-    bindings: &[SkeletonActionBinding],
+    bindings: &[SimpleActionBinding],
 ) {
-    for SkeletonActionBinding { output, path } in bindings {
+    for SimpleActionBinding { output, path } in bindings {
         trace!("binding skeleton action {} to {path:?}", output.path);
         if !context.find_action(&output.path) {
             continue;
         };
 
         match &context.actions[&output.path] {
-            super::ActionData::Skeleton { hand, .. } => assert_eq!(hand, path),
+            super::ActionData::Skeleton { hand, .. } => {
+                let bound_hand = match path.as_str() {
+                    "/user/hand/left/input/skeleton/left" => Hand::Left,
+                    "/user/hand/right/input/skeleton/right" => Hand::Right,
+                    other => {
+                        warn!(
+                            "Got invalid skeleton binding {other} for action {}",
+                            output.path
+                        );
+                        continue;
+                    }
+                };
+
+                if bound_hand != *hand {
+                    warn!("Action {} was created with hand {hand:?}, but is bound to hand {bound_hand:?}", output.path);
+                }
+            }
             _ => panic!(
                 "Expected skeleton action for skeleton binding {}",
                 output.path

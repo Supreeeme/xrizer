@@ -29,6 +29,10 @@
 				{
 					"output": "/actions/set1/in/skellyr",
 					"path": "/user/hand/right/input/skeleton/right"
+				},
+				{
+					"output": "/actions/set1/in/skellyl",
+					"path":	"/user/hand/right/input/skeleton/left"
 				}
 			],
 			"sources": [
