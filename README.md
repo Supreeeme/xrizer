@@ -6,7 +6,8 @@ Note that xrizer is currently immature. Many things are likely broken, so please
 
 # Download & Usage
 
-[Latest nightly](https://nightly.link/Supreeeme/xrizer/workflows/ci/main/xrizer-nightly-release.zip) - Bleeding edge
+[Latest nightly](https://nightly.link/Supreeeme/xrizer/workflows/ci/main/xrizer-nightly-release.zip) - Bleeding edge!
+
 [Latest release](https://github.com/Supreeeme/xrizer/releases/latest/download/xrizer-release.zip)
 
 Choose a download and click it to download a zip. Unzip it and place it wherever you like.
