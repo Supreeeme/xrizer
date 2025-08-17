@@ -283,6 +283,7 @@ enum ActionType {
     Boolean(ActionDataCommon),
     Vector1(ActionDataCommon),
     Vector2(ActionDataCommon),
+    Vector3(ActionDataCommon),
     Vibration(ActionDataCommon),
     Pose(ActionDataCommon),
     Skeleton(SkeletonData),
@@ -451,6 +452,13 @@ fn load_actions(
                     last_value: Default::default(),
                 },
             ),
+            ActionType::Vector3(data) => {
+                warn!(
+                    "Got vector3 action {}, but these are currently unsupported.",
+                    data.name.path
+                );
+                continue;
+            }
             ActionType::Pose(data) => (&data.name, Pose),
             ActionType::Skeleton(SkeletonData { skeleton, data }) => {
                 trace!("Creating skeleton action {}", data.name.path);

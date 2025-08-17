@@ -36,6 +36,11 @@
 			"type": "vector2"
 		},
 		{
+			"name": "/actions/set1/in/Vec3Act",
+			"requirement": "optional",
+			"type": "vector3"
+		},
+		{
 			"name": "/actions/set1/in/Pose",
 			"requirement": "optional",
 			"type": "pose"
