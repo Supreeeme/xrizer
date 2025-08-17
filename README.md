@@ -6,7 +6,10 @@ Note that xrizer is currently immature. Many things are likely broken, so please
 
 # Download & Usage
 
-[Click here](https://nightly.link/Supreeeme/xrizer/workflows/ci/main) for the latest nightly download - just clicking the first link should download a zip. Unzip it and place it wherever you like.
+[Latest nightly](https://nightly.link/Supreeeme/xrizer/workflows/ci/main/xrizer-nightly-release.zip) - Bleeding edge
+[Latest release](https://github.com/Supreeeme/xrizer/releases/latest/download/xrizer-release.zip)
+
+Choose a download and click it to download a zip. Unzip it and place it wherever you like.
 
 In order to use xrizer, you must change where OpenVR games search for the runtime. There are two ways to accomplish this:
 
