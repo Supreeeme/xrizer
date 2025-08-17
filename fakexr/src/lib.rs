@@ -27,7 +27,12 @@ impl From<bool> for ActionState {
     }
 }
 
-pub fn set_action_state(action: xr::Action, state: ActionState, hand: UserPath) {
+pub fn set_action_state_with_time(
+    action: xr::Action,
+    state: ActionState,
+    hand: UserPath,
+    time: xr::Time,
+) {
     let action = action.to_handle().unwrap();
     assert_eq!(
         std::mem::discriminant(&state),
@@ -36,14 +41,18 @@ pub fn set_action_state(action: xr::Action, state: ActionState, hand: UserPath) 
     let mut d = action.pending_state.take();
     match hand {
         UserPath::RightHand => {
-            d.right = Some(state);
+            d.right = Some((state, time));
         }
         UserPath::LeftHand => {
-            d.left = Some(state);
+            d.left = Some((state, time));
         }
     }
     action.pending_state.store(d);
     action.active.store(true, Ordering::Relaxed);
+}
+
+pub fn set_action_state(action: xr::Action, state: ActionState, hand: UserPath) {
+    set_action_state_with_time(action, state, hand, xr::Time::from_nanos(0));
 }
 
 pub fn deactivate_action(action: xr::Action) {
@@ -622,7 +631,7 @@ struct Action {
     active: AtomicBool,
     localized_name: CString,
     state: LeftRight<AtomicCell<ActionStateData>>,
-    pending_state: AtomicCell<LeftRight<Option<ActionState>>>,
+    pending_state: AtomicCell<LeftRight<Option<(ActionState, xr::Time)>>>,
     suggested: Mutex<HashMap<xr::Path, Vec<xr::Path>>>,
 }
 
@@ -645,6 +654,7 @@ struct LeftRight<T> {
 struct ActionStateData {
     state: ActionState,
     changed: bool,
+    last_change_time: xr::Time,
 }
 
 struct Swapchain {
@@ -861,6 +871,7 @@ extern "system" fn create_action(
     let data = ActionStateData {
         state,
         changed: false,
+        last_change_time: xr::Time::from_nanos(0),
     };
     let a = Arc::new(Action {
         instance: set.instance.clone(),
@@ -1187,10 +1198,11 @@ extern "system" fn sync_actions(
                 ] {
                     let mut d = state.load();
                     d.changed = false;
-                    if let Some(new_state) = new {
+                    if let Some((new_state, change_time)) = new {
                         if d.state != new_state {
                             d.changed = true;
                             d.state = new_state;
+                            d.last_change_time = change_time;
                         }
                     }
                     state.store(d);
@@ -1275,6 +1287,7 @@ extern "system" fn get_action_state_boolean(
         if active {
             state.current_state = b.into();
             state.changed_since_last_sync = hand_state.changed.into();
+            state.last_change_time = hand_state.last_change_time;
         }
         state.is_active = active.into();
     }

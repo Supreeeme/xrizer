@@ -7,8 +7,8 @@ use super::{
 use crate::{
     input::{
         custom_bindings::{
-            DpadActions, DpadBindingParams, DpadData, GrabBindingData, ThresholdBindingFloat,
-            ThresholdBindingVector2, ToggleData,
+            DoubleTapData, DpadActions, DpadBindingParams, DpadData, GrabBindingData,
+            ThresholdBindingFloat, ThresholdBindingVector2, ToggleData,
         },
         GrabActions,
     },
@@ -1246,10 +1246,22 @@ fn handle_sources(
                 }
 
                 if let Some(ActionBindingOutput { output }) = &inputs.double {
-                    warn!(
-                        "Double click binding for {} currently unsupported.",
-                        output.path
-                    );
+                    if let Ok(translated) = path_translator(&format!("{path}/click"))
+                        .inspect_err(translate_warn(&output.path))
+                    {
+                        let name = context.add_custom_binding::<DoubleTapData>(
+                            output,
+                            helpers::parse_hand_from_path(context.instance, &translated).unwrap(),
+                            action_set_name,
+                            action_set,
+                            None,
+                        );
+
+                        context.push_binding(
+                            name,
+                            context.instance.string_to_path(&translated).unwrap(),
+                        );
+                    }
                 }
             }
             ActionBinding::Dpad {

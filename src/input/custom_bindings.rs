@@ -7,6 +7,7 @@ use openxr as xr;
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 use xr::{Haptic, HapticVibration};
 
 mod marker {
@@ -654,6 +655,128 @@ impl<T: ThresholdType> CustomBinding for ThresholdBindingData<T> {
     }
 }
 
+mod atomic_time {
+    use openxr as xr;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    pub struct AtomicTime(AtomicI64);
+
+    impl AtomicTime {
+        pub fn new(time: i64) -> Self {
+            Self(time.into())
+        }
+
+        pub fn store(&self, time: xr::Time) {
+            self.0.store(time.as_nanos(), Ordering::Relaxed);
+        }
+
+        pub fn load(&self) -> xr::Time {
+            xr::Time::from_nanos(self.0.load(Ordering::Relaxed))
+        }
+    }
+}
+use atomic_time::AtomicTime;
+
+pub(super) struct DoubleTapData {
+    clicked_once: AtomicBool,
+    first_release_time: AtomicTime,
+    active: AtomicBool,
+}
+
+impl DoubleTapData {
+    const TIMEOUT_MS: u128 = 300;
+}
+
+impl CustomBinding for DoubleTapData {
+    type ExtraActions<M: ActionsMarker> = Action<bool, M>;
+    type BindingParams = ();
+
+    fn extra_action_names(cleaned_action_name: &str) -> Self::ExtraActions<Names> {
+        format!("{cleaned_action_name}_dbl")
+    }
+
+    fn get_actions(
+        extra_actions: &mut ExtraActionData,
+    ) -> Option<&mut Option<Self::ExtraActions<Actions>>> {
+        Some(&mut extra_actions.double_action)
+    }
+
+    fn create_actions(
+        action_name: &Self::ExtraActions<Names>,
+        action_set: &xr::ActionSet,
+        subaction_paths: &[xr::Path],
+    ) -> Self::ExtraActions<Actions> {
+        action_set
+            .create_action(
+                action_name,
+                &format!("{action_name} (double)"),
+                subaction_paths,
+            )
+            .unwrap()
+    }
+
+    fn create_binding_data(_: Option<&Self::BindingParams>) -> BindingType {
+        BindingType::DoubleTap(DoubleTapData {
+            clicked_once: false.into(),
+            active: false.into(),
+            first_release_time: AtomicTime::new(0),
+        })
+    }
+
+    fn state(
+        &self,
+        action: &Self::ExtraActions<Actions>,
+        session: &xr::Session<xr::AnyGraphics>,
+        subaction_path: xr::Path,
+    ) -> xr::Result<Option<xr::ActionState<bool>>> {
+        let state = action.state(session, subaction_path)?;
+        if !state.is_active {
+            return Ok(None);
+        }
+
+        if !state.current_state {
+            if self.clicked_once.load(Ordering::Relaxed) {
+                self.first_release_time.store(state.last_change_time);
+            }
+            return Ok(Some(xr::ActionState {
+                current_state: false,
+                changed_since_last_sync: self.active.swap(false, Ordering::Relaxed),
+                ..state
+            }));
+        }
+
+        if self.active.load(Ordering::Relaxed) {
+            Ok(Some(state))
+        } else {
+            let clicked_once = self.clicked_once.fetch_not(Ordering::Relaxed);
+            let active = clicked_once && {
+                let elapsed: xr::Duration = state.last_change_time - self.first_release_time.load();
+                let elapsed = Duration::from_nanos(
+                    elapsed
+                        .as_nanos()
+                        .try_into()
+                        .expect("XrTime should never be negative"),
+                );
+                elapsed.as_millis() <= Self::TIMEOUT_MS
+            };
+
+            if active {
+                self.active.store(true, Ordering::Relaxed);
+            } else if clicked_once {
+                // If the double tap timed out, we'll need to reset our clicked state
+                // If clicked_once is true, then self.clicked_once is false (because of fetch_not)
+                self.clicked_once.store(true, Ordering::Relaxed);
+            }
+
+            Ok(Some(xr::ActionState {
+                current_state: active,
+                changed_since_last_sync: active,
+                ..state
+            }))
+        }
+    }
+}
+
 enum BindingState {
     Unsynced,
     Synced(Option<xr::ActionState<bool>>),
@@ -680,6 +803,7 @@ pub enum BindingType {
     //  the xr::Action is read from ActionData
     // This can include actions where behavior is customized via OXR extensions
     Dpad(DpadData),
+    DoubleTap(DoubleTapData),
     Toggle(ToggleData),
     Grab(GrabBindingData),
     ThresholdFloat(ThresholdBindingFloat),
@@ -729,6 +853,9 @@ impl BindingData {
             }
             BindingType::ThresholdVec2(threshold) => {
                 get_state!(threshold, vector2_action)
+            }
+            BindingType::DoubleTap(double) => {
+                get_state!(double, double_action)
             }
         }?;
 
@@ -812,6 +939,61 @@ mod tests {
 
             let $grab_data = grab_actions.as_ref().unwrap();
         };
+    }
+
+    macro_rules! get_double_action {
+        ($fixture:expr, $handle:expr, $double_data:ident) => {
+            let input = $fixture.input.clone();
+            let data = input.openxr.session_data.get();
+            let actions = data.input_data.get_loaded_actions().unwrap();
+            let ExtraActionData { double_action, .. } = actions.try_get_extra($handle).unwrap();
+
+            let $double_data = double_action.as_ref().unwrap();
+        };
+    }
+
+    #[derive(Copy, Clone, Default)]
+    struct BoolState {
+        active: bool,
+        state: bool,
+        changed: bool,
+    }
+
+    impl BoolState {
+        fn set_active(mut self) -> Self {
+            self.active = true;
+            self
+        }
+
+        fn set_state(mut self) -> Self {
+            self.state = true;
+            self
+        }
+
+        fn set_changed(mut self) -> Self {
+            self.changed = true;
+            self
+        }
+    }
+
+    impl Fixture {
+        #[track_caller]
+        fn verify_bool_state(
+            &self,
+            handle: vr::VRActionHandle_t,
+            BoolState {
+                active,
+                state,
+                changed,
+            }: BoolState,
+        ) {
+            let act_state = self
+                .get_bool_state(handle)
+                .expect("Couldn't get bool action state");
+            assert_eq!(active, act_state.bActive, "active does not match");
+            assert_eq!(state, act_state.bState, "state does not match");
+            assert_eq!(changed, act_state.bChanged, "changed does not match");
+        }
     }
 
     #[test]
@@ -1453,6 +1635,131 @@ mod tests {
             Touch.profile_path(),
             c"/actions/set1/in/boolact3",
             ExtraActionType::Analog,
+        );
+    }
+
+    #[test]
+    fn double_tap() {
+        let mut f = Fixture::new();
+        let set1 = f.get_action_set_handle(c"/actions/set1");
+        let active_set = vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        };
+        let boolact = f.get_action_handle(c"/actions/set1/in/boolact3");
+        f.load_actions(c"actions.json");
+        get_double_action!(f, boolact, double_action);
+        let set_action = |state: bool| {
+            fakexr::set_action_state(
+                double_action.as_raw(),
+                fakexr::ActionState::Bool(state),
+                LeftHand,
+            );
+        };
+
+        f.set_interaction_profile(&Knuckles, LeftHand);
+        set_action(false);
+        f.sync(active_set);
+        let inactive_state = BoolState::default().set_active();
+        f.verify_bool_state(boolact, inactive_state);
+
+        set_action(true);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, inactive_state);
+
+        set_action(false);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, inactive_state);
+
+        set_action(true);
+        let active_state = inactive_state.set_state();
+        f.sync(active_set);
+        f.verify_bool_state(boolact, active_state.set_changed());
+
+        // Hold
+        set_action(true);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, active_state);
+
+        set_action(false);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, inactive_state.set_changed());
+
+        set_action(false);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, inactive_state);
+    }
+
+    #[test]
+    fn double_tap_timeout() {
+        let mut f = Fixture::new();
+        let set1 = f.get_action_set_handle(c"/actions/set1");
+        let active_set = vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        };
+        let boolact = f.get_action_handle(c"/actions/set1/in/boolact3");
+        f.load_actions(c"actions.json");
+        get_double_action!(f, boolact, double_action);
+        let set_action = |state: bool| {
+            fakexr::set_action_state(
+                double_action.as_raw(),
+                fakexr::ActionState::Bool(state),
+                LeftHand,
+            );
+        };
+
+        f.set_interaction_profile(&Knuckles, LeftHand);
+
+        set_action(false);
+        f.sync(active_set);
+        let inactive_state = BoolState::default().set_active();
+        f.verify_bool_state(boolact, inactive_state);
+
+        set_action(true);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, inactive_state);
+
+        set_action(false);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, inactive_state);
+
+        let duration = std::time::Duration::from_millis(DoubleTapData::TIMEOUT_MS as u64 + 1);
+        let late_press_time = xr::Time::from_nanos(duration.as_nanos() as _);
+        let set_action_late = |state| {
+            fakexr::set_action_state_with_time(
+                double_action.as_raw(),
+                fakexr::ActionState::Bool(state),
+                LeftHand,
+                late_press_time,
+            );
+        };
+
+        // fail
+        set_action_late(true);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, inactive_state);
+
+        // following double tap should succeed
+        set_action_late(false);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, inactive_state);
+
+        let active_state = inactive_state.set_state();
+        set_action_late(true);
+        f.sync(active_set);
+        f.verify_bool_state(boolact, active_state.set_changed());
+    }
+
+    #[test]
+    fn double_tap_bindings() {
+        let f = Fixture::new();
+        f.load_actions(c"actions.json");
+        f.verify_extra_bindings(
+            Knuckles.profile_path(),
+            c"/actions/set1/in/boolact3",
+            ExtraActionType::Double,
+            ["/user/hand/left/input/a/click".to_string()],
         );
     }
 }

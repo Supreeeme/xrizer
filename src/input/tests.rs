@@ -101,6 +101,7 @@ pub enum ExtraActionType {
     GrabForce,
     DpadDirection,
     ToggleAction,
+    Double,
 }
 
 impl Fixture {
@@ -317,6 +318,7 @@ impl Fixture {
             ExtraActionType::GrabForce => extras.grab_actions.as_ref()?.force_action.as_raw(),
             ExtraActionType::DpadDirection => extras.vector2_action.as_ref()?.as_raw(),
             ExtraActionType::ToggleAction => extras.toggle_action.as_ref()?.as_raw(),
+            ExtraActionType::Double => extras.double_action.as_ref()?.as_raw(),
         })
     }
 
