@@ -337,7 +337,7 @@ macro_rules! get_handle {
         match <_ as XrType>::to_handle($handle) {
             Some(handle) => handle,
             None => {
-                println!("unknown handle for {} ({:?})", stringify!($handle), $handle);
+                eprintln!("unknown handle for {} ({:?})", stringify!($handle), $handle);
                 return xr::Result::ERROR_HANDLE_INVALID;
             }
         }
@@ -424,6 +424,13 @@ impl Default for HandData {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FrameState {
+    Waited,
+    Begun,
+    Ended,
+}
+
 struct Session {
     instance: Weak<Instance>,
     event_sender: mpsc::Sender<EventDataBuffer>,
@@ -438,11 +445,49 @@ struct Session {
     frame_state: AtomicCell<FrameState>,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum FrameState {
-    Waited,
-    Begun,
-    Ended,
+impl Session {
+    fn synchronized(self: &Arc<Self>) {
+        self.state.store(xr::SessionState::SYNCHRONIZED);
+        let session = Self::instances()
+            .iter()
+            .find_map(|(key, s)| {
+                Arc::ptr_eq(s, self).then(|| xr::Session::from_raw(key.data().as_ffi()))
+            })
+            .expect("Couldn't find session?");
+        let s = self.clone();
+        send_event(
+            &self.event_sender,
+            xr::EventDataSessionStateChanged {
+                ty: xr::EventDataSessionStateChanged::TYPE,
+                next: std::ptr::null_mut(),
+                session,
+                state: xr::SessionState::SYNCHRONIZED,
+                time: xr::Time::from_nanos(0),
+            },
+            Some(Box::new(move || {
+                s.state_synced.store(true, Ordering::Relaxed);
+                s.should_render.store(true, Ordering::Relaxed);
+            })),
+        );
+    }
+
+    fn add_space(&self, space: Arc<Space>) -> xr::Space {
+        let xr = space.to_xr();
+        let key = DefaultKey::from(KeyData::from_ffi(xr.into_raw()));
+        let mut spaces = self.spaces.lock().unwrap();
+        spaces.insert(key);
+
+        xr
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        let spaces = self.spaces.lock().unwrap();
+        for space in spaces.iter() {
+            Space::instances().remove(*space);
+        }
+    }
 }
 
 fn transition_frame_state(
@@ -472,42 +517,6 @@ fn transition_frame_state(
     ret
 }
 
-impl Drop for Session {
-    fn drop(&mut self) {
-        let spaces = self.spaces.lock().unwrap();
-        for space in spaces.iter() {
-            Space::instances().remove(*space);
-        }
-    }
-}
-
-impl Session {
-    fn synchronized(self: &Arc<Self>) {
-        self.state.store(xr::SessionState::SYNCHRONIZED);
-        let session = Self::instances()
-            .iter()
-            .find_map(|(key, s)| {
-                Arc::ptr_eq(s, self).then(|| xr::Session::from_raw(key.data().as_ffi()))
-            })
-            .expect("Couldn't find session?");
-        let s = self.clone();
-        send_event(
-            &self.event_sender,
-            xr::EventDataSessionStateChanged {
-                ty: xr::EventDataSessionStateChanged::TYPE,
-                next: std::ptr::null_mut(),
-                session,
-                state: xr::SessionState::SYNCHRONIZED,
-                time: xr::Time::from_nanos(0),
-            },
-            Some(Box::new(move || {
-                s.state_synced.store(true, Ordering::Relaxed);
-                s.should_render.store(true, Ordering::Relaxed);
-            })),
-        );
-    }
-}
-
 static LOCATION_FLAGS_TRACKED: LazyLock<xr::SpaceLocationFlags> = LazyLock::new(|| {
     xr::SpaceLocationFlags::POSITION_VALID
         | xr::SpaceLocationFlags::POSITION_TRACKED
@@ -515,11 +524,18 @@ static LOCATION_FLAGS_TRACKED: LazyLock<xr::SpaceLocationFlags> = LazyLock::new(
         | xr::SpaceLocationFlags::ORIENTATION_TRACKED
 });
 
+enum SpaceType {
+    Action {
+        hand: Option<UserPath>,
+        action: Weak<Action>,
+    },
+    Reference(xr::ReferenceSpaceType),
+}
+
 struct Space {
-    hand: Option<UserPath>,
+    ty: SpaceType,
     offset: xr::Posef,
     session: Weak<Session>,
-    action: Weak<Action>,
 }
 
 impl Space {
@@ -535,8 +551,12 @@ impl Space {
             .upgrade()
             .ok_or(xr::Result::ERROR_SESSION_LOST)?;
 
+        let SpaceType::Action { hand, action } = &self.ty else {
+            todo!()
+        };
+
         // Check if this hand has an interaction profile
-        let hand = self.hand.unwrap_or(UserPath::LeftHand);
+        let hand = hand.unwrap_or(UserPath::LeftHand);
         let hand_data = match hand {
             UserPath::LeftHand => &session.left_hand,
             UserPath::RightHand => &session.right_hand,
@@ -551,7 +571,7 @@ impl Space {
         };
 
         // Check if this action has bindings for the current profile
-        let action = self.action.upgrade().unwrap();
+        let action = action.upgrade().unwrap();
         let bindings = action.suggested.lock().unwrap();
         let Some(bindings) = bindings.get(&profile) else {
             return Ok(default());
@@ -923,15 +943,17 @@ extern "system" fn create_action_space(
         return xr::Result::ERROR_PATH_INVALID;
     };
     let s = Arc::new(Space {
-        hand,
+        ty: SpaceType::Action {
+            hand,
+            action: Arc::downgrade(&action),
+        },
         offset: info.pose_in_action_space,
         session: Arc::downgrade(&session),
-        action: Arc::downgrade(&action),
     });
-    let key = Space::instances().insert(s);
-    let mut spaces = session.spaces.lock().unwrap();
-    spaces.insert(key);
-    unsafe { space.write(xr::Space::from_raw(key.data().as_ffi())) };
+
+    unsafe {
+        *space = session.add_space(s);
+    }
     xr::Result::SUCCESS
 }
 
@@ -968,25 +990,23 @@ extern "system" fn destroy_space(space: xr::Space) -> xr::Result {
     destroy_handle(space)
 }
 
-static VIEW: LazyLock<xr::Space> = LazyLock::new(|| xr::Space::from_raw(1));
-static LOCAL: LazyLock<xr::Space> = LazyLock::new(|| xr::Space::from_raw(2));
-static STAGE: LazyLock<xr::Space> = LazyLock::new(|| xr::Space::from_raw(3));
-
 extern "system" fn create_reference_space(
-    _: xr::Session,
+    session: xr::Session,
     create_info: *const xr::ReferenceSpaceCreateInfo,
     space: *mut xr::Space,
 ) -> xr::Result {
     let info = unsafe { create_info.as_ref().unwrap() };
     assert_eq!(info.pose_in_reference_space, xr::Posef::IDENTITY);
+    let session = get_handle!(session);
+
     unsafe {
-        *space = match info.reference_space_type {
-            xr::ReferenceSpaceType::VIEW => *VIEW,
-            xr::ReferenceSpaceType::LOCAL => *LOCAL,
-            xr::ReferenceSpaceType::STAGE => *STAGE,
-            other => panic!("unimplemented reference space type: {other:?}"),
-        };
+        *space = session.add_space(Arc::new(Space {
+            ty: SpaceType::Reference(info.reference_space_type),
+            offset: info.pose_in_reference_space,
+            session: Arc::downgrade(&session),
+        }));
     }
+
     xr::Result::SUCCESS
 }
 
@@ -1401,13 +1421,20 @@ extern "system" fn locate_space(
     _time: xr::Time,
     location: *mut xr::SpaceLocation,
 ) -> xr::Result {
+    let base_space = get_handle!(base_space);
     assert!(
-        base_space != *STAGE && base_space != *VIEW,
+        !matches!(
+            base_space.ty,
+            SpaceType::Reference(xr::ReferenceSpaceType::STAGE | xr::ReferenceSpaceType::VIEW),
+        ),
         "stage/view locate unimplemented"
     );
-    assert_ne!(space, *LOCAL);
 
     let space = get_handle!(space);
+    assert!(!matches!(
+        space.ty,
+        SpaceType::Reference(xr::ReferenceSpaceType::LOCAL)
+    ));
     let next = unsafe { (*location).next };
     let mut out_loc = xr::SpaceLocation {
         ty: xr::SpaceLocation::TYPE,
@@ -1432,7 +1459,10 @@ extern "system" fn locate_space(
             }
         }
     }
-    if base_space == *LOCAL {
+    if matches!(
+        base_space.ty,
+        SpaceType::Reference(xr::ReferenceSpaceType::LOCAL)
+    ) {
         match space.get_pose_relative_to_local() {
             Ok(loc) => {
                 out_loc = loc;
@@ -1440,7 +1470,6 @@ extern "system" fn locate_space(
             Err(e) => return e,
         };
     } else {
-        let base_space = get_handle!(base_space);
         let base_loc = match base_space.get_pose_relative_to_local() {
             Ok(loc) => loc,
             Err(e) => return e,
