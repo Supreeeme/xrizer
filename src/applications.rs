@@ -3,7 +3,7 @@ use std::ffi::c_char;
 
 #[derive(Default, macros::InterfaceImpl)]
 #[interface = "IVRApplications"]
-#[versions(007)]
+#[versions(007, 006)]
 pub struct Applications {
     vtables: Vtables,
 }
@@ -147,5 +147,23 @@ impl vr::IVRApplications007_Interface for Applications {
     fn AddApplicationManifest(&self, _: *const c_char, _: bool) -> vr::EVRApplicationError {
         crate::warn_unimplemented!("AddApplicationManifest");
         vr::EVRApplicationError::None
+    }
+}
+
+impl vr::IVRApplications006On007 for Applications {
+    fn GetApplicationsTransitionStateNameFromEnum(
+        &self,
+        _: vr::EVRApplicationTransitionState,
+    ) -> *const ::std::os::raw::c_char {
+        crate::warn_unimplemented!("GetApplicationsTransitionStateNameFromEnum");
+        std::ptr::null()
+    }
+
+    fn GetTransitionState(&self) -> vr::EVRApplicationTransitionState {
+        vr::EVRApplicationTransitionState::None
+    }
+
+    fn IsQuitUserPromptRequested(&self) -> bool {
+        false
     }
 }
