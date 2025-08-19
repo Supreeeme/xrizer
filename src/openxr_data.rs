@@ -26,6 +26,9 @@ pub trait Compositor: vr::InterfaceImpl {
         &self,
         data: crate::compositor::CompositorSessionData,
     ) -> SessionCreateInfo;
+
+    #[cfg(test)]
+    fn on_restart(&self) {}
 }
 
 pub type RealOpenXrData = OpenXrData<crate::compositor::Compositor>;
@@ -46,10 +49,8 @@ pub struct OpenXrData<C: Compositor> {
 
 impl<C: Compositor> Drop for OpenXrData<C> {
     fn drop(&mut self) {
-        self.end_session();
-        unsafe {
-            ManuallyDrop::drop(&mut *self.session_data.0.get_mut().unwrap());
-        }
+        let mut data = unsafe { ManuallyDrop::take(&mut *self.session_data.0.get_mut().unwrap()) };
+        self.end_session(&mut data);
     }
 }
 
@@ -136,17 +137,25 @@ impl<C: Compositor> OpenXrData<C> {
     }
 
     pub fn poll_events(&self) {
+        let data = self.session_data.get();
+        if let Some(state) = self.poll_events_impl(&data) {
+            drop(data);
+            self.session_data.0.write().unwrap().state = state;
+        }
+    }
+
+    fn poll_events_impl(&self, session_data: &SessionData) -> Option<xr::SessionState> {
         let mut buf = xr::EventDataBuffer::new();
+        let mut state = None;
         while let Some(event) = self.instance.poll_event(&mut buf).unwrap() {
             match event {
                 xr::Event::SessionStateChanged(event) => {
-                    self.session_data.0.write().unwrap().state = event.state();
+                    state = Some(event.state());
                     info!("OpenXR session state changed: {:?}", event.state());
                 }
                 xr::Event::InteractionProfileChanged(_) => {
-                    let session = self.session_data.get();
                     for info in [&self.left_hand, &self.right_hand] {
-                        let profile_path = session
+                        let profile_path = session_data
                             .session
                             .current_interaction_profile(info.subaction_path)
                             .unwrap();
@@ -165,7 +174,7 @@ impl<C: Compositor> OpenXrData<C> {
 
                         *info.profile.lock().unwrap() = Profiles::get().profile_from_name(&profile);
 
-                        session.input_data.interaction_profile_changed();
+                        session_data.input_data.interaction_profile_changed();
 
                         info!(
                             "{} interaction profile changed: {}",
@@ -178,11 +187,13 @@ impl<C: Compositor> OpenXrData<C> {
                 }
             }
         }
+
+        state
     }
 
     pub fn restart_session(&self) {
-        self.end_session();
         let mut session_guard = self.session_data.0.write().unwrap();
+        self.end_session(&mut session_guard);
 
         let origin = session_guard.current_origin;
         let comp = self
@@ -275,17 +286,23 @@ impl<C: Compositor> OpenXrData<C> {
         };
     }
 
-    fn end_session(&self) {
-        self.session_data.get().session.request_exit().unwrap();
-        let mut state = self.session_data.get().state;
+    fn end_session(&self, session_data: &mut SessionData) {
+        session_data.session.request_exit().unwrap();
+        let mut state = session_data.state;
         while state != xr::SessionState::STOPPING {
-            self.poll_events();
-            state = self.session_data.get().state;
+            if let Some(s) = self.poll_events_impl(session_data) {
+                state = s;
+            }
         }
-        self.session_data.get().session.end().unwrap();
+        #[cfg(test)]
+        if let Some(comp) = self.compositor.get() {
+            comp.on_restart();
+        }
+        session_data.session.end().unwrap();
         while state != xr::SessionState::EXITING {
-            self.poll_events();
-            state = self.session_data.get().state;
+            if let Some(s) = self.poll_events_impl(session_data) {
+                state = s;
+            }
         }
     }
 }
@@ -664,5 +681,104 @@ fn swing_twist_decomposition(rotation: Quat, axis: Vec3) -> Option<(Quat, Quat)>
         Some((twist.normalize(), swing))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+pub use tests::FakeCompositor;
+
+#[cfg(test)]
+mod tests {
+    use super::{FrameStream, GraphicsBackend, OpenXrData, SessionCreateInfo};
+    use crate::clientcore::Injector;
+    use openxr as xr;
+    use std::ffi::CStr;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Barrier, Mutex};
+
+    pub struct FakeCompositor {
+        backend: crate::graphics_backends::VulkanData,
+        barrier: Mutex<Option<Arc<Barrier>>>,
+        restart_complete: AtomicBool,
+    }
+    impl FakeCompositor {
+        pub fn new(xr: &OpenXrData<Self>) -> Self {
+            Self::new_with_barrier(xr, None)
+        }
+
+        fn new_with_barrier(xr: &OpenXrData<Self>, barrier: Option<Arc<Barrier>>) -> Self {
+            Self {
+                backend: crate::graphics_backends::VulkanData::new_temporary(
+                    &xr.instance,
+                    xr.system_id,
+                ),
+                barrier: barrier.into(),
+                restart_complete: false.into(),
+            }
+        }
+    }
+    impl openvr::InterfaceImpl for FakeCompositor {
+        fn get_version(_: &CStr) -> Option<Box<dyn FnOnce(&Arc<Self>) -> *mut std::ffi::c_void>> {
+            None
+        }
+        fn supported_versions() -> &'static [&'static CStr] {
+            &[]
+        }
+    }
+    impl super::Compositor for FakeCompositor {
+        fn get_session_create_info(
+            &self,
+            _: crate::compositor::CompositorSessionData,
+        ) -> SessionCreateInfo {
+            SessionCreateInfo::from_info::<xr::Vulkan>(self.backend.session_create_info())
+        }
+
+        fn post_session_restart(
+            &self,
+            _: &crate::openxr_data::SessionData,
+            _: openxr::FrameWaiter,
+            _: FrameStream,
+        ) {
+            self.restart_complete.store(true, Ordering::Relaxed);
+        }
+
+        fn on_restart(&self) {
+            if let Some(barrier) = self.barrier.lock().unwrap().take() {
+                barrier.wait();
+            }
+        }
+    }
+
+    #[test]
+    fn session_restart_contended() {
+        crate::init_logging();
+        let data = Arc::new(OpenXrData::<FakeCompositor>::new(&Injector::default()).unwrap());
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let comp = Arc::new(FakeCompositor::new_with_barrier(
+            &data,
+            Some(barrier.clone()),
+        ));
+        data.compositor.set(Arc::downgrade(&comp));
+
+        std::thread::scope(|scope| {
+            {
+                let barrier = barrier.clone();
+                let data = data.clone();
+                let comp = comp.clone();
+                scope.spawn(move || {
+                    barrier.wait();
+                    let _unused = data.session_data.get();
+                    log::debug!("acquired");
+                    assert!(comp.restart_complete.load(Ordering::Relaxed));
+                });
+            }
+
+            scope.spawn(|| {
+                data.restart_session();
+            });
+        });
+
+        drop(data); // Session must be dropped before Vulkan data.
+        drop(comp);
     }
 }

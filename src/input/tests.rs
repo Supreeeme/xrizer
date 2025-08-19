@@ -6,9 +6,8 @@ use super::{
     ActionData, Input, InteractionProfile,
 };
 use crate::{
-    graphics_backends::GraphicsBackend,
     input::ActionKey,
-    openxr_data::{FrameStream, Hand, OpenXrData, SessionCreateInfo},
+    openxr_data::{FakeCompositor, Hand, OpenXrData},
     vr::{self, IVRInput010_Interface},
 };
 use fakexr::UserPath::*;
@@ -36,31 +35,6 @@ impl std::fmt::Debug for ActionData {
             ActionData::Skeleton { .. } => f.write_str("InputAction::Skeleton"),
             ActionData::Haptic(_) => f.write_str("InputAction::Haptic"),
         }
-    }
-}
-
-pub(super) struct FakeCompositor(crate::graphics_backends::VulkanData);
-impl openvr::InterfaceImpl for FakeCompositor {
-    fn get_version(_: &CStr) -> Option<Box<dyn FnOnce(&Arc<Self>) -> *mut std::ffi::c_void>> {
-        None
-    }
-    fn supported_versions() -> &'static [&'static CStr] {
-        &[]
-    }
-}
-impl crate::openxr_data::Compositor for FakeCompositor {
-    fn get_session_create_info(
-        &self,
-        _: crate::compositor::CompositorSessionData,
-    ) -> SessionCreateInfo {
-        SessionCreateInfo::from_info::<xr::Vulkan>(self.0.session_create_info())
-    }
-    fn post_session_restart(
-        &self,
-        _: &crate::openxr_data::SessionData,
-        _: openxr::FrameWaiter,
-        _: FrameStream,
-    ) {
     }
 }
 
@@ -108,9 +82,7 @@ impl Fixture {
     pub fn new() -> Self {
         crate::init_logging();
         let xr = Arc::new(OpenXrData::new(&crate::clientcore::Injector::default()).unwrap());
-        let comp = Arc::new(FakeCompositor(
-            crate::graphics_backends::VulkanData::new_temporary(&xr.instance, xr.system_id),
-        ));
+        let comp = Arc::new(FakeCompositor::new(&xr));
         xr.compositor.set(Arc::downgrade(&comp));
         let ret = Self {
             input: Input::new(xr.clone()).into(),
