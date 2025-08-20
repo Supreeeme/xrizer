@@ -120,7 +120,8 @@ fn main() {
     // Generate openvrpaths.vrpath file from template
     // This file tells OpenVR/SteamVR where to find the runtime (xrizer in this case)
     // The template contains placeholders that we replace with actual paths
-    let template_path = PathBuf::from("xbuild/").join("openvrpaths.vrpath.in");
+    let template_path =
+        PathBuf::from(std::env!("CARGO_MANIFEST_DIR")).join("openvrpaths.vrpath.in");
     let output_path = parent.join("openvrpaths.vrpath");
 
     // Use XRIZER_INSTALL_PREFIX environment variable if set, otherwise use the parent directory
@@ -132,15 +133,8 @@ fn main() {
             // Replace ${XRIZER_INSTALL_PREFIX} with the install prefix
             let content = template_content.replace("${XRIZER_INSTALL_PREFIX}", &install_prefix);
 
-            match std::fs::File::create(&output_path) {
-                Ok(mut file) => {
-                    if let Err(e) = file.write_all(content.as_bytes()) {
-                        eprintln!("Failed to write openvrpaths.vrpath: {e}");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to create openvrpaths.vrpath: {e}");
-                }
+            if let Err(e) = std::fs::write(&output_path, content.as_bytes()) {
+                eprintln!("Failed to create openvrpaths.vrpath: {e}");
             }
         }
         Err(e) => {
