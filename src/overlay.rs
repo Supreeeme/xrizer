@@ -941,7 +941,7 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         _: *mut vr::VREvent_t,
         _: u32,
     ) -> bool {
-        todo!()
+        false
     }
     fn WaitFrameSync(&self, _: u32) -> vr::EVROverlayError {
         todo!()
