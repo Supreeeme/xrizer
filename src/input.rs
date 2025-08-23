@@ -28,6 +28,8 @@ use std::ffi::{c_char, CStr, CString};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
 
 new_key_type! {
@@ -54,6 +56,7 @@ pub struct Input<C: openxr_data::Compositor> {
     profile_map: HashMap<xr::Path, &'static profiles::ProfileProperties>,
     estimated_finger_state: [Mutex<FingerState>; 2],
     events: Mutex<VecDeque<InputEvent>>,
+    loading_actions: AtomicBool,
 }
 
 struct InputEvent {
@@ -138,6 +141,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 Mutex::new(FingerState::new()),
             ],
             events: Mutex::default(),
+            loading_actions: false.into(),
         }
     }
 
@@ -1155,16 +1159,21 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         info!("loading action manifest from {path:?}");
 
         // We need to restart the session if the legacy actions have already been attached.
+        self.loading_actions.store(true, Ordering::Relaxed);
         let mut data = self.openxr.session_data.get();
         if data.input_data.get_legacy_actions().is_some() {
             drop(data);
             self.openxr.restart_session();
             data = self.openxr.session_data.get();
         }
-        match self.load_action_manifest(&data, path) {
+
+        let ret = match self.load_action_manifest(&data, path) {
             Ok(_) => vr::EVRInputError::None,
             Err(e) => e,
-        }
+        };
+
+        self.loading_actions.store(false, Ordering::Relaxed);
+        ret
     }
 }
 
@@ -1284,6 +1293,10 @@ impl<C: openxr_data::Compositor> Input<C> {
                 self.legacy_state.on_action_sync();
             }
             None => {
+                if self.loading_actions.load(Ordering::Relaxed) {
+                    return;
+                }
+
                 // If we haven't created our legacy actions yet but we're getting our per frame
                 // update, go ahead and create them
                 // This will force us to have to restart the session when we get an action
