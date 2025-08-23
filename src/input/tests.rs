@@ -17,7 +17,7 @@ use slotmap::KeyData;
 use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_4;
 use std::ffi::CStr;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 
 static ACTIONS_JSONS_DIR: &CStr = unsafe {
     CStr::from_bytes_with_nul_unchecked(
@@ -971,4 +971,55 @@ fn empty_manifest() {
 
     f.input.openxr.restart_session();
     assert!(f.input.action_map.read().unwrap().is_empty());
+}
+
+#[test]
+fn load_actions_race() {
+    let mut f = Arc::new(Fixture::new());
+    f.input.openxr.restart_session(); // get to real session
+    f.input.frame_start_update(); // load legacy
+    let got_input = f.input.get_legacy_controller_state(
+        1,
+        &mut vr::VRControllerState_t::default(),
+        std::mem::size_of::<vr::VRControllerState_t>() as _,
+    );
+    assert!(got_input);
+
+    std::thread::scope(|scope| {
+        let barrier = Arc::new(Barrier::new(2));
+        {
+            let input = f.input.clone();
+            let barrier = barrier.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                // arbitrary delay, so we get the frame start update right after restart
+                std::thread::sleep(std::time::Duration::from_micros(500));
+                input.frame_start_update();
+            });
+        }
+        {
+            let f = f.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                f.load_actions(c"actions.json");
+            });
+        }
+    });
+
+    let got_input = f.input.get_legacy_controller_state(
+        0,
+        &mut vr::VRControllerState_t::default(),
+        std::mem::size_of::<vr::VRControllerState_t>() as _,
+    );
+    assert!(!got_input);
+
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+    Arc::get_mut(&mut f).unwrap().sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    let res = f.get_bool_state(boolact);
+    assert!(res.is_ok(), "{res:?}");
 }
