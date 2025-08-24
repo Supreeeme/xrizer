@@ -26,9 +26,15 @@ pub struct ViewData {
     pub views: [xr::View; 2],
 }
 
+#[derive(Copy, Clone)]
+struct ViewDataViewSpace {
+    data: ViewData,
+    original_orientations: [Quat; 2],
+}
+
 #[derive(Default)]
 struct ViewCache {
-    view: Option<ViewData>,
+    view: Option<ViewDataViewSpace>,
     local: Option<ViewData>,
     stage: Option<ViewData>,
 }
@@ -40,30 +46,112 @@ impl ViewCache {
         display_time: xr::Time,
         ty: xr::ReferenceSpaceType,
     ) -> ViewData {
-        let data = match ty {
-            xr::ReferenceSpaceType::VIEW => &mut self.view,
-            xr::ReferenceSpaceType::LOCAL => &mut self.local,
-            xr::ReferenceSpaceType::STAGE => &mut self.stage,
+        match ty {
+            xr::ReferenceSpaceType::VIEW => {
+                self.view
+                    .get_or_insert_with(|| Self::get_views_view_space(session, display_time))
+                    .data
+            }
+            xr::ReferenceSpaceType::LOCAL | xr::ReferenceSpaceType::STAGE => {
+                let view = match ty {
+                    xr::ReferenceSpaceType::LOCAL => &mut self.local,
+                    xr::ReferenceSpaceType::STAGE => &mut self.stage,
+                    _ => unreachable!(),
+                };
+
+                *view.get_or_insert_with(|| {
+                    let view_rots = self
+                        .view
+                        .get_or_insert_with(|| Self::get_views_view_space(session, display_time))
+                        .original_orientations;
+
+                    Self::get_views_other_space(session, display_time, ty, view_rots)
+                })
+            }
             other => panic!("unexpected reference space type: {other:?}"),
-        };
+        }
+    }
 
-        *data.get_or_insert_with(|| {
-            let (flags, views) = session
-                .session
-                .locate_views(
-                    xr::ViewConfigurationType::PRIMARY_STEREO,
-                    display_time,
-                    session.get_space_from_type(ty),
-                )
-                .expect("Couldn't locate views");
+    fn get_views_view_space(session: &SessionData, display_time: xr::Time) -> ViewDataViewSpace {
+        let (flags, mut views) = session
+            .session
+            .locate_views(
+                xr::ViewConfigurationType::PRIMARY_STEREO,
+                display_time,
+                session.get_space_from_type(xr::ReferenceSpaceType::VIEW),
+            )
+            .expect("Couldn't locate views");
 
-            ViewData {
+        let original_orientations = views
+            .iter_mut()
+            .map(
+                |xr::View {
+                     pose: xr::Posef { orientation: o, .. },
+                     ..
+                 }| {
+                    let ret = Quat::from_xyzw(o.x, o.y, o.z, o.w).inverse();
+                    *o = xr::Quaternionf::IDENTITY; // parallel views
+                    ret
+                },
+            )
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        ViewDataViewSpace {
+            data: ViewData {
                 flags,
                 views: views
                     .try_into()
                     .unwrap_or_else(|v: Vec<xr::View>| panic!("Expected 2 views, got {}", v.len())),
-            }
-        })
+            },
+            original_orientations,
+        }
+    }
+
+    fn get_views_other_space(
+        session: &SessionData,
+        display_time: xr::Time,
+        ty: xr::ReferenceSpaceType,
+        view_data_orientations_inverse: [Quat; 2],
+    ) -> ViewData {
+        let (flags, mut views) = session
+            .session
+            .locate_views(
+                xr::ViewConfigurationType::PRIMARY_STEREO,
+                display_time,
+                session.get_space_from_type(ty),
+            )
+            .expect("Couldn't locate views");
+
+        for (
+            xr::View {
+                pose: xr::Posef {
+                    orientation: rot, ..
+                },
+                ..
+            },
+            view_rot,
+        ) in views.iter_mut().zip(view_data_orientations_inverse)
+        {
+            let quat = Quat::from_xyzw(rot.x, rot.y, rot.z, rot.w);
+            // rotate the inverse of the view space view rotation by this space's
+            // view orientation to remove the canting from the displays in this space
+            let adjusted_rot = quat * view_rot;
+            *rot = xr::Quaternionf {
+                x: adjusted_rot.x,
+                y: adjusted_rot.y,
+                z: adjusted_rot.z,
+                w: adjusted_rot.w,
+            };
+        }
+
+        ViewData {
+            flags,
+            views: views
+                .try_into()
+                .unwrap_or_else(|v: Vec<xr::View>| panic!("Expected 2 views, got {}", v.len())),
+        }
     }
 }
 
