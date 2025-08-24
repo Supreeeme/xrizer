@@ -9,9 +9,8 @@ pub mod vive_controller;
 use super::{
     action_manifest::ControllerType, legacy::LegacyBindings, skeletal::SkeletalInputBindings,
 };
-use crate::{
-    input::profiles::samsung_odyssey_controller::SamsungOdysseyController, openxr_data::Hand,
-};
+use crate::openxr_data::Hand;
+use samsung_odyssey_controller::SamsungOdysseyController;
 use glam::Mat4;
 use hp_motion_controller::ReverbG2Controller;
 use knuckles::Knuckles;
