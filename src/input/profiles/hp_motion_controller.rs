@@ -167,3 +167,72 @@ impl InteractionProfile for ReverbG2Controller {
         )
     }
 }
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::{InteractionProfile, ReverbG2Controller};
+    use crate::input::tests::Fixture;
+    use openxr as xr;
+
+    #[test]
+    fn verify_bindings() {
+        {
+            let path = ReverbG2Controller.profile_path();
+            let f = Fixture::new();
+            f.load_actions(c"actions.json");
+
+            f.verify_bindings::<bool>(
+                path,
+                c"/actions/set1/in/boolact",
+                [
+                    "/user/hand/left/input/thumbstick/click".into(),
+                    "/user/hand/right/input/thumbstick/click".into(),
+                    "/user/hand/left/input/squeeze/click".into(),
+                    "/user/hand/right/input/squeeze/click".into(),
+                    "/user/hand/left/input/menu/click".into(),
+                    "/user/hand/right/input/menu/click".into(),
+                    "/user/hand/left/input/x/click".into(),
+                    "/user/hand/left/input/y/click".into(),
+                    "/user/hand/right/input/a/click".into(),
+                    "/user/hand/right/input/b/click".into(),
+                ],
+            );
+
+            f.verify_bindings::<f32>(
+                path,
+                c"/actions/set1/boolact_asfloat",
+                [
+                    "/user/hand/left/input/trigger/value".into(),
+                    "/user/hand/right/input/trigger/value".into(),
+                ],
+            );
+
+            f.verify_bindings::<f32>(
+                path,
+                c"/actions/set1/in/vec1act",
+                [
+                    "/user/hand/left/input/trigger/value".into(),
+                    "/user/hand/right/input/trigger/value".into(),
+                ],
+            );
+
+            f.verify_bindings::<xr::Vector2f>(
+                path,
+                c"/actions/set1/in/vec2act",
+                [
+                    "/user/hand/left/input/thumbstick".into(),
+                    "/user/hand/right/input/thumbstick".into(),
+                ],
+            );
+
+            f.verify_bindings::<xr::Haptic>(
+                path,
+                c"/actions/set1/in/vib",
+                [
+                    "/user/hand/left/output/haptic".into(),
+                    "/user/hand/right/output/haptic".into(),
+                ],
+            );
+        };
+    }
+}
