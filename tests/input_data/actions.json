@@ -85,6 +85,14 @@
 		{
 			"binding_url": "oculus.json",
 			"controller_type": "oculus_touch"
+		},
+		{
+			"binding_url": "hpmotioncontroller.json",
+			"controller_type": "hpmotioncontroller"
+		},
+		{
+			"binding_url": "holographiccontroller.json",
+			"controller_type": "holographic_controller"
 		}
 	],
 	"localization": []

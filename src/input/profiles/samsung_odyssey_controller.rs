@@ -39,3 +39,15 @@ impl InteractionProfile for SamsungOdysseyController {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{SamsungOdysseyController, InteractionProfile};
+    use crate::input::profiles::ms_motion_controller::{self};
+    
+
+    #[test]
+    fn verify_bindings() {
+        ms_motion_controller::tests::base_verify_bindings(SamsungOdysseyController.profile_path());
+    }
+}
