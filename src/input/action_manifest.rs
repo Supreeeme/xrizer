@@ -997,7 +997,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         self.openxr
             .instance
             .suggest_interaction_profile_bindings(profile_path, &bindings)
-            .unwrap();
+            .expect("Couldn't suggest profile bindings");
         debug!(
             "suggested {} bindings for {}",
             bindings.len(),

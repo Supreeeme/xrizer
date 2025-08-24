@@ -6,9 +6,8 @@ use super::{
     ActionData, Input, InteractionProfile,
 };
 use crate::{
-    graphics_backends::GraphicsBackend,
     input::ActionKey,
-    openxr_data::{FrameStream, Hand, OpenXrData, SessionCreateInfo},
+    openxr_data::{FakeCompositor, Hand, OpenXrData},
     vr::{self, IVRInput010_Interface},
 };
 use fakexr::UserPath::*;
@@ -18,7 +17,7 @@ use slotmap::KeyData;
 use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_4;
 use std::ffi::CStr;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 
 static ACTIONS_JSONS_DIR: &CStr = unsafe {
     CStr::from_bytes_with_nul_unchecked(
@@ -36,31 +35,6 @@ impl std::fmt::Debug for ActionData {
             ActionData::Skeleton { .. } => f.write_str("InputAction::Skeleton"),
             ActionData::Haptic(_) => f.write_str("InputAction::Haptic"),
         }
-    }
-}
-
-pub(super) struct FakeCompositor(crate::graphics_backends::VulkanData);
-impl openvr::InterfaceImpl for FakeCompositor {
-    fn get_version(_: &CStr) -> Option<Box<dyn FnOnce(&Arc<Self>) -> *mut std::ffi::c_void>> {
-        None
-    }
-    fn supported_versions() -> &'static [&'static CStr] {
-        &[]
-    }
-}
-impl crate::openxr_data::Compositor for FakeCompositor {
-    fn get_session_create_info(
-        &self,
-        _: crate::compositor::CompositorSessionData,
-    ) -> SessionCreateInfo {
-        SessionCreateInfo::from_info::<xr::Vulkan>(self.0.session_create_info())
-    }
-    fn post_session_restart(
-        &self,
-        _: &crate::openxr_data::SessionData,
-        _: openxr::FrameWaiter,
-        _: FrameStream,
-    ) {
     }
 }
 
@@ -108,9 +82,7 @@ impl Fixture {
     pub fn new() -> Self {
         crate::init_logging();
         let xr = Arc::new(OpenXrData::new(&crate::clientcore::Injector::default()).unwrap());
-        let comp = Arc::new(FakeCompositor(
-            crate::graphics_backends::VulkanData::new_temporary(&xr.instance, xr.system_id),
-        ));
+        let comp = Arc::new(FakeCompositor::new(&xr));
         xr.compositor.set(Arc::downgrade(&comp));
         let ret = Self {
             input: Input::new(xr.clone()).into(),
@@ -999,4 +971,55 @@ fn empty_manifest() {
 
     f.input.openxr.restart_session();
     assert!(f.input.action_map.read().unwrap().is_empty());
+}
+
+#[test]
+fn load_actions_race() {
+    let mut f = Arc::new(Fixture::new());
+    f.input.openxr.restart_session(); // get to real session
+    f.input.frame_start_update(); // load legacy
+    let got_input = f.input.get_legacy_controller_state(
+        1,
+        &mut vr::VRControllerState_t::default(),
+        std::mem::size_of::<vr::VRControllerState_t>() as _,
+    );
+    assert!(got_input);
+
+    std::thread::scope(|scope| {
+        let barrier = Arc::new(Barrier::new(2));
+        {
+            let input = f.input.clone();
+            let barrier = barrier.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                // arbitrary delay, so we get the frame start update right after restart
+                std::thread::sleep(std::time::Duration::from_micros(500));
+                input.frame_start_update();
+            });
+        }
+        {
+            let f = f.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                f.load_actions(c"actions.json");
+            });
+        }
+    });
+
+    let got_input = f.input.get_legacy_controller_state(
+        0,
+        &mut vr::VRControllerState_t::default(),
+        std::mem::size_of::<vr::VRControllerState_t>() as _,
+    );
+    assert!(!got_input);
+
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+    Arc::get_mut(&mut f).unwrap().sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    let res = f.get_bool_state(boolact);
+    assert!(res.is_ok(), "{res:?}");
 }
