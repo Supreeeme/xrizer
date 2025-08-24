@@ -267,6 +267,9 @@ pub(super) enum ControllerType {
     ViveController,
     Knuckles,
     OculusTouch,
+    HolographicController,
+    SamsungOdysseyController,
+    HPMotionController,
     #[serde(untagged)]
     Unknown(String),
 }
