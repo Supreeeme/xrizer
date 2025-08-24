@@ -1150,7 +1150,13 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         if path.is_null() {
             return vr::EVRInputError::InvalidParam;
         }
-        let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
+        let mut path = unsafe { CStr::from_ptr(path) }.to_str().unwrap();
+        let mut patchedPath = "/".to_string();
+        if path.contains("//") {
+            patchedPath.push_str(path.split_inclusive("//").collect::<Vec<&str>>()[1]);
+            patchedPath.remove(patchedPath.len() - 1);
+            path = patchedPath.as_str();
+        }
         let path = std::path::Path::new(&*path);
         info!("loading action manifest from {path:?}");
 
