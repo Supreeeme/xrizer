@@ -146,3 +146,76 @@ impl InteractionProfile for HolographicController {
         ))
     }
 }
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::{HolographicController, InteractionProfile};
+    use crate::input::tests::Fixture;
+    use openxr as xr;
+
+    #[test]
+    fn verify_bindings() {
+        base_verify_bindings(HolographicController.profile_path());
+    }
+
+    // Separate so the the tests can be reused for the Samsung Odyssey controllers
+    pub(crate) fn base_verify_bindings(path: &'static str) {
+        let f = Fixture::new();
+        f.load_actions(c"actions.json");
+
+        f.verify_bindings::<bool>(
+            path,
+            c"/actions/set1/in/boolact",
+            [
+                "/user/hand/left/input/thumbstick/click".into(),
+                "/user/hand/right/input/thumbstick/click".into(),
+                "/user/hand/left/input/squeeze/click".into(),
+                "/user/hand/right/input/squeeze/click".into(),
+                "/user/hand/left/input/menu/click".into(),
+                "/user/hand/right/input/menu/click".into(),
+                "/user/hand/left/input/trackpad/click".into(),
+                "/user/hand/right/input/trackpad/click".into(),
+                "/user/hand/left/input/trackpad/touch".into(),
+                "/user/hand/right/input/trackpad/touch".into(),
+            ],
+        );
+
+        f.verify_bindings::<f32>(
+            path,
+            c"/actions/set1/boolact_asfloat",
+            [
+                "/user/hand/left/input/trigger/value".into(),
+                "/user/hand/right/input/trigger/value".into(),
+            ],
+        );
+
+        f.verify_bindings::<f32>(
+            path,
+            c"/actions/set1/in/vec1act",
+            [
+                "/user/hand/left/input/trigger/value".into(),
+                "/user/hand/right/input/trigger/value".into(),
+            ],
+        );
+
+        f.verify_bindings::<xr::Vector2f>(
+            path,
+            c"/actions/set1/in/vec2act",
+            [
+                "/user/hand/left/input/trackpad".into(),
+                "/user/hand/right/input/trackpad".into(),
+                "/user/hand/left/input/thumbstick".into(),
+                "/user/hand/right/input/thumbstick".into(),
+            ],
+        );
+
+        f.verify_bindings::<xr::Haptic>(
+            path,
+            c"/actions/set1/in/vib",
+            [
+                "/user/hand/left/output/haptic".into(),
+                "/user/hand/right/output/haptic".into(),
+            ],
+        );
+    }
+}
