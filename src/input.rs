@@ -1155,8 +1155,21 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         if path.is_null() {
             return vr::EVRInputError::InvalidParam;
         }
-        let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
-        let path = std::path::Path::new(&*path);
+        let mut path = unsafe { CStr::from_ptr(path) }.to_str().unwrap();
+
+        // Unity 6.2 has introduced a bug where they pass a path with doubled instalation paths and a buffer overflow caused by a missing null terminator.
+        //
+        // Unity bug workaround
+        //
+        let mut patched_path = "/".to_string();
+        if path.contains("//") {
+            patched_path.push_str(path.split_inclusive("//").collect::<Vec<&str>>()[1]);
+            patched_path.remove(patched_path.len() - 1);
+            path = patched_path.as_str();
+        }
+        // End of Unity bug workaround
+
+        let path = std::path::Path::new(path);
         info!("loading action manifest from {path:?}");
 
         // We need to restart the session if the legacy actions have already been attached.
