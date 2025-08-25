@@ -59,7 +59,9 @@ derive_more = { workspace = true }
 gl = "0.14.0"
 
 [build-dependencies]
+anyhow = "1.0.99"
 shaders = { path = "shaders" }
+vergen-gitcl = "1.0.8"
 
 [dev-dependencies]
 libloading = "0.8.5"

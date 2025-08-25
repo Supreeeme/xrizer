@@ -1,6 +1,8 @@
+use anyhow::anyhow;
 use std::env;
+use vergen_gitcl::{Emitter, GitclBuilder};
 
-fn main() {
+fn main() -> Result<(), anyhow::Error> {
     let out_dir = env::var("OUT_DIR").unwrap();
     for path in shaders::compile(&out_dir) {
         println!("cargo::rerun-if-changed={}", path.to_str().unwrap());
@@ -27,12 +29,12 @@ fn main() {
         ("linux", "x86") => "bin/",
         ("linux", "x86_64") => "bin/linux64/",
         ("linux", "aarch64") => "bin/linuxarm64/",
-        _ => {
-            println!("cargo::error=Unsupported architecture.");
-            return;
-        }
+        _ => return Err(anyhow!("Unsupported platform: {target_os}/{target_arch}")),
     };
 
     println!("cargo::rustc-env=XRIZER_OPENVR_PLATFORM_DIR={platform_location}");
     println!("cargo::rustc-env=XRIZER_OPENVR_VRCLIENT_NAME={vrclient_name}");
+
+    let builder = GitclBuilder::default().describe(true, true, None).build()?;
+    Emitter::default().add_instructions(&builder)?.emit()
 }
