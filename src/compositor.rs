@@ -793,18 +793,31 @@ impl vr::IVRCompositor028_Interface for Compositor {
         output_pose: *mut vr::TrackedDevicePose_t,
         output_game_pose: *mut vr::TrackedDevicePose_t,
     ) -> vr::EVRCompositorError {
-        crate::warn_unimplemented!("GetLastPoseForTrackedDeviceIndex");
-        debug!("Requested pose for device index {unDeviceIndex}");
-        if pOutputPose.is_null() || pOutputGamePose.is_null() {
+        if pOutputPose.is_null() && pOutputGamePose.is_null() {
+            warn!("GetLastPoseForTrackedDeviceIndex({unDeviceIndex}, <null>, <null>) called with null pointers for both poses");
             return vr::EVRCompositorError::RequestFailed;
         }
-        let output_pose = vr::TrackedDevicePose_t::default();
-        let output_game_pose = vr::TrackedDevicePose_t::default();
-        unsafe {
-            pOutputPose.write(output_pose);
-            pOutputGamePose.write(output_game_pose);
+
+        let pose = self
+            .input
+            .force(|_| Input::new(self.openxr.clone()))
+            .get_device_pose(unDeviceIndex, None);
+
+        match pose {
+            Some(pose) => {
+                if !pOutputPose.is_null() {
+                    unsafe { pOutputPose.write_unaligned(pose) };
+                }
+                if !pOutputGamePose.is_null() {
+                    unsafe { pOutputGamePose.write_unaligned(pose) };
+                }
+                vr::EVRCompositorError::None
+            }
+            None => {
+                warn!("No pose found for device {unDeviceIndex}");
+                vr::EVRCompositorError::RequestFailed
+            }
         }
-        vr::EVRCompositorError::None
     }
     fn GetLastPoses(
         &self,

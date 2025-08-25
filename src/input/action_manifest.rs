@@ -579,7 +579,19 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
         "grip" => BoundPoseType::Grip,
         "handgrip" => BoundPoseType::Handgrip,
         "openxr_handmodel" => BoundPoseType::OpenXRHandmodel,
-        other => return Err(D::Error::unknown_variant(other, &["raw", "tip", "base", "gdc2015", "handgrip", "openxr_handmodel"])),
+        other => {
+            return Err(D::Error::unknown_variant(
+                other,
+                &[
+                    "raw",
+                    "tip",
+                    "base",
+                    "gdc2015",
+                    "handgrip",
+                    "openxr_handmodel",
+                ],
+            ))
+        }
     };
 
     Ok((hand, pose))
