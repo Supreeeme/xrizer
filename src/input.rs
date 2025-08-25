@@ -654,7 +654,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         vr::EVRInputError::None
     }
     fn SetDominantHand(&self, _: vr::ETrackedControllerRole) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("SetDominantHand");
+        vr::EVRInputError::None
     }
     fn GetDominantHand(&self, _: *mut vr::ETrackedControllerRole) -> vr::EVRInputError {
         crate::warn_unimplemented!("GetDominantHand");
@@ -1151,11 +1152,11 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             return vr::EVRInputError::InvalidParam;
         }
         let mut path = unsafe { CStr::from_ptr(path) }.to_str().unwrap();
-        let mut patchedPath = "/".to_string();
+        let mut patched_path = "/".to_string();
         if path.contains("//") {
-            patchedPath.push_str(path.split_inclusive("//").collect::<Vec<&str>>()[1]);
-            patchedPath.remove(patchedPath.len() - 1);
-            path = patchedPath.as_str();
+            patched_path.push_str(path.split_inclusive("//").collect::<Vec<&str>>()[1]);
+            patched_path.remove(patched_path.len() - 1);
+            path = patched_path.as_str();
         }
         let path = std::path::Path::new(&*path);
         info!("loading action manifest from {path:?}");
