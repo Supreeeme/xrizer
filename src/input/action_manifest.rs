@@ -570,12 +570,41 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
         }
     };
 
+    // See default BoundPoseType here: https://github.com/ValveSoftware/openvr/wiki/Render-Model-Reference
     let pose = match pose {
         "raw" => BoundPoseType::Raw,
         "tip" => BoundPoseType::Tip,
+        "base" => BoundPoseType::Base,
         "gdc2015" => BoundPoseType::Gdc2015,
-        other => return Err(D::Error::unknown_variant(other, &["raw", "tip", "gdc2015"])),
+        "grip" => BoundPoseType::Grip,
+        "handgrip" => BoundPoseType::Handgrip,
+        "openxr_handmodel" => BoundPoseType::OpenXRHandmodel,
+        other => {
+            return Err(D::Error::unknown_variant(
+                other,
+                &[
+                    "raw",
+                    "tip",
+                    "base",
+                    "gdc2015",
+                    "grip",
+                    "handgrip",
+                    "openxr_handmodel",
+                ],
+            ))
+        }
     };
+
+    match pose {
+        BoundPoseType::Tip
+        | BoundPoseType::Base
+        | BoundPoseType::Grip
+        | BoundPoseType::Handgrip
+        | BoundPoseType::OpenXRHandmodel => {
+            warn!("Using rendermodel pose type {pose:?} which is not fully supported yet, falling back to raw pose");
+        }
+        _ => {}
+    }
 
     Ok((hand, pose))
 }
