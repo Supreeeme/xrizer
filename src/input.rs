@@ -310,7 +310,7 @@ enum BoundPoseType {
     Gdc2015,
     Grip,
     Handgrip,
-    OpenXRHandmodel
+    OpenXRHandmodel,
 }
 
 macro_rules! get_action_from_handle {
@@ -805,7 +805,11 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
                 match ty {
                     BoundPoseType::Raw | BoundPoseType::Gdc2015 => (origin, hand),
-                    BoundPoseType::Tip | BoundPoseType::Base | BoundPoseType::Grip | BoundPoseType::Handgrip | BoundPoseType::OpenXRHandmodel => {
+                    BoundPoseType::Tip
+                    | BoundPoseType::Base
+                    | BoundPoseType::Grip
+                    | BoundPoseType::Handgrip
+                    | BoundPoseType::OpenXRHandmodel => {
                         // ToDo: Check if render model has a transform for pose otherwise use raw pose
                         // For now, just use the raw pose
                         (origin, hand)
@@ -1162,7 +1166,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             patched_path.remove(patched_path.len() - 1);
             path = patched_path.as_str();
         }
-        let path = std::path::Path::new(&*path);
+        let path = std::path::Path::new(path);
         info!("loading action manifest from {path:?}");
 
         // We need to restart the session if the legacy actions have already been attached.
@@ -1233,7 +1237,24 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
     }
 
-    fn get_hmd_pose(&self, origin: Option<vr::ETrackingUniverseOrigin>) -> vr::TrackedDevicePose_t {
+    pub fn get_device_pose(
+        &self,
+        device_index: u32,
+        origin: Option<vr::ETrackingUniverseOrigin>,
+    ) -> Option<vr::TrackedDevicePose_t> {
+        tracy_span!();
+        match device_index {
+            vr::k_unTrackedDeviceIndex_Hmd => Some(self.get_hmd_pose(origin)),
+            x if x == Hand::Left as u32 => Some(self.get_controller_pose(Hand::Left, origin)),
+            x if x == Hand::Right as u32 => Some(self.get_controller_pose(Hand::Right, origin)),
+            _ => None,
+        }
+    }
+
+    pub fn get_hmd_pose(
+        &self,
+        origin: Option<vr::ETrackingUniverseOrigin>,
+    ) -> vr::TrackedDevicePose_t {
         tracy_span!();
         let mut spaces = self.cached_poses.lock().unwrap();
         let data = self.openxr.session_data.get();
