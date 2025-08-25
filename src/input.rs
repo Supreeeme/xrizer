@@ -314,7 +314,7 @@ enum BoundPoseType {
     Gdc2015,
     Grip,
     Handgrip,
-    OpenXRHandmodel
+    OpenXRHandmodel,
 }
 
 macro_rules! get_action_from_handle {
@@ -809,7 +809,11 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
                 match ty {
                     BoundPoseType::Raw | BoundPoseType::Gdc2015 => (origin, hand),
-                    BoundPoseType::Tip | BoundPoseType::Base | BoundPoseType::Grip | BoundPoseType::Handgrip | BoundPoseType::OpenXRHandmodel => {
+                    BoundPoseType::Tip
+                    | BoundPoseType::Base
+                    | BoundPoseType::Grip
+                    | BoundPoseType::Handgrip
+                    | BoundPoseType::OpenXRHandmodel => {
                         // ToDo: Check if render model has a transform for pose otherwise use raw pose
                         // For now, just use the raw pose
                         (origin, hand)
@@ -1233,6 +1237,20 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
         if poses.len() > Hand::Right as usize {
             poses[Hand::Right as usize] = self.get_controller_pose(Hand::Right, origin);
+        }
+    }
+
+    pub fn get_device_pose(
+        &self,
+        device_index: u32,
+        origin: Option<vr::ETrackingUniverseOrigin>,
+    ) -> Option<vr::TrackedDevicePose_t> {
+        tracy_span!();
+        match device_index {
+            vr::k_unTrackedDeviceIndex_Hmd => Some(self.get_hmd_pose(origin)),
+            x if x == Hand::Left as u32 => Some(self.get_controller_pose(Hand::Left, origin)),
+            x if x == Hand::Right as u32 => Some(self.get_controller_pose(Hand::Right, origin)),
+            _ => None,
         }
     }
 
