@@ -297,20 +297,34 @@ impl openxr_data::Compositor for Compositor {
 impl vr::IVRCompositor028_Interface for Compositor {
     fn GetPosesForFrame(
         &self,
-        _unPosePredictionID: u32,
-        _pPoseArray: *mut vr::TrackedDevicePose_t,
-        _unPoseArrayCount: u32,
+        _id: u32,
+        pose_array: *mut vr::TrackedDevicePose_t,
+        pose_array_count: u32,
     ) -> vr::EVRCompositorError {
-        crate::warn_unimplemented!("GetPosesForFrame");
-        vr::EVRCompositorError::RequestFailed
+        if pose_array.is_null() || pose_array_count == 0 {
+            return vr::EVRCompositorError::RequestFailed;
+        }
+
+        self.GetLastPoses(pose_array, pose_array_count, std::ptr::null_mut(), 0)
     }
     fn GetLastPosePredictionIDs(
         &self,
-        _pRenderPosePredictionID: *mut u32,
-        _pGamePosePredictionID: *mut u32,
+        render_pose_prediction_id: *mut u32,
+        game_pose_prediction_id: *mut u32,
     ) -> vr::EVRCompositorError {
-        crate::warn_unimplemented!("GetLastPosePredictionIDs");
-        vr::EVRCompositorError::RequestFailed
+        let index = self.metrics.index.load(Ordering::Relaxed);
+        if !render_pose_prediction_id.is_null() {
+            unsafe {
+                render_pose_prediction_id.write(index);
+            }
+        }
+
+        if !game_pose_prediction_id.is_null() {
+            unsafe {
+                game_pose_prediction_id.write(index);
+            }
+        }
+        vr::EVRCompositorError::None
     }
     fn GetCompositorBenchmarkResults(
         &self,
