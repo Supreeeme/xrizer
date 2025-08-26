@@ -587,6 +587,7 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
                     "tip",
                     "base",
                     "gdc2015",
+                    "grip",
                     "handgrip",
                     "openxr_handmodel",
                 ],
