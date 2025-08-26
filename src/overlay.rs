@@ -19,7 +19,7 @@ pub const SKYBOX_Z_ORDER: i64 = -1;
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVROverlay"]
-#[versions(027, 025, 024, 021, 020, 019, 018, 016, 014, 013, 007)]
+#[versions(027, 026, 025, 024, 021, 020, 019, 018, 016, 014, 013, 007)]
 pub struct OverlayMan {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Compositor>>,
@@ -1286,7 +1286,7 @@ impl vr::IVROverlay027_Interface for OverlayMan {
     }
 }
 
-impl vr::IVROverlay025On027 for OverlayMan {
+impl vr::IVROverlay026On027 for OverlayMan {
     fn SetOverlayTransformOverlayRelative(
         &self,
         _: vr::VROverlayHandle_t,
