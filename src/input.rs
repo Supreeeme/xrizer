@@ -1230,13 +1230,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) {
         tracy_span!();
-        poses[0] = self.get_hmd_pose(origin);
-
-        if poses.len() > Hand::Left as usize {
-            poses[Hand::Left as usize] = self.get_controller_pose(Hand::Left, origin);
-        }
-        if poses.len() > Hand::Right as usize {
-            poses[Hand::Right as usize] = self.get_controller_pose(Hand::Right, origin);
+        for (i, pose) in poses.iter_mut().enumerate() {
+            *pose = self.get_device_pose(i as u32, origin).unwrap_or_default();
         }
     }
 
