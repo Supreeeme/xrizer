@@ -899,7 +899,8 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         _: *const vr::VROverlayIntersectionParams_t,
         _: *mut vr::VROverlayIntersectionResults_t,
     ) -> bool {
-        todo!()
+        crate::warn_unimplemented!("ComputeOverlayIntersection");
+        false
     }
     fn SetOverlayMouseScale(
         &self,
