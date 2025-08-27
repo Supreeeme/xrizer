@@ -1,3 +1,4 @@
+use log::warn;
 use openvr as vr;
 
 #[derive(macros::InterfaceImpl)]
@@ -22,9 +23,12 @@ impl vr::IVRExtendedDisplay001_Interface for ExtendedDisplay {
             unsafe {
                 x.write(0);
                 y.write(0);
-                width.write(0);
-                height.write(0);
+                width.write(1280);
+                height.write(720);
             }
+        } else {
+            warn!("One or more pointers passed to GetWindowBounds are null: x: {}, y: {}, width: {}, height: {}",
+                x.is_null(), y.is_null(), width.is_null(), height.is_null());
         }
     }
     fn GetEyeOutputViewport(
