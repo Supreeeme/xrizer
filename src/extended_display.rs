@@ -16,15 +16,16 @@ impl ExtendedDisplay {
 }
 
 impl vr::IVRExtendedDisplay001_Interface for ExtendedDisplay {
-    fn GetWindowBounds(
-        &self,
-        _pn_x: *mut i32,
-        _pn_y: *mut i32,
-        _pn_width: *mut u32,
-        _pn_height: *mut u32,
-    ) {
+    fn GetWindowBounds(&self, x: *mut i32, y: *mut i32, width: *mut u32, height: *mut u32) {
         crate::warn_unimplemented!("IVRExtendedDisplay::GetWindowBounds");
-        todo!()
+        if !(x.is_null() || y.is_null() || width.is_null() || height.is_null()) {
+            unsafe {
+                x.write(0);
+                y.write(0);
+                width.write(0);
+                height.write(0);
+            }
+        }
     }
     fn GetEyeOutputViewport(
         &self,
