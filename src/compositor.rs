@@ -805,10 +805,10 @@ impl vr::IVRCompositor028_Interface for Compositor {
         match pose {
             Some(pose) => {
                 if !pOutputPose.is_null() {
-                    unsafe { pOutputPose.write_unaligned(pose) };
+                    unsafe { pOutputPose.write(pose) };
                 }
                 if !pOutputGamePose.is_null() {
-                    unsafe { pOutputGamePose.write_unaligned(pose) };
+                    unsafe { pOutputGamePose.write(pose) };
                 }
                 vr::EVRCompositorError::None
             }
