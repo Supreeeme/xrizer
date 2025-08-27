@@ -595,6 +595,17 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
         }
     };
 
+    match pose {
+        BoundPoseType::Tip
+        | BoundPoseType::Base
+        | BoundPoseType::Grip
+        | BoundPoseType::Handgrip
+        | BoundPoseType::OpenXRHandmodel => {
+            warn!("Using rendermodel pose type {pose:?} which is not fully supported yet, falling back to raw pose");
+        }
+        _ => {}
+    }
+
     Ok((hand, pose))
 }
 
