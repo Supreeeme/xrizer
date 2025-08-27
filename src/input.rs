@@ -449,22 +449,105 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
     }
     fn GetOriginLocalizedName(
         &self,
-        _: vr::VRInputValueHandle_t,
-        _: *mut c_char,
-        _: u32,
-        _: i32,
+        origin: vr::VRInputValueHandle_t,
+        name_array: *mut ::std::os::raw::c_char,
+        name_array_size: u32,
+        string_sections_to_include: i32,
     ) -> vr::EVRInputError {
         crate::warn_unimplemented!("GetOriginLocalizedName");
+
+        // let Some(subaction_path) = self.subaction_path_from_handle(origin) else {
+        //     return vr::EVRInputError::None;
+        // };
+        info!("GetOriginLocalizedName({origin}, <out_name_array>, {name_array_size}, {string_sections_to_include})");
+
+        if !name_array.is_null() && name_array_size > 0 {
+            // For now, just return a debug string for testing
+            let debug_str = "debug_origin_name";
+            let bytes = debug_str.as_bytes();
+            let len = bytes.len().min((name_array_size - 1) as usize);
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), name_array as *mut u8, len);
+                *name_array.add(len) = 0;
+            }
+        }
+
         vr::EVRInputError::None
     }
     fn GetActionOrigins(
         &self,
-        _: vr::VRActionSetHandle_t,
-        _: vr::VRActionHandle_t,
-        _: *mut vr::VRInputValueHandle_t,
-        _: u32,
+        action_set_handle: vr::VRActionSetHandle_t,
+        action_handle: vr::VRActionHandle_t,
+        origins_out: *mut vr::VRInputValueHandle_t,
+        origin_out_count: u32,
     ) -> vr::EVRInputError {
         crate::warn_unimplemented!("GetActionOrigins");
+
+        if origins_out.is_null() || origin_out_count == 0 {
+            warn!("GetActionOrigins called with null origins_out or zero origin_out_count");
+            return vr::EVRInputError::InvalidParam;
+        }
+
+        let origins =
+            unsafe { std::slice::from_raw_parts_mut(origins_out, origin_out_count as usize) };
+        origins.fill(vr::k_ulInvalidInputValueHandle);
+
+        let Some(action_set) = self
+            .set_map
+            .read()
+            .unwrap()
+            .get(ActionSetKey::from(KeyData::from_ffi(action_set_handle)))
+            .map(|name| name.to_string())
+        else {
+            warn!("GetActionOrigins called with invalid action_set_handle: {action_set_handle}");
+            return vr::EVRInputError::InvalidHandle;
+        };
+
+        let Some(action) = self
+            .action_map
+            .read()
+            .unwrap()
+            .get(ActionKey::from(KeyData::from_ffi(action_handle)))
+            .map(|action| action.path.to_string())
+        else {
+            warn!("GetActionOrigins called with invalid action_handle: {action_handle}");
+            return vr::EVRInputError::InvalidHandle;
+        };
+
+        info!("GetActionOrigins({action_set:?}, {action:?}, <origins_out>, {origin_out_count:?})");
+
+        // get_action_from_handle!(self, action_handle, session_data, action);
+        // match action {
+        //     ActionData::Bool (action) => {
+        //         info!("GetActionOrigins({action_set:?}, Action<Bool>, <origins_out>, {origin_out_count:?})");
+        //     }
+        //     | ActionData::Vector1 { action, .. } => {
+        //         info!("GetActionOrigins({action_set:?}, Action<Vector1>, <origins_out>, {origin_out_count:?})");
+        //     }
+        //     | ActionData::Vector2 { action, .. } => {
+        //         info!("GetActionOrigins({action_set:?}, Action<Vector2>, <origins_out>, {origin_out_count:?})");
+        //     }
+        //     | ActionData::Haptic( action, ..) => {
+        //         info!("GetActionOrigins({action_set:?}, Action<Haptic>, <origins_out>, {origin_out_count:?})");
+        //         // For now, just return both hands if available
+        //         // let mut count = 0;
+        //         // if count < origins.len() {
+        //         //     origins[count] = self.left_hand_key.data().as_ffi();
+        //         //     count += 1;
+        //         // }
+        //         // if count < origins.len() {
+        //         //     origins[count] = self.right_hand_key.data().as_ffi();
+        //         //     count += 1;
+        //         // }
+        //     }
+        //     ActionData::Skeleton{hand, ..} => {
+        //         info!("GetActionOrigins({action_set:?}, Action<Skeleton>, <origins_out>, {origin_out_count:?})");
+        //     }
+        //     ActionData::Pose => {
+        //         info!("GetActionOrigins({action_set:?}, Action<Pose>, <origins_out>, {origin_out_count:?})");
+        //     }
+        // }
+
         vr::EVRInputError::None
     }
     fn TriggerHapticVibrationAction(
