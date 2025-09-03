@@ -658,7 +658,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         vr::EVRInputError::None
     }
     fn SetDominantHand(&self, _: vr::ETrackedControllerRole) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("SetDominantHand");
+        vr::EVRInputError::None
     }
     fn GetDominantHand(&self, _: *mut vr::ETrackedControllerRole) -> vr::EVRInputError {
         crate::warn_unimplemented!("GetDominantHand");
