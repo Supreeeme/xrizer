@@ -8,7 +8,7 @@ use crate::{
     tracy_span, AtomicF64,
 };
 
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use openvr as vr;
 use openxr as xr;
 use std::mem::offset_of;
@@ -47,24 +47,20 @@ enum FrameState {
 }
 
 impl FrameState {
-    fn advance_to(&mut self, new: Self) {
+    fn advance_to(&mut self, new: Self) -> bool {
         let old = *self;
-        let mut allowed = |a| {
-            assert!(new == a, "Tried to advance from {:?} to {new:?}", *self);
-            *self = a;
+        let allowed: bool = match old {
+            Self::Waited => new == Self::Begun,
+            Self::Begun => new != Self::Begun,
+            Self::Submitted => new == Self::Waited,
         };
-
-        match old {
-            Self::Waited => {
-                allowed(Self::Begun);
-            }
-            Self::Begun => *self = new,
-            Self::Submitted => {
-                allowed(Self::Waited);
-            }
+        if allowed {
+            *self = new;
+            trace!("advanced frame state from {old:?} to {new:?}");
+        } else {
+            warn!("Tried to advance frame state from {old:?} to {new:?}, which is not allowed");
         }
-
-        trace!("advanced frame state from {old:?} to {new:?}");
+        allowed
     }
 }
 
@@ -125,10 +121,15 @@ impl Compositor {
     fn maybe_begin_frame(&self, session_data: &SessionData) {
         tracy_span!();
         let mut frame_lock = { session_data.comp_data.0.lock().unwrap() };
-        self.frame_state
+        if !self
+            .frame_state
             .lock()
             .unwrap()
-            .advance_to(FrameState::Begun);
+            .advance_to(FrameState::Begun)
+        {
+            debug!("not starting frame - already begun or submitted");
+            return;
+        };
         let Some(ctrl) = frame_lock.as_mut() else {
             debug!("no frame controller - not starting frame");
             return;
