@@ -795,25 +795,30 @@ impl vr::IVRCompositor028_Interface for Compositor {
             return vr::EVRCompositorError::RequestFailed;
         }
 
-        // HMD, left hand, right hand
-        let mut poses = [Default::default(); 3];
-        self.input
-            .force(|_| Input::new(self.openxr.clone()))
-            .get_poses(&mut poses, None);
+        let input = self.input.force(|_| Input::new(self.openxr.clone()));
 
-        if let Some(pose) = poses.get(device_index as usize) {
-            if !output_pose.is_null() {
-                unsafe { output_pose.write(*pose) };
+        let pose = match device_index {
+            vr::k_unTrackedDeviceIndex_Hmd => input.get_hmd_pose(None),
+            x if x == openxr_data::Hand::Left as u32 => {
+                input.get_controller_pose(openxr_data::Hand::Left, None)
             }
-
-            if !output_game_pose.is_null() {
-                unsafe { output_game_pose.write(*pose) };
+            x if x == openxr_data::Hand::Right as u32 => {
+                input.get_controller_pose(openxr_data::Hand::Right, None)
             }
+            _ => {
+                return vr::EVRCompositorError::RequestFailed;
+            }
+        };
 
-            vr::EVRCompositorError::None
-        } else {
-            vr::EVRCompositorError::RequestFailed
+        if !output_pose.is_null() {
+            unsafe { output_pose.write(pose) };
         }
+
+        if !output_game_pose.is_null() {
+            unsafe { output_game_pose.write(pose) };
+        }
+
+        vr::EVRCompositorError::None
     }
     fn GetLastPoses(
         &self,
