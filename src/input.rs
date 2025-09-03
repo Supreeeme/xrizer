@@ -1232,7 +1232,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
     }
 
-    fn get_hmd_pose(&self, origin: Option<vr::ETrackingUniverseOrigin>) -> vr::TrackedDevicePose_t {
+    pub fn get_hmd_pose(
+        &self,
+        origin: Option<vr::ETrackingUniverseOrigin>,
+    ) -> vr::TrackedDevicePose_t {
         tracy_span!();
         let mut spaces = self.cached_poses.lock().unwrap();
         let data = self.openxr.session_data.get();
