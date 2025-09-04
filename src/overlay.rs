@@ -19,7 +19,7 @@ pub const SKYBOX_Z_ORDER: i64 = -1;
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVROverlay"]
-#[versions(027, 025, 024, 021, 020, 019, 018, 016, 014, 013, 007)]
+#[versions(028, 027, 025, 024, 021, 020, 019, 018, 016, 014, 013, 007)]
 pub struct OverlayMan {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Compositor>>,
@@ -323,6 +323,14 @@ impl OverlayMan {
         trace!("returning {} layers", sorted_layers.len());
         sorted_layers
     }
+
+    pub fn get_next_overlay_event(
+        &self,
+        _event: *mut vr::VREvent_t,
+    ) -> Option<vr::VROverlayHandle_t> {
+        // TODO: go through overlay handles and grab the next event.
+        None
+    }
 }
 
 pub struct OverlayLayer<'a, G: xr::Graphics> {
@@ -604,7 +612,7 @@ macro_rules! get_overlay {
     };
 }
 
-impl vr::IVROverlay027_Interface for OverlayMan {
+impl vr::IVROverlay028_Interface for OverlayMan {
     fn CreateOverlay(
         &self,
         key: *const c_char,
@@ -629,6 +637,16 @@ impl vr::IVROverlay027_Interface for OverlayMan {
 
         debug!("created overlay {name:?} with key {key:?}");
         vr::EVROverlayError::None
+    }
+
+    fn CreateSubviewOverlay(
+        &self,
+        _parent_overlay_handle: vr::VROverlayHandle_t,
+        _subview_overlay_key: *const ::std::os::raw::c_char,
+        _subview_overlay_name: *const ::std::os::raw::c_char,
+        _subview_overlay_handle: *mut vr::VROverlayHandle_t,
+    ) -> vr::EVROverlayError {
+        todo!()
     }
 
     fn FindOverlay(
@@ -982,6 +1000,14 @@ impl vr::IVROverlay027_Interface for OverlayMan {
         todo!()
     }
     fn IsOverlayVisible(&self, _: vr::VROverlayHandle_t) -> bool {
+        todo!()
+    }
+    fn SetSubviewPosition(
+        &self,
+        _overlay_handle: vr::VROverlayHandle_t,
+        _x: f32,
+        _y: f32,
+    ) -> vr::EVROverlayError {
         todo!()
     }
     fn SetOverlayTransformProjection(
