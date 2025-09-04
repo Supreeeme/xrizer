@@ -90,6 +90,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let header_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("headers");
     let headers = [
+        version!(2, 12, 14),
         version!(2, 5, 1),
         version!(2, 0, 10),
         version!(1, 16, 8),
