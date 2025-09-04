@@ -2,6 +2,7 @@ use crate::{
     clientcore::{Injected, Injector},
     input::Input,
     openxr_data::{Hand, RealOpenXrData, SessionData},
+    overlay::OverlayMan,
     tracy_span,
 };
 use glam::{Mat3, Quat, Vec3};
@@ -157,10 +158,11 @@ impl ViewCache {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRSystem"]
-#[versions(022, 021, 020, 019, 017, 016, 015, 014, 012, 009)]
+#[versions(023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 009)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
     input: Injected<Input<crate::compositor::Compositor>>,
+    overlay: Injected<OverlayMan>,
     vtables: Vtables,
     last_connected_hands: ConnectedHands,
     views: Mutex<ViewCache>,
@@ -175,6 +177,7 @@ impl System {
         Self {
             openxr,
             input: injector.inject(),
+            overlay: injector.inject(),
             vtables: Default::default(),
             last_connected_hands: Default::default(),
             views: Mutex::default(),
@@ -202,7 +205,7 @@ impl System {
     }
 }
 
-impl vr::IVRSystem022_Interface for System {
+impl vr::IVRSystem023_Interface for System {
     fn GetRecommendedRenderTargetSize(&self, width: *mut u32, height: *mut u32) {
         let views = self
             .openxr
@@ -442,6 +445,33 @@ impl vr::IVRSystem022_Interface for System {
     fn GetEventTypeNameFromEnum(&self, _: vr::EVREventType) -> *const std::os::raw::c_char {
         todo!()
     }
+
+    fn PollNextEventWithPoseAndOverlays(
+        &self,
+        origin: vr::ETrackingUniverseOrigin,
+        event: *mut vr::VREvent_t,
+        size: u32,
+        pose: *mut vr::TrackedDevicePose_t,
+        overlay_handle: *mut vr::VROverlayHandle_t,
+    ) -> bool {
+        if self.PollNextEventWithPose(origin, event, size, pose) {
+            return true;
+        }
+        let overlay = self
+            .overlay
+            .force(|injector| OverlayMan::new(self.openxr.clone(), injector));
+        if overlay_handle.is_null() {
+            return false;
+        }
+        let overlay_handle = unsafe { *overlay_handle };
+        vr::IVROverlay027_Interface::PollNextOverlayEvent(
+            overlay.as_ref(),
+            overlay_handle,
+            event,
+            size,
+        )
+    }
+
     fn PollNextEventWithPose(
         &self,
         origin: vr::ETrackingUniverseOrigin,
