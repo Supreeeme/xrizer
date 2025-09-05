@@ -253,7 +253,10 @@ impl<C: Compositor> OpenXrData<C> {
                 Quat::from_xyzw(orientation.x, orientation.y, orientation.z, orientation.w),
                 Vec3::Y,
             )
-            .unwrap();
+            .unwrap_or_else(|| {
+                warn!("Couldn't decompose rotation - using identity");
+                (Quat::IDENTITY, Quat::IDENTITY)
+            });
 
             *adjusted_space = session
                 .create_reference_space(
