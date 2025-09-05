@@ -598,6 +598,151 @@ impl Overlay {
         Ok(())
     }
 
+    pub fn set_raw_texture(
+        &mut self,
+        _key: OverlayKey,
+        _session_data: &SessionData,
+        _texture: *mut c_void,
+        width: u32,
+        height: u32,
+        bytes_per_pixel: u32,
+    ) -> Result<(), vr::EVROverlayError> {
+        debug!("setting overlay raw texture on {:?} with size {width}x{height} and {bytes_per_pixel} bytes per pixel", self.name);
+
+        // let backend = self
+        //     .compositor
+        //     .get_or_insert_with(|| SupportedBackend::OpenGL(GlData::new()));
+
+        // #[macros::any_graphics(SupportedBackend)]
+        // fn create_swapchain_map<G: GraphicsBackend>(_: &G) -> AnySwapchainMap
+        // where
+        //     AnySwapchainMap: From<SwapchainMap<G::Api>>,
+        // {
+        //     SwapchainMap::<G::Api>::default().into()
+        // }
+
+        // let mut swapchains = session_data.overlay_data.swapchains.lock().unwrap();
+        // let swapchains =
+        //     swapchains.get_or_insert_with(|| backend.with_any_graphics::<create_swapchain_map>(()));
+
+        // #[macros::any_graphics(SupportedBackend)]
+        // fn set_swapchain_texture<G: GraphicsBackend>(
+        //     backend: &mut G,
+        //     session_data: &SessionData,
+        //     texture_bounds: vr::VRTextureBounds_t,
+        //     map: &mut AnySwapchainMap,
+        //     key: OverlayKey,
+        //     texture: *mut c_void,
+        //     width: u32,
+        //     height: u32,
+        //     bytes_per_pixel: u32,
+        // ) -> Result<xr::Extent2Di, vr::EVROverlayError>
+        // where
+        //     for<'a> &'a mut SwapchainMap<G::Api>:
+        //         TryFrom<&'a mut AnySwapchainMap, Error: std::fmt::Display>,
+        //     for<'a> &'a GraphicalSession: TryInto<&'a Session<G::Api>, Error: std::fmt::Display>,
+        //     <G::Api as xr::Graphics>::Format: Eq,
+        // {
+        //     let map: &mut SwapchainMap<G::Api> = map.try_into().unwrap_or_else(|e| {
+        //         panic!(
+        //             "Received different texture type for overlay than current ({}) - {e}",
+        //             std::any::type_name::<G::Api>()
+        //         );
+        //     });
+        //     // let Some(b_texture) = G::get_texture(&texture) else {
+        //     //     debug!("received invalid overlay texture handle");
+        //     //     return Err(vr::EVROverlayError::InvalidTexture);
+        //     // };
+        //     // let b_texture = G::get_texture_from_raw(texture, width, height, bytes_per_pixel)
+        //     //     .ok_or_else(|| {
+        //     //         debug!("received invalid overlay raw texture");
+        //     //         vr::EVROverlayError::InvalidTexture
+        //     //     })?;
+        //     let internal_format = match bytes_per_pixel {
+        //         3 => gl::RGB8 as i32,
+        //         4 => gl::RGBA8 as i32,
+        //         _ => unreachable!(),
+        //     };
+        //     let format = match bytes_per_pixel {
+        //         3 => gl::RGB,
+        //         4 => gl::RGBA,
+        //         _ => unreachable!(),
+        //     };
+        //     unsafe {
+        //         gl::TexImage2D(
+        //             gl::TEXTURE_2D,
+        //             0,
+        //             internal_format,
+        //             width as i32,
+        //             height as i32,
+        //             0,
+        //             format,
+        //             gl::UNSIGNED_BYTE,
+        //             texture.cast(),
+        //         );
+        //         gl::GenerateMipmap(gl::TEXTURE_2D);
+        //         // get handle for TexImage2D
+        //         // let tex_handle = gl::GetTexImage(gl::TEXTURE_2D, 0, format, gl::UNSIGNED_BYTE, texture.cast());
+        //     }
+        //     let tex_swapchain_info = backend.swapchain_info_for_texture(
+        //         b_texture,
+        //         texture_bounds,
+        //         vr::EColorSpace::Auto,
+        //     );
+        //     let mut create_swapchain = || {
+        //         let mut info = backend.swapchain_info_for_texture(
+        //             b_texture,
+        //             texture_bounds,
+        //             vr::EColorSpace::Auto,
+        //         );
+        //         let initial_format = info.format;
+        //         session_data.check_format::<G>(&mut info);
+        //         let swapchain = session_data.create_swapchain(&info).unwrap();
+        //         let images = swapchain
+        //             .enumerate_images()
+        //             .expect("Couldn't enumerate swapchain images");
+        //         backend.store_swapchain_images(images, info.format);
+        //         SwapchainData {
+        //             swapchain,
+        //             info,
+        //             initial_format,
+        //         }
+        //     };
+        //     let swapchain = {
+        //         let data = map
+        //             .entry(key)
+        //             .unwrap()
+        //             .or_insert_with(&mut create_swapchain);
+        //         if !is_usable_swapchain(&data.info, data.initial_format, &tex_swapchain_info) {
+        //             *data = create_swapchain();
+        //         }
+        //         &mut data.swapchain
+        //     };
+        //     let idx = swapchain.acquire_image().unwrap();
+        //     swapchain.wait_image(xr::Duration::INFINITE).unwrap();
+        //     let extent = backend.copy_overlay_to_swapchain(b_texture, texture_bounds, idx as usize);
+        //     swapchain.release_image().unwrap();
+        //     Ok(extent)
+        // }
+        // let backend = self.compositor.as_mut().unwrap();
+        // let extent = backend.with_any_graphics_mut::<set_swapchain_texture>((
+        //     session_data,
+        //     self.bounds,
+        //     swapchains,
+        //     key,
+        //     texture,
+        //     width,
+        //     height,
+        //     bytes_per_pixel,
+        // ))?;
+        // self.rect = Some(xr::Rect2Di {
+        //     extent,
+        //     offset: xr::Offset2Di::default(),
+        // });
+
+        Ok(())
+    }
+
     pub fn set_flag(&mut self, flag: vr::VROverlayFlags, value: bool) {
         debug!(
             "setting overlay flag {flag:?} to {value} on {:?}",
@@ -917,13 +1062,25 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     }
     fn SetOverlayRaw(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: *mut c_void,
-        _: u32,
-        _: u32,
-        _: u32,
+        handle: vr::VROverlayHandle_t,
+        texture: *mut c_void,
+        width: u32,
+        height: u32,
+        bytes_per_pixel: u32,
     ) -> vr::EVROverlayError {
-        todo!()
+        get_overlay!(self, handle, mut overlay);
+        let key = OverlayKey::from(KeyData::from_ffi(handle));
+        if let Err(error) = overlay.set_raw_texture(
+            key,
+            &self.openxr.session_data.get(),
+            texture,
+            width,
+            height,
+            bytes_per_pixel,
+        ) {
+            return error;
+        };
+        vr::EVROverlayError::None
     }
     fn ClearOverlayTexture(&self, _: vr::VROverlayHandle_t) -> vr::EVROverlayError {
         todo!()
