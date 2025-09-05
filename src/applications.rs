@@ -1,6 +1,9 @@
 use openvr as vr;
 use std::ffi::c_char;
 
+use log::info;
+use std::process::Command;
+
 #[derive(Default, macros::InterfaceImpl)]
 #[interface = "IVRApplications"]
 #[versions(007, 006)]
@@ -14,11 +17,42 @@ impl vr::IVRApplications007_Interface for Applications {
     }
     fn LaunchInternalProcess(
         &self,
-        _: *const c_char,
-        _: *const c_char,
-        _: *const c_char,
+        pch_binary_path: *const c_char,
+        pch_arguments: *const c_char,
+        pch_working_directory: *const c_char,
     ) -> vr::EVRApplicationError {
-        todo!()
+        crate::warn_unimplemented!("LaunchInternalProcess");
+
+        let binary_path = unsafe { std::ffi::CStr::from_ptr(pch_binary_path) }
+            .to_str()
+            .unwrap_or("")
+            .to_owned();
+        let arguments = unsafe { std::ffi::CStr::from_ptr(pch_arguments) }
+            .to_str()
+            .unwrap_or("")
+            .to_owned();
+        let working_directory = unsafe { std::ffi::CStr::from_ptr(pch_working_directory) }
+            .to_str()
+            .unwrap_or("")
+            .to_owned();
+
+        info!(
+            "LaunchInternalProcess called: {:?}, ARGS: {:?}, WD: {:?}",
+            binary_path, arguments, working_directory
+        );
+
+        let process = Command::new(binary_path)
+            .args(arguments.split_whitespace())
+            .current_dir(working_directory)
+            .spawn();
+
+        match process {
+            Ok(_) => vr::EVRApplicationError::None,
+            Err(e) => {
+                info!("Failed to launch internal process: {}", e);
+                vr::EVRApplicationError::LaunchFailed
+            }
+        }
     }
     fn GetSceneApplicationStateNameFromEnum(
         &self,
@@ -151,19 +185,30 @@ impl vr::IVRApplications007_Interface for Applications {
 }
 
 impl vr::IVRApplications006On007 for Applications {
-    fn GetApplicationsTransitionStateNameFromEnum(
-        &self,
-        _: vr::EVRApplicationTransitionState,
-    ) -> *const ::std::os::raw::c_char {
-        crate::warn_unimplemented!("GetApplicationsTransitionStateNameFromEnum");
-        std::ptr::null()
-    }
-
     fn GetTransitionState(&self) -> vr::EVRApplicationTransitionState {
+        crate::warn_unimplemented!("GetTransitionState");
         vr::EVRApplicationTransitionState::None
     }
-
+    fn GetApplicationsTransitionStateNameFromEnum(
+        &self,
+        state: vr::EVRApplicationTransitionState,
+    ) -> *const ::std::os::raw::c_char {
+        crate::warn_unimplemented!("GetApplicationsTransitionStateNameFromEnum");
+        match state {
+            vr::EVRApplicationTransitionState::None => c"None".as_ptr() as *const c_char,
+            vr::EVRApplicationTransitionState::OldAppQuitSent => {
+                c"OldAppQuitSent".as_ptr() as *const c_char
+            }
+            vr::EVRApplicationTransitionState::WaitingForExternalLaunch => {
+                c"WaitingForExternalLaunch".as_ptr() as *const c_char
+            }
+            vr::EVRApplicationTransitionState::NewAppLaunched => {
+                c"NewAppLaunched".as_ptr() as *const c_char
+            }
+        }
+    }
     fn IsQuitUserPromptRequested(&self) -> bool {
+        crate::warn_unimplemented!("IsQuitUserPromptRequested");
         false
     }
 }

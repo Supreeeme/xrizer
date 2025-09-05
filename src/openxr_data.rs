@@ -182,6 +182,90 @@ impl<C: Compositor> OpenXrData<C> {
                         );
                     }
                 }
+                xr::Event::EventsLost(_) => {
+                    warn!("OpenXR events lost!");
+                }
+                xr::Event::InstanceLossPending(_) => {
+                    warn!("OpenXR instance loss pending!");
+                }
+                xr::Event::ReferenceSpaceChangePending(_) => {
+                    warn!("OpenXR reference space change pending!");
+                }
+                xr::Event::PerfSettingsEXT(_) => {
+                    warn!("OpenXR performance settings changed!");
+                }
+                xr::Event::VisibilityMaskChangedKHR(_) => {
+                    warn!("OpenXR visibility mask changed!");
+                }
+                xr::Event::MainSessionVisibilityChangedEXTX(_) => {
+                    warn!("OpenXR main session visibility changed!");
+                }
+                xr::Event::DisplayRefreshRateChangedFB(_) => {
+                    warn!("OpenXR display refresh rate changed!");
+                }
+                xr::Event::SpatialAnchorCreateCompleteFB(_) => {
+                    warn!("OpenXR spatial anchor create complete!");
+                }
+                xr::Event::SpaceSetStatusCompleteFB(_) => {
+                    warn!("OpenXR space set status complete!");
+                }
+                xr::Event::SpaceQueryResultsAvailableFB(_) => {
+                    warn!("OpenXR space query results available!");
+                }
+                xr::Event::SpaceQueryCompleteFB(_) => {
+                    warn!("OpenXR space query complete!");
+                }
+                xr::Event::SpaceSaveCompleteFB(_) => {
+                    warn!("OpenXR space save complete!");
+                }
+                xr::Event::SpaceEraseCompleteFB(_) => {
+                    warn!("OpenXR space erase complete!");
+                }
+                xr::Event::SpaceShareCompleteFB(_) => {
+                    warn!("OpenXR space share complete!");
+                }
+                xr::Event::SpaceListSaveCompleteFB(_) => {
+                    warn!("OpenXR space list save complete!");
+                }
+                xr::Event::SceneCaptureCompleteFB(_) => {
+                    warn!("OpenXR scene capture complete!");
+                }
+                xr::Event::PassthroughStateChangedFB(_) => {
+                    warn!("OpenXR passthrough state changed!");
+                }
+                xr::Event::ViveTrackerConnectedHTCX(_) => {
+                    warn!("OpenXR Vive tracker connected!");
+                }
+                xr::Event::MarkerTrackingUpdateVARJO(_) => {
+                    warn!("OpenXR marker tracking update!");
+                }
+                xr::Event::VirtualKeyboardCommitTextMETA(_) => {
+                    warn!("OpenXR virtual keyboard commit text!");
+                }
+                xr::Event::VirtualKeyboardBackspaceMETA(_) => {
+                    warn!("OpenXR virtual keyboard backspace!");
+                }
+                xr::Event::VirtualKeyboardEnterMETA(_) => {
+                    warn!("OpenXR virtual keyboard enter!");
+                }
+                xr::Event::VirtualKeyboardShownMETA(_) => {
+                    warn!("OpenXR virtual keyboard shown!");
+                }
+                xr::Event::VirtualKeyboardHiddenMETA(_) => {
+                    warn!("OpenXR virtual keyboard hidden!");
+                }
+                xr::Event::HeadsetFitChangedML(_) => {
+                    warn!("OpenXR headset fit changed!");
+                }
+                xr::Event::EyeCalibrationChangedML(_) => {
+                    warn!("OpenXR eye calibration changed!");
+                }
+                xr::Event::LocalizationChangedML(_) => {
+                    warn!("OpenXR localization changed!");
+                }
+                xr::Event::UserPresenceChangedEXT(_) => {
+                    warn!("OpenXR user presence changed!");
+                }
                 _ => {
                     info!("unknown event");
                 }
