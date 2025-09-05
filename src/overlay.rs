@@ -887,15 +887,32 @@ impl vr::IVROverlay028_Interface for OverlayMan {
             vr::EVROverlayError::InvalidParameter
         } else {
             let texture = unsafe { texture.read() };
+            if !self.openxr.session_data.get().is_real_session()
+                && self
+                    .compositor
+                    .get()
+                    .expect("Need to restart session, but compositor hasn't been set up...")
+                    .initialize_real_session(&texture, overlay.bounds)
+                    .is_err()
+            {
+                debug!("cannot set overlay texture when not in a real session");
+                return vr::EVROverlayError::InvalidTexture;
+            }
             let key = OverlayKey::from(KeyData::from_ffi(handle));
 
             match self.get_real_session_data(&texture, overlay.bounds) {
                 Err(e) => e,
                 Ok(data) => match overlay.set_texture(key, data, texture) {
-                    Err(e) => e,
                     Ok(_) => {
                         debug!("set overlay texture for {:?}", overlay.name);
                         vr::EVROverlayError::None
+                    },
+                    Err(e) => {
+                        debug!(
+                            "failed to set overlay texture for {:?}: {e:?}",
+                            overlay.name
+                        );
+                        e
                     }
                 },
             }
