@@ -890,6 +890,7 @@ impl vr::IVROverlay028_Interface for OverlayMan {
         handle: vr::VROverlayHandle_t,
         texture: *const vr::Texture_t,
     ) -> vr::EVROverlayError {
+        debug!("setting overlay texture");
         get_overlay!(self, handle, mut overlay);
         if texture.is_null() {
             vr::EVROverlayError::InvalidParameter
