@@ -5,7 +5,7 @@ use crate::{
     openxr_data::{GraphicalSession, OpenXrData, Session, SessionData},
 };
 use glam::{vec3, Quat, Vec3};
-use log::{debug, info, trace};
+use log::{debug, trace};
 use openvr as vr;
 use openxr as xr;
 use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
@@ -599,12 +599,19 @@ impl Overlay {
     }
 
     pub fn set_flag(&mut self, flag: vr::VROverlayFlags, value: bool) {
-        debug!("setting overlay flag {flag:?} to {value} on {:?}", self.name);
+        debug!(
+            "setting overlay flag {flag:?} to {value} on {:?}",
+            self.name
+        );
         self.flags = if value {
             self.flags | flag as u32
         } else {
             self.flags & !(flag as u32)
         };
+    }
+    pub fn set_name(&mut self, name: CString) {
+        debug!("setting overlay name to {name:?} on {:?}", self.name);
+        self.name = name;
     }
 }
 
@@ -1329,8 +1336,14 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     ) -> vr::EVROverlayError {
         todo!()
     }
-    fn SetOverlayName(&self, _: vr::VROverlayHandle_t, _: *const c_char) -> vr::EVROverlayError {
-        todo!()
+    fn SetOverlayName(
+        &self,
+        handle: vr::VROverlayHandle_t,
+        name: *const c_char,
+    ) -> vr::EVROverlayError {
+        get_overlay!(self, handle, mut overlay);
+        overlay.set_name(unsafe { CStr::from_ptr(name).to_owned() });
+        vr::EVROverlayError::None
     }
     fn GetOverlayName(
         &self,
