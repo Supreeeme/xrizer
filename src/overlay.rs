@@ -5,7 +5,7 @@ use crate::{
     openxr_data::{GraphicalSession, OpenXrData, Session, SessionData},
 };
 use glam::{vec3, Quat, Vec3};
-use log::{debug, trace};
+use log::{debug, info, trace};
 use openvr as vr;
 use openxr as xr;
 use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
@@ -466,6 +466,7 @@ struct Overlay {
     transform: Option<(vr::ETrackingUniverseOrigin, vr::HmdMatrix34_t)>,
     compositor: Option<SupportedBackend>,
     rect: Option<xr::Rect2Di>,
+    flags: u32,
 }
 
 impl Overlay {
@@ -487,6 +488,7 @@ impl Overlay {
             transform: None,
             compositor: None,
             rect: None,
+            flags: 0,
         }
     }
 
@@ -594,6 +596,15 @@ impl Overlay {
             offset: xr::Offset2Di::default(),
         });
         Ok(())
+    }
+
+    pub fn set_flag(&mut self, flag: vr::VROverlayFlags, value: bool) {
+        debug!("setting overlay flag {flag:?} to {value} on {:?}", self.name);
+        self.flags = if value {
+            self.flags | flag as u32
+        } else {
+            self.flags & !(flag as u32)
+        };
     }
 }
 
@@ -1005,8 +1016,12 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     ) -> vr::EVROverlayError {
         todo!()
     }
-    fn IsOverlayVisible(&self, _: vr::VROverlayHandle_t) -> bool {
-        todo!()
+    fn IsOverlayVisible(&self, handle: vr::VROverlayHandle_t) -> bool {
+        let overlays = self.overlays.read().unwrap();
+        let Some(overlay) = overlays.get(OverlayKey::from(KeyData::from_ffi(handle))) else {
+            return false;
+        };
+        overlay.visible
     }
     fn SetSubviewPosition(
         &self,
@@ -1286,11 +1301,12 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     }
     fn SetOverlayFlag(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: vr::VROverlayFlags,
-        _: bool,
+        handle: vr::VROverlayHandle_t,
+        flag: vr::VROverlayFlags,
+        value: bool,
     ) -> vr::EVROverlayError {
-        crate::warn_unimplemented!("SetOverlayFlag");
+        get_overlay!(self, handle, mut overlay);
+        overlay.set_flag(flag, value);
         vr::EVROverlayError::None
     }
     fn GetOverlayRenderingPid(&self, _: vr::VROverlayHandle_t) -> u32 {
