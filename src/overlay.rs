@@ -875,6 +875,7 @@ impl vr::IVROverlay028_Interface for OverlayMan {
                     .initialize_real_session(&texture, overlay.bounds)
                     .is_err()
             {
+                debug!("cannot set overlay texture when not in a real session");
                 return vr::EVROverlayError::InvalidTexture;
             }
             let key = OverlayKey::from(KeyData::from_ffi(handle));
@@ -883,7 +884,13 @@ impl vr::IVROverlay028_Interface for OverlayMan {
                     debug!("set overlay texture for {:?}", overlay.name);
                     vr::EVROverlayError::None
                 }
-                Err(e) => e,
+                Err(e) => {
+                    debug!(
+                        "failed to set overlay texture for {:?}: {e:?}",
+                        overlay.name
+                    );
+                    e
+                }
             }
         }
     }
