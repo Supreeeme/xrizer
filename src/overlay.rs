@@ -641,12 +641,12 @@ impl vr::IVROverlay028_Interface for OverlayMan {
 
     fn CreateSubviewOverlay(
         &self,
-        _parent_overlay_handle: vr::VROverlayHandle_t,
-        _subview_overlay_key: *const ::std::os::raw::c_char,
-        _subview_overlay_name: *const ::std::os::raw::c_char,
-        _subview_overlay_handle: *mut vr::VROverlayHandle_t,
+        _parent_handle: vr::VROverlayHandle_t,
+        subview_key: *const ::std::os::raw::c_char,
+        subview_name: *const ::std::os::raw::c_char,
+        subview_handle: *mut vr::VROverlayHandle_t,
     ) -> vr::EVROverlayError {
-        todo!()
+        self.CreateOverlay(subview_key, subview_name, subview_handle)
     }
 
     fn FindOverlay(
