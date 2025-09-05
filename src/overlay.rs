@@ -984,7 +984,8 @@ impl vr::IVROverlay028_Interface for OverlayMan {
         false
     }
     fn WaitFrameSync(&self, _: u32) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("WaitFrameSync");
+        vr::EVROverlayError::None
     }
     fn GetTransformForOverlayCoordinates(
         &self,
