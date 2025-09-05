@@ -844,12 +844,16 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     }
     fn CreateDashboardOverlay(
         &self,
-        _: *const c_char,
-        _: *const c_char,
-        _: *mut vr::VROverlayHandle_t,
-        _: *mut vr::VROverlayHandle_t,
+        key: *const c_char,
+        name: *const c_char,
+        handle: *mut vr::VROverlayHandle_t,
+        thumbnail_handle: *mut vr::VROverlayHandle_t,
     ) -> vr::EVROverlayError {
-        todo!()
+        let mut result = self.CreateOverlay(key, name, handle);
+        if result == vr::EVROverlayError::None {
+            result = self.CreateOverlay(key, name, thumbnail_handle);
+        }
+        result
     }
     fn GetOverlayTextureSize(
         &self,
