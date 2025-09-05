@@ -1169,7 +1169,8 @@ impl vr::IVROverlay028_Interface for OverlayMan {
         todo!()
     }
     fn SetOverlayPreCurvePitch(&self, _: vr::VROverlayHandle_t, _: f32) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("SetOverlayPreCurvePitch");
+        vr::EVROverlayError::None
     }
     fn GetOverlayCurvature(
         &self,
