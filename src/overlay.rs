@@ -869,7 +869,13 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     ) -> vr::EVROverlayError {
         let mut result = self.CreateOverlay(key, name, handle);
         if result == vr::EVROverlayError::None {
-            result = self.CreateOverlay(key, name, thumbnail_handle);
+            let key = unsafe { CStr::from_ptr(key) };
+
+            let mut concatenation = key.to_bytes().to_vec();
+            concatenation.extend_from_slice(b".thumbnail\0");
+            let thumbnail_key = CString::from_vec_with_nul(concatenation).unwrap();
+
+            result = self.CreateOverlay(thumbnail_key.as_ptr(), name, thumbnail_handle);
         }
         result
     }
