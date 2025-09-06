@@ -28,6 +28,48 @@ struct SessionCreateInfo(xr::opengl::SessionCreateInfo);
 unsafe impl Send for SessionCreateInfo {}
 unsafe impl Sync for SessionCreateInfo {}
 
+unsafe fn get_fbconfig(
+    glx: &Glx,
+    display: *mut glx::types::Display,
+    glx_context: glx::types::GLXContext,
+) -> Option<glx::types::GLXFBConfig> {
+    let mut config_id = 0;
+    let ret = glx.QueryContext(display, glx_context, glx::FBCONFIG_ID as _, &mut config_id);
+    if ret != Success as i32 {
+        warn!("Failed to get fbconfig id from context (error code {ret})");
+        return None;
+    }
+
+    let mut screen = 0;
+    let ret = glx.QueryContext(display, glx_context, glx::SCREEN as _, &mut screen);
+    if ret != Success as i32 {
+        warn!("Failed to get GLX screen for context (error code {ret})");
+        return None;
+    }
+
+    let attrs = [glx::FBCONFIG_ID, config_id as _, glx::NONE];
+    let mut items = 0;
+    let cfgs = glx.ChooseFBConfig(display, screen, attrs.as_ptr() as _, &mut items);
+    (!cfgs.is_null() && items >= 0).then(|| std::slice::from_raw_parts(cfgs, items as usize)[0])
+}
+
+unsafe fn get_visualid(
+    glx: &Glx,
+    display: *mut glx::types::Display,
+    cfg: Option<glx::types::GLXFBConfig>,
+) -> u32 {
+    let Some(cfg) = cfg else {
+        return 0;
+    };
+    let visual = glx.GetVisualFromFBConfig(display, cfg);
+    if visual.is_null() {
+        warn!("No visual available from fbconfig.");
+        0
+    } else {
+        (&raw const (*visual).visualid).read() as u32
+    }
+}
+
 impl GlData {
     pub(crate) fn new() -> Self {
         let glx = Glx::load_with(|func| {
@@ -56,45 +98,12 @@ impl GlData {
             let x_display = glx.GetCurrentDisplay();
             let glx_context = glx.GetCurrentContext();
             let glx_drawable = glx.GetCurrentDrawable();
-            let mut config_id = 0;
-            assert_eq!(
-                glx.QueryContext(
-                    x_display,
-                    glx_context,
-                    glx::FBCONFIG_ID as _,
-                    &mut config_id
-                ),
-                Success as i32
-            );
-
-            let mut screen = 0;
-            assert_eq!(
-                glx.QueryContext(x_display, glx_context, glx::SCREEN as _, &mut screen),
-                Success as i32
-            );
-
-            let attrs = [glx::FBCONFIG_ID, config_id as _, glx::NONE];
-            let mut items = 0;
-            let cfgs = glx.ChooseFBConfig(x_display, screen, attrs.as_ptr() as _, &mut items);
-            let fbconfig = (!cfgs.is_null()).then(|| {
-                assert_ne!(items, 0);
-                std::slice::from_raw_parts(cfgs, items as usize)[0].cast_mut()
-            });
-            let visualid = fbconfig
-                .map(|cfg| {
-                    let visual = glx.GetVisualFromFBConfig(x_display, cfg);
-                    if visual.is_null() {
-                        warn!("No visual available from fbconfig.");
-                        0
-                    } else {
-                        (&raw const (*visual).visualid).read() as u32
-                    }
-                })
-                .unwrap_or(0);
+            let fbconfig = get_fbconfig(&glx, x_display, glx_context);
+            let visualid = get_visualid(&glx, x_display, fbconfig);
 
             xr::opengl::SessionCreateInfo::Xlib {
                 x_display: x_display.cast(),
-                glx_fb_config: fbconfig.unwrap_or_else(|| {
+                glx_fb_config: fbconfig.map(|p| p.cast_mut()).unwrap_or_else(|| {
                     warn!("No fbconfig found.");
                     std::ptr::null_mut()
                 }),
