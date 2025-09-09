@@ -1241,28 +1241,21 @@ impl<C: openxr_data::Compositor> Input<C> {
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) -> Option<vr::TrackedDevicePose_t> {
         tracy_span!();
-        match device_index {
-            vr::k_unTrackedDeviceIndex_Hmd => Some(self.get_hmd_pose(origin)),
-            x if x == Hand::Left as u32 => Some(self.get_controller_pose(Hand::Left, origin)),
-            x if x == Hand::Right as u32 => Some(self.get_controller_pose(Hand::Right, origin)),
-            _ => None,
-        }
-    }
-
-    pub fn get_hmd_pose(
-        &self,
-        origin: Option<vr::ETrackingUniverseOrigin>,
-    ) -> vr::TrackedDevicePose_t {
-        tracy_span!();
+        let hand = match device_index {
+            vr::k_unTrackedDeviceIndex_Hmd => None,
+            x if x == Hand::Left as u32 => Some(Hand::Left),
+            x if x == Hand::Right as u32 => Some(Hand::Right),
+            _ => return None,
+        };
         let mut spaces = self.cached_poses.lock().unwrap();
         let data = self.openxr.session_data.get();
-        spaces.get_pose_impl(
+        Some(spaces.get_pose_impl(
             &self.openxr,
             &data,
             self.openxr.display_time.get(),
-            None,
+            hand,
             origin.unwrap_or(data.current_origin),
-        )
+        ))
     }
 
     pub fn get_controller_pose(
@@ -1271,15 +1264,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) -> vr::TrackedDevicePose_t {
         tracy_span!();
-        let mut spaces = self.cached_poses.lock().unwrap();
-        let data = self.openxr.session_data.get();
-        spaces.get_pose_impl(
-            &self.openxr,
-            &data,
-            self.openxr.display_time.get(),
-            Some(hand),
-            origin.unwrap_or(data.current_origin),
-        )
+        self.get_device_pose(hand as u32, origin)
+            .unwrap_or_default()
     }
 
     pub fn frame_start_update(&self) {
