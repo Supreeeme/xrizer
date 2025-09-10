@@ -4,6 +4,7 @@ mod applications;
 mod chaperone;
 mod clientcore;
 mod compositor;
+mod extended_display;
 mod graphics_backends;
 mod input;
 mod misc_unknown;
