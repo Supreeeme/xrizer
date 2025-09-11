@@ -520,7 +520,7 @@ impl vr::IVRCompositor028_Interface for Compositor {
         }
 
         let textures = unsafe { std::slice::from_raw_parts(pTextures, unTextureCount as _) };
-        if let Err(e) = overlays.set_skybox(&self.openxr.session_data.get(), textures) {
+        if let Err(e) = overlays.set_skybox(textures) {
             e
         } else {
             vr::EVRCompositorError::None

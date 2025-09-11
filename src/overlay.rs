@@ -30,6 +30,9 @@ pub struct OverlayMan {
     skybox: RwLock<Vec<OverlayKey>>,
 }
 
+#[derive(derive_more::Deref)]
+struct RealSessionData<'a>(std::sync::RwLockReadGuard<'a, std::mem::ManuallyDrop<SessionData>>);
+
 impl OverlayMan {
     pub fn new(openxr: Arc<OpenXrData<Compositor>>, injector: &Injector) -> Self {
         Self {
@@ -42,11 +45,26 @@ impl OverlayMan {
         }
     }
 
-    pub fn set_skybox(
+    fn get_real_session_data(
         &self,
-        session: &SessionData,
-        textures: &[vr::Texture_t],
-    ) -> Result<(), vr::EVRCompositorError> {
+        texture: &vr::Texture_t,
+        bounds: vr::VRTextureBounds_t,
+    ) -> Result<RealSessionData<'_>, vr::EVROverlayError> {
+        if !self.openxr.session_data.get().is_real_session()
+            && self
+                .compositor
+                .get()
+                .expect("Need to restart session, but compositor hasn't been set up...")
+                .initialize_real_session(texture, bounds)
+                .is_err()
+        {
+            Err(vr::EVROverlayError::InvalidTexture)
+        } else {
+            Ok(RealSessionData(self.openxr.session_data.get()))
+        }
+    }
+
+    pub fn set_skybox(&self, textures: &[vr::Texture_t]) -> Result<(), vr::EVRCompositorError> {
         // We don't yet follow HMD position, so the skybox needs to be
         // big enough so that the user never leaves it
         const SKYBOX_SIZE: f32 = 500.0;
@@ -62,12 +80,10 @@ impl OverlayMan {
                 let name = CString::new("__xrizer_skybox").unwrap();
                 let key = overlays.insert(Overlay::new(name.clone(), name));
                 let overlay = overlays.get_mut(key).unwrap();
-                if overlay
-                    .set_texture(key, session, *textures.first().unwrap())
-                    .is_err()
-                {
-                    return Err(vr::EVRCompositorError::InvalidTexture);
-                };
+                let texture = textures.first().unwrap();
+                self.get_real_session_data(texture, overlay.bounds)
+                    .and_then(|data| overlay.set_texture(key, data, *texture))
+                    .map_err(|_| vr::EVRCompositorError::InvalidTexture)?;
                 overlay.visible = true;
                 overlay.width = SKYBOX_SIZE; // for equirect this becomes radius
                 overlay.kind = OverlayKind::Sphere;
@@ -80,9 +96,9 @@ impl OverlayMan {
                     let name = CString::new(format!("__xrizer_skybox_{idx}")).unwrap();
                     let key = overlays.insert(Overlay::new(name.clone(), name));
                     let overlay = overlays.get_mut(key).unwrap();
-                    if overlay.set_texture(key, session, *texture).is_err() {
-                        return Err(vr::EVRCompositorError::InvalidTexture);
-                    };
+                    self.get_real_session_data(texture, overlay.bounds)
+                        .and_then(|data| overlay.set_texture(key, data, *texture))
+                        .map_err(|_| vr::EVRCompositorError::InvalidTexture)?;
                     overlay.visible = true;
                     overlay.width = SKYBOX_SIZE * 2.0;
                     overlay.kind = OverlayKind::Quad;
@@ -469,7 +485,7 @@ impl Overlay {
     pub fn set_texture(
         &mut self,
         key: OverlayKey,
-        session_data: &SessionData,
+        session_data: RealSessionData<'_>,
         texture: vr::Texture_t,
     ) -> Result<(), vr::EVROverlayError> {
         let backend = self
@@ -555,7 +571,7 @@ impl Overlay {
 
         let backend = self.compositor.as_mut().unwrap();
         let extent = backend.with_any_graphics_mut::<set_swapchain_texture>((
-            session_data,
+            &session_data,
             self.bounds,
             swapchains,
             key,
@@ -694,23 +710,17 @@ impl vr::IVROverlay027_Interface for OverlayMan {
             vr::EVROverlayError::InvalidParameter
         } else {
             let texture = unsafe { texture.read() };
-            if !self.openxr.session_data.get().is_real_session()
-                && self
-                    .compositor
-                    .get()
-                    .expect("Need to restart session, but compositor hasn't been set up...")
-                    .initialize_real_session(&texture, overlay.bounds)
-                    .is_err()
-            {
-                return vr::EVROverlayError::InvalidTexture;
-            }
             let key = OverlayKey::from(KeyData::from_ffi(handle));
-            match overlay.set_texture(key, &self.openxr.session_data.get(), texture) {
-                Ok(_) => {
-                    debug!("set overlay texture for {:?}", overlay.name);
-                    vr::EVROverlayError::None
-                }
+
+            match self.get_real_session_data(&texture, overlay.bounds) {
                 Err(e) => e,
+                Ok(data) => match overlay.set_texture(key, data, texture) {
+                    Err(e) => e,
+                    Ok(_) => {
+                        debug!("set overlay texture for {:?}", overlay.name);
+                        vr::EVROverlayError::None
+                    }
+                },
             }
         }
     }

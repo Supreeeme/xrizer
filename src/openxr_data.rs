@@ -333,6 +333,16 @@ pub struct Session<G: xr::Graphics> {
     swapchain_formats: Vec<G::Format>,
 }
 supported_apis_enum!(pub enum GraphicalSession: Session);
+impl std::fmt::Display for GraphicalSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GraphicalSession::Vulkan(_) => f.write_str("GraphicalSession::Vulkan"),
+            GraphicalSession::OpenGL(_) => f.write_str("GraphicalSession::OpenGL"),
+            #[cfg(test)]
+            GraphicalSession::Fake(_) => f.write_str("GraphicalSession::Fake"),
+        }
+    }
+}
 supported_apis_enum!(pub enum FrameStream: xr::FrameStream);
 
 // Implementing From results in a "conflicting implementations" error: https://github.com/rust-lang/rust/issues/85576
@@ -537,10 +547,11 @@ impl SessionData {
     {
         let formats = &(&self.session_graphics)
             .try_into()
-            .unwrap_or_else(|e| {
+            .unwrap_or_else(|_| {
                 panic!(
-                    "Session was not using API {}: {e}",
-                    std::any::type_name::<G>()
+                    "Expected session API {}, but current session is using {}!",
+                    std::any::type_name::<G>(),
+                    self.session_graphics,
                 )
             })
             .swapchain_formats;
