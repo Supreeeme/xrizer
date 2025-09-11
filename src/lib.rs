@@ -21,6 +21,7 @@ mod error_dialog;
 use clientcore::ClientCore;
 use openvr as vr;
 use std::ffi::{c_char, c_void, CStr};
+use std::sync::OnceLock;
 use std::sync::{
     atomic::{AtomicU32, AtomicU64, Ordering},
     Arc,
@@ -205,8 +206,15 @@ pub unsafe extern "C" fn VRClientCoreFactory(
     return_code: *mut i32,
 ) -> *mut c_void {
     let interface = unsafe { CStr::from_ptr(interface_name) };
-    ClientCore::new(interface)
-        .map(|c| {
+
+    struct ClientCorePtr(*mut c_void);
+    // SAFETY: Vtables are fine to send across threads.
+    unsafe impl Send for ClientCorePtr {}
+    unsafe impl Sync for ClientCorePtr {}
+
+    static C: OnceLock<ClientCorePtr> = OnceLock::new();
+    if C.get().is_none() {
+        let ret = ClientCore::new(interface).map(|c| {
             if let Some(ret) = unsafe { return_code.as_mut() } {
                 *ret = 0;
             }
@@ -217,8 +225,14 @@ pub unsafe extern "C" fn VRClientCoreFactory(
             // Leak it!
             let _ = Arc::into_raw(c);
             vtable
-        })
-        .unwrap_or(std::ptr::null_mut())
+        });
+
+        if let Some(c) = ret {
+            C.set(ClientCorePtr(c)).unwrap_or_else(|_| unreachable!());
+        }
+    }
+
+    C.get().map(|c| c.0).unwrap_or(std::ptr::null_mut())
 }
 
 /// Needed for Proton, but seems unused.
