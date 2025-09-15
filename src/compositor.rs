@@ -147,7 +147,8 @@ impl Compositor {
         texture: &vr::Texture_t,
         bounds: vr::VRTextureBounds_t,
     ) -> Result<(), vr::EVRCompositorError> {
-        let backend = SupportedBackend::new(texture, bounds);
+        let backend =
+            SupportedBackend::new(texture, bounds).ok_or(vr::EVRCompositorError::InvalidTexture)?;
 
         #[macros::any_graphics(SupportedBackend)]
         fn swapchain_info<G: GraphicsBackend>(

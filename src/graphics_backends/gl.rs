@@ -71,7 +71,8 @@ unsafe fn get_visualid(
 }
 
 impl GlData {
-    pub(crate) fn new() -> Self {
+    // Returns None if we couldn't get the display.
+    pub(crate) fn new() -> Option<Self> {
         let glx = Glx::load_with(|func| {
             let func = unsafe { CString::from_vec_unchecked(func.as_bytes().to_vec()) };
             GLX.get(&func)
@@ -96,7 +97,16 @@ impl GlData {
         // which could result in us trying to grab the context from a different thread
         let session_info = unsafe {
             let x_display = glx.GetCurrentDisplay();
+            if x_display.is_null() {
+                warn!("X display is null!");
+                return None;
+            }
             let glx_context = glx.GetCurrentContext();
+            if glx_context.is_null() {
+                warn!("GLX context was null!");
+                return None;
+            }
+
             let glx_drawable = glx.GetCurrentDrawable();
             let fbconfig = get_fbconfig(&glx, x_display, glx_context);
             let visualid = get_visualid(&glx, x_display, fbconfig);
@@ -118,13 +128,13 @@ impl GlData {
             gl::GenFramebuffers(fbos.len() as i32, fbos.as_mut_ptr());
         }
 
-        GlData {
+        Some(GlData {
             session_data: Arc::new(SessionCreateInfo(session_info)),
             images: Default::default(),
             format: 0,
             read_fbo: fbos[0],
             draw_fbo: fbos[1],
-        }
+        })
     }
 }
 

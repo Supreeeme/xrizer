@@ -488,9 +488,13 @@ impl Overlay {
         session_data: RealSessionData<'_>,
         texture: vr::Texture_t,
     ) -> Result<(), vr::EVROverlayError> {
-        let backend = self
-            .compositor
-            .get_or_insert_with(|| SupportedBackend::new(&texture, self.bounds));
+        let backend = match &self.compositor {
+            Some(b) => b,
+            None => self.compositor.insert(
+                SupportedBackend::new(&texture, self.bounds)
+                    .ok_or(vr::EVROverlayError::InvalidTexture)?,
+            ),
+        };
 
         #[macros::any_graphics(SupportedBackend)]
         fn create_swapchain_map<G: GraphicsBackend>(_: &G) -> AnySwapchainMap
