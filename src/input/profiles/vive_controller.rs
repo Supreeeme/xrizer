@@ -98,7 +98,7 @@ impl InteractionProfile for ViveWands {
             main_xy: stp.leftright("input/trackpad"),
             main_xy_click: stp.leftright("input/trackpad/click"),
             main_xy_touch: stp.leftright("input/trackpad/touch"),
-            haptic: stp.leftright("output/haptic")
+            haptic: stp.leftright("output/haptic"),
         }
     }
 

@@ -116,9 +116,9 @@ impl SupportedBackend {
             }
             vr::ETextureType::OpenGL => GlData::new().map(Self::OpenGL),
             #[cfg(test)]
-            vr::ETextureType::Reserved => {
-                Some(Self::Fake(crate::compositor::FakeGraphicsData::new(texture)))
-            }
+            vr::ETextureType::Reserved => Some(Self::Fake(
+                crate::compositor::FakeGraphicsData::new(texture),
+            )),
             other => panic!("Unsupported texture type: {other:?}"),
         }
     }
