@@ -18,7 +18,8 @@ pub enum ActionState {
     Pose(bool),
     Float(f32),
     Vector2(f32, f32),
-    Haptic,
+    /// True if active
+    Haptic(bool),
 }
 
 impl From<bool> for ActionState {
@@ -58,6 +59,21 @@ pub fn set_action_state(action: xr::Action, state: ActionState, hand: UserPath) 
 pub fn deactivate_action(action: xr::Action) {
     let action = action.to_handle().unwrap();
     action.active.store(false, Ordering::Relaxed);
+}
+
+#[track_caller]
+pub fn is_haptic_activated(action: xr::Action, hand: UserPath) -> bool {
+    println!("{}", action.into_raw());
+    let action = action.to_handle().unwrap();
+    let instance = action.instance.upgrade().expect("Failed to get instance");
+
+    let hand_key = instance.string_to_path.lock().unwrap()[hand.as_path()];
+    let path = xr::Path::from_raw(hand_key.data().as_ffi());
+    let ActionState::Haptic(state) = action.get_hand_state(path).state else {
+        panic!("Wrong action type!");
+    };
+
+    state
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -262,7 +278,7 @@ pub unsafe extern "system" fn get_instance_proc_addr(
                 BeginFrame,
                 EndFrame,
                 WaitFrame,
-                (ApplyHapticFeedback),
+                ApplyHapticFeedback,
                 (StopHapticFeedback),
                 (PollEvent),
                 StringToPath,
@@ -381,6 +397,8 @@ struct Instance {
     paths: Mutex<SlotMap<DefaultKey, String>>,
     string_to_path: Mutex<HashMap<String, DefaultKey>>,
     action_sets: Mutex<HashSet<xr::ActionSet>>,
+    left_hand_key: DefaultKey,
+    right_hand_key: DefaultKey,
 }
 
 impl Instance {
@@ -478,6 +496,23 @@ impl Session {
         spaces.insert(key);
 
         xr
+    }
+
+    fn get_action_if_attached(
+        &self,
+        info: *const xr::ActionStateGetInfo,
+    ) -> Option<(Arc<ActionSet>, Arc<Action>)> {
+        let sets = self.attached_sets.get()?;
+        let action = xr::Action::to_handle(unsafe { (*info).action })?;
+        sets.into_iter().find_map(|set| {
+            let set = xr::ActionSet::to_handle(*set)?;
+            for a in set.actions.get().unwrap() {
+                if Arc::as_ptr(a) == Arc::as_ptr(&action) {
+                    return Some((set, action.clone()));
+                }
+            }
+            None
+        })
     }
 }
 
@@ -656,7 +691,8 @@ struct Action {
 }
 
 impl Action {
-    fn get_hand_state(&self, instance: &Instance, path: xr::Path) -> ActionStateData {
+    fn get_hand_state(&self, path: xr::Path) -> ActionStateData {
+        let instance = self.instance.upgrade().expect("Failed to get instance");
         match instance.get_user_path(path).unwrap() {
             None | Some(UserPath::LeftHand) => self.state.left.load(),
             Some(UserPath::RightHand) => self.state.right.load(),
@@ -705,11 +741,11 @@ extern "system" fn create_instance(
     );
     let mut paths = SlotMap::new();
     let mut string_to_path = HashMap::new();
-    paths.insert_with_key(|key| {
+    let left_hand_key = paths.insert_with_key(|key| {
         string_to_path.insert(left.clone(), key);
         left
     });
-    paths.insert_with_key(|key| {
+    let right_hand_key = paths.insert_with_key(|key| {
         string_to_path.insert(right.clone(), key);
         right
     });
@@ -719,6 +755,8 @@ extern "system" fn create_instance(
         paths: Mutex::new(paths),
         string_to_path: Mutex::new(string_to_path),
         action_sets: Default::default(),
+        left_hand_key,
+        right_hand_key,
     });
     unsafe {
         *instance = inst.to_xr();
@@ -885,7 +923,7 @@ extern "system" fn create_action(
         xr::ActionType::POSE_INPUT => ActionState::Pose(false),
         xr::ActionType::FLOAT_INPUT => ActionState::Float(0.0),
         xr::ActionType::VECTOR2F_INPUT => ActionState::Vector2(0.0, 0.0),
-        xr::ActionType::VIBRATION_OUTPUT => ActionState::Haptic,
+        xr::ActionType::VIBRATION_OUTPUT => ActionState::Haptic(false),
         other => unimplemented!("unhandled action type: {other:?}"),
     };
     let data = ActionStateData {
@@ -1258,23 +1296,6 @@ extern "system" fn sync_actions(
     xr::Result::SUCCESS
 }
 
-fn get_action_if_attached(
-    session: &Session,
-    info: *const xr::ActionStateGetInfo,
-) -> Option<(Arc<ActionSet>, Arc<Action>)> {
-    let sets = session.attached_sets.get()?;
-    let action = xr::Action::to_handle(unsafe { (*info).action })?;
-    sets.into_iter().find_map(|set| {
-        let set = xr::ActionSet::to_handle(*set)?;
-        for a in set.actions.get().unwrap() {
-            if Arc::as_ptr(a) == Arc::as_ptr(&action) {
-                return Some((set, action.clone()));
-            }
-        }
-        None
-    })
-}
-
 extern "system" fn get_action_state_boolean(
     session: xr::Session,
     info: *const xr::ActionStateGetInfo,
@@ -1291,13 +1312,12 @@ extern "system" fn get_action_state_boolean(
         });
     }
     let session = get_handle!(session);
-    let Some((set, action)) = get_action_if_attached(&session, info) else {
+    let Some((set, action)) = session.get_action_if_attached(info) else {
         return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
     };
 
     let info = unsafe { info.as_ref().unwrap() };
-    let instance = session.instance.upgrade().unwrap();
-    let hand_state = action.get_hand_state(&instance, info.subaction_path);
+    let hand_state = action.get_hand_state(info.subaction_path);
     let ActionState::Bool(b) = hand_state.state else {
         return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
     };
@@ -1330,11 +1350,10 @@ extern "system" fn get_action_state_float(
         });
     }
     let session = get_handle!(session);
-    let Some((set, action)) = get_action_if_attached(&session, info) else {
+    let Some((set, action)) = session.get_action_if_attached(info) else {
         return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
     };
-    let instance = session.instance.upgrade().unwrap();
-    let hand_state = action.get_hand_state(&instance, unsafe { (*info).subaction_path });
+    let hand_state = action.get_hand_state(unsafe { (*info).subaction_path });
     let ActionState::Float(f) = hand_state.state else {
         return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
     };
@@ -1365,12 +1384,11 @@ extern "system" fn get_action_state_vector2f(
         });
     }
     let session = get_handle!(session);
-    let Some((set, action)) = get_action_if_attached(&session, info) else {
+    let Some((set, action)) = session.get_action_if_attached(info) else {
         return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
     };
 
-    let instance = session.instance.upgrade().unwrap();
-    let hand_state = action.get_hand_state(&instance, unsafe { (*info).subaction_path });
+    let hand_state = action.get_hand_state(unsafe { (*info).subaction_path });
     let ActionState::Vector2(x, y) = hand_state.state else {
         return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
     };
@@ -1695,4 +1713,60 @@ fn mat_to_pose(mat: Affine3A) -> xr::Posef {
             z: pos.z,
         },
     }
+}
+
+extern "system" fn apply_haptic_feedback(
+    session: xr::Session,
+    action_info: *const xr::HapticActionInfo,
+    haptic_feedback: *const xr::HapticBaseHeader,
+) -> xr::Result {
+    let session = get_handle!(session);
+
+    const {
+        assert!(
+            std::mem::size_of::<xr::HapticActionInfo>()
+                == std::mem::size_of::<xr::ActionStateGetInfo>()
+        );
+        assert!(
+            std::mem::offset_of!(xr::HapticActionInfo, action)
+                == std::mem::offset_of!(xr::ActionStateGetInfo, action)
+        );
+    }
+
+    println!(
+        "{}",
+        unsafe { action_info.as_ref().unwrap().action }.into_raw()
+    );
+    let Some((_, action)) =
+        session.get_action_if_attached(action_info as *const xr::ActionStateGetInfo)
+    else {
+        return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
+    };
+
+    let info = unsafe { action_info.as_ref().unwrap() };
+    let mut hand_state = action.get_hand_state(info.subaction_path);
+    let ActionState::Haptic(_) = hand_state.state else {
+        return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
+    };
+
+    #[allow(clippy::deref_addrof)]
+    if unsafe { *(&raw const (*haptic_feedback).ty) } != xr::HapticVibration::TYPE {
+        return xr::Result::ERROR_VALIDATION_FAILURE;
+    }
+
+    hand_state.state = ActionState::Haptic(true);
+
+    let instance = session.instance.upgrade().unwrap();
+
+    match DefaultKey::from(KeyData::from_ffi(info.subaction_path.into_raw())) {
+        x if x == instance.left_hand_key => {
+            action.state.left.store(hand_state);
+        }
+        x if x == instance.right_hand_key => {
+            action.state.right.store(hand_state);
+        }
+        _ => unreachable!(),
+    }
+
+    xr::Result::SUCCESS
 }

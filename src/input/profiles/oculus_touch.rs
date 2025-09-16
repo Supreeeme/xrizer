@@ -108,6 +108,7 @@ impl InteractionProfile for Touch {
             main_xy: stp.leftright("input/thumbstick"),
             main_xy_click: stp.leftright("input/thumbstick/click"),
             main_xy_touch: stp.leftright("input/thumbstick/touch"),
+            haptic: stp.leftright("output/haptic")
         }
     }
 

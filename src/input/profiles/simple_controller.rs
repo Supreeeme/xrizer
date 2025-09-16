@@ -64,6 +64,7 @@ impl InteractionProfile for SimpleController {
             main_xy: vec![],
             main_xy_click: vec![],
             main_xy_touch: vec![],
+            haptic: stp.leftright("output/haptic"),
         }
     }
 

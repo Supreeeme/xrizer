@@ -340,8 +340,15 @@ impl vr::IVRSystem022_Interface for System {
         static NAME: &CStr = c"Unknown";
         NAME.as_ptr()
     }
-    fn TriggerHapticPulse(&self, _: vr::TrackedDeviceIndex_t, _: u32, _: std::os::raw::c_ushort) {
-        crate::warn_unimplemented!("TriggerHapticPulse");
+    fn TriggerHapticPulse(
+        &self,
+        device_index: vr::TrackedDeviceIndex_t,
+        axis_id: u32,
+        duration_us: std::ffi::c_ushort,
+    ) {
+        self.input
+            .force(|_| Input::new(self.openxr.clone()))
+            .legacy_haptic(device_index, axis_id, duration_us);
     }
     fn GetControllerStateWithPose(
         &self,

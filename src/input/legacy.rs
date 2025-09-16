@@ -86,6 +86,53 @@ impl<C: openxr_data::Compositor> Input<C> {
             .unwrap_or_else(|_| panic!("Actions unexpectedly set up"));
     }
 
+    pub fn legacy_haptic(
+        &self,
+        device_index: vr::TrackedDeviceIndex_t,
+        _axis_id: u32, // TODO: what is this for?
+        duration_us: std::ffi::c_ushort,
+    ) {
+        let data = self.openxr.session_data.get();
+        if data.input_data.get_loaded_actions().is_some() {
+            debug!("not trigger legacy haptic due to loaded actions");
+            return;
+        }
+
+        let Ok(hand) = Hand::try_from(device_index) else {
+            debug!("tried triggering haptic on invalid device index: {device_index}");
+            return;
+        };
+        let hand_info = match hand {
+            Hand::Left => &self.openxr.left_hand,
+            Hand::Right => &self.openxr.right_hand,
+        };
+        let hand_path = hand_info.subaction_path;
+
+        let Some(legacy) = data.input_data.get_legacy_actions() else {
+            debug!("tried triggering haptic, but legacy actions aren't ready");
+            return;
+        };
+
+        let duration_nanos = std::time::Duration::from_micros(duration_us as u64).as_nanos();
+
+        debug!(
+            "triggering legacy haptic for {duration_us} microseconds ({} seconds/{} milliseconds)",
+            std::time::Duration::from_micros(duration_us as _).as_secs_f32(),
+            std::time::Duration::from_micros(duration_us as _).as_millis()
+        );
+
+        if let Err(e) = legacy.actions.haptic.apply_feedback(
+            &data.session,
+            hand_path,
+            &xr::HapticVibration::new()
+                .amplitude(1.0)
+                .frequency(xr::FREQUENCY_UNSPECIFIED)
+                .duration(xr::Duration::from_nanos(duration_nanos as i64)),
+        ) {
+            warn!("Failed to trigger haptic: {e:?}");
+        }
+    }
+
     pub fn get_legacy_controller_state(
         &self,
         device_index: vr::TrackedDeviceIndex_t,
@@ -252,6 +299,7 @@ pub(super) struct Legacy<M: ActionsMarker> {
     pub main_xy: Action<xr::Vector2f, M>,
     pub main_xy_touch: Action<bool, M>,
     pub main_xy_click: Action<bool, M>,
+    pub haptic: Action<xr::Haptic, M>,
     pub extra: M,
 }
 
@@ -274,6 +322,7 @@ impl LegacyBindings {
             }
         }
 
+        // TODO: figure out how to automatically derive this...
         bindings![
             self.extra
                 .grip_pose
@@ -287,7 +336,8 @@ impl LegacyBindings {
             squeeze,
             main_xy,
             main_xy_touch,
-            main_xy_click
+            main_xy_click,
+            haptic,
         ]
     }
 }
@@ -328,6 +378,7 @@ impl LegacyActionData {
             main_xy_touch: set
                 .create_action("main-joystick-touch", "Main Joystick Touch", &leftright)
                 .unwrap(),
+            haptic: set.create_action("haptic", "Haptic", &leftright).unwrap(),
             extra: Actions,
         };
 
@@ -716,5 +767,44 @@ mod tests {
 
         let state = unsafe { state.assume_init() };
         assert_eq!({ state.ulButtonPressed }, 0);
+    }
+
+    #[test]
+    fn legacy_haptic() {
+        let f = Fixture::new();
+        f.input.openxr.restart_session();
+        f.input.frame_start_update();
+        let haptic = f
+            .input
+            .openxr
+            .session_data
+            .get()
+            .input_data
+            .get_legacy_actions()
+            .unwrap()
+            .actions
+            .haptic
+            .as_raw();
+
+        assert!(!fakexr::is_haptic_activated(
+            haptic,
+            fakexr::UserPath::LeftHand
+        ));
+        assert!(!fakexr::is_haptic_activated(
+            haptic,
+            fakexr::UserPath::RightHand
+        ));
+
+        f.input.legacy_haptic(1, 0, 3000);
+        assert!(fakexr::is_haptic_activated(
+            haptic,
+            fakexr::UserPath::LeftHand
+        ));
+
+        f.input.legacy_haptic(2, 0, 3000);
+        assert!(fakexr::is_haptic_activated(
+            haptic,
+            fakexr::UserPath::RightHand
+        ));
     }
 }
