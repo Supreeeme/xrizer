@@ -522,7 +522,7 @@ impl ActionPath {
             .rsplit_once('/')
             .expect("Action path missing slash?")
             .1
-            .replace([' ', ','], "_")
+            .replace([' ', ',', '(', ')'], "_")
     }
 
     fn action_set_name(&self) -> &str {

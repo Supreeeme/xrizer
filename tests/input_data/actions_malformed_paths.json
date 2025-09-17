@@ -25,6 +25,10 @@
 		{
 			"name": "/actions/set1/in/ThisActionWillAlsoHaveAReallyLongNameAndAShortLocalizedName,MuchLikeThePreviousAction",
 			"type": "boolean"
+		},
+		{
+    		"name": "/actions/set1/in/(Action)(With)(Parenthesis)",
+    		"type": "boolean"
 		}
 	],
 	"default_bindings": [
