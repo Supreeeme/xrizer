@@ -8,7 +8,8 @@ use crate::{
     tracy_span, AtomicF64,
 };
 
-use log::{debug, info, trace};
+use glam::u32;
+use log::{debug, info, trace, warn};
 use openvr as vr;
 use openxr as xr;
 use std::mem::offset_of;
@@ -793,33 +794,30 @@ impl vr::IVRCompositor028_Interface for Compositor {
         output_game_pose: *mut vr::TrackedDevicePose_t,
     ) -> vr::EVRCompositorError {
         if output_pose.is_null() && output_game_pose.is_null() {
+            warn!("GetLastPoseForTrackedDeviceIndex({device_index}, <null>, <null>) called with null pointers for both poses");
             return vr::EVRCompositorError::RequestFailed;
         }
 
-        let input = self.input.force(|_| Input::new(self.openxr.clone()));
+        let pose = self
+            .input
+            .force(|_| Input::new(self.openxr.clone()))
+            .get_device_pose(device_index, None);
 
-        let pose = match device_index {
-            vr::k_unTrackedDeviceIndex_Hmd => input.get_hmd_pose(None),
-            x if x == openxr_data::Hand::Left as u32 => {
-                input.get_controller_pose(openxr_data::Hand::Left, None)
+        match pose {
+            Some(pose) => {
+                if !output_pose.is_null() {
+                    unsafe { output_pose.write(pose) };
+                }
+                if !output_game_pose.is_null() {
+                    unsafe { output_game_pose.write(pose) };
+                }
+                vr::EVRCompositorError::None
             }
-            x if x == openxr_data::Hand::Right as u32 => {
-                input.get_controller_pose(openxr_data::Hand::Right, None)
+            None => {
+                warn!("No pose found for device {device_index}");
+                vr::EVRCompositorError::RequestFailed
             }
-            _ => {
-                return vr::EVRCompositorError::RequestFailed;
-            }
-        };
-
-        if !output_pose.is_null() {
-            unsafe { output_pose.write(pose) };
         }
-
-        if !output_game_pose.is_null() {
-            unsafe { output_game_pose.write(pose) };
-        }
-
-        vr::EVRCompositorError::None
     }
     fn GetLastPoses(
         &self,

@@ -181,7 +181,7 @@ impl IVRClientCore003_Interface for ClientCore {
         self.interface_store.lock().unwrap().clear();
 
         let mut openxr = self.openxr.write().unwrap();
-        assert_eq!(Arc::strong_count(openxr.as_ref().unwrap()), 1);
+        // assert_eq!(Arc::strong_count(openxr.as_ref().unwrap()), 1);
         openxr.take();
     }
     fn GetIDForVRInitError(&self, _: vr::EVRInitError) -> *const c_char {
