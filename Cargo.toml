@@ -13,6 +13,8 @@ readme = "README.md"
 crate-type = ["cdylib"]
 
 [features]
+default = ["openxr-dynamic"]
+openxr-dynamic = ["openxr/linked", "openvr/openxr-dynamic"]
 tracing = ["dep:tracy-client", "openvr/tracing"]
 
 [workspace]
@@ -23,7 +25,7 @@ all = "deny"
 
 [workspace.dependencies]
 ash = "0.38.0"
-openxr = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3", version = "0.19.0", features = ["static"] }
+openxr = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3", version = "0.19.0" }
 openxr-sys = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3", version = "0.11.0" }
 slotmap = "1.0.7"
 glam = "0.30.4"
