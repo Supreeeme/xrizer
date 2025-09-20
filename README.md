@@ -38,9 +38,9 @@ When running games through the Steam Linux Runtime - which is all of them when u
 - Paths under `/usr` will be available at `/run/host/usr`
 - Some paths will be completely unavailable.
 
-You can make paths available within the container using the `PRESSURE_VESSEL_FILESYSTEM_RW` env var. An example of what you might put in your game's steam launch option if you want to use xrizer with Monado installed systemwide is:
+You can make paths available within the container using the `PRESSURE_VESSEL_FILESYSTEMS_RW` env var. An example of what you might put in your game's steam launch option if you want to use xrizer with Monado installed systemwide is:
 ```
-XR_RUNTIME_JSON=/run/host/usr/share/openxr/1/openxr_monado.json VR_OVERRIDE=/path/to/xrizer PRESSURE_VESSEL_FILESYSTEM_RW=$XDG_RUNTIME_DIR/monado_comp_ipc
+XR_RUNTIME_JSON=/run/host/usr/share/openxr/1/openxr_monado.json VR_OVERRIDE=/path/to/xrizer PRESSURE_VESSEL_FILESYSTEMS_RW=$XDG_RUNTIME_DIR/monado_comp_ipc
 ```
 For more info on the container, see [Valve's docs on Pressure Vessel](https://gitlab.steamos.cloud/steamrt/steam-runtime-tools/-/blob/main/pressure-vessel/wrap.1.md).
 
