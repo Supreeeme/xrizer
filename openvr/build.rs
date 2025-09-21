@@ -105,6 +105,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version!(1, 0, 5),
         version!(1, 0, 4),
         version!(1, 0, 3),
+        version!(0, 9, 20),
         version!(0, 9, 12),
     ];
     let mut pruned_headers = headers.map(|(header, version)| {
@@ -644,7 +645,7 @@ fn process_vr_namespace_content(
             incompatible_items: &IncompatibleItems,
             ty: &mut syn::Type,
         ) {
-            static PRIMITIVES: &[&str] = &["u32", "f32", "u64", "f64", "bool", "c_char"];
+            static PRIMITIVES: &[&str] = &["u32", "i32", "f32", "u64", "f64", "bool", "c_char"];
             match extract_array_or_ptr_type(ty) {
                 syn::Type::Path(type_path) => {
                     let type_name = type_path.path.segments.last().unwrap().ident.to_string();
@@ -711,7 +712,9 @@ fn process_vr_namespace_content(
             }
             syn::Item::Union(mut item) => {
                 unversion_fields(&mut item.fields.named);
-                if vr_mod.ident == "vr_0_9_12" && item.ident == "VREvent_Data_t" {
+                if (vr_mod.ident == "vr_0_9_12" || vr_mod.ident == "vr_0_9_20")
+                    && item.ident == "VREvent_Data_t"
+                {
                     for field in &mut item.fields.named {
                         reversion_type(&incompatible_items, &mut field.ty);
                     }
@@ -728,6 +731,10 @@ fn process_vr_namespace_content(
                 static INCOMPAT_STRUCTS: &[(&str, &[&str])] = &[
                     (
                         "vr_0_9_12",
+                        &["VREvent_t", "VREvent_Reserved_t", "Compositor_FrameTiming"],
+                    ),
+                    (
+                        "vr_0_9_20",
                         &["VREvent_t", "VREvent_Reserved_t", "Compositor_FrameTiming"],
                     ),
                     ("vr_1_0_3", &["Compositor_FrameTiming"]),

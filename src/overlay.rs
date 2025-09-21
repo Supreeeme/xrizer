@@ -717,9 +717,21 @@ impl vr::IVROverlay027_Interface for OverlayMan {
             let key = OverlayKey::from(KeyData::from_ffi(handle));
 
             match self.get_real_session_data(&texture, overlay.bounds) {
-                Err(e) => e,
+                Err(e) => {
+                    debug!(
+                        "failed to get real session data for overlay texture {:?}: {e:?}",
+                        overlay.name
+                    );
+                    e
+                }
                 Ok(data) => match overlay.set_texture(key, data, texture) {
-                    Err(e) => e,
+                    Err(e) => {
+                        debug!(
+                            "failed to set overlay texture for {:?}: {e:?}",
+                            overlay.name
+                        );
+                        e
+                    }
                     Ok(_) => {
                         debug!("set overlay texture for {:?}", overlay.name);
                         vr::EVROverlayError::None
@@ -1461,7 +1473,18 @@ impl vr::IVROverlay013On014 for OverlayMan {
     }
 }
 
-impl vr::IVROverlay007On013 for OverlayMan {
+impl vr::IVROverlay011On013 for OverlayMan {
+    fn PollNextOverlayEvent(
+        &self,
+        _: vr::VROverlayHandle_t,
+        _: *mut vr::vr_0_9_20::VREvent_t,
+        _: u32,
+    ) -> bool {
+        todo!()
+    }
+}
+
+impl vr::IVROverlay007On011 for OverlayMan {
     fn PollNextOverlayEvent(
         &self,
         _: vr::VROverlayHandle_t,
