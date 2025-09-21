@@ -907,7 +907,7 @@ impl vr::IVROverlay028_Interface for OverlayMan {
                     Ok(_) => {
                         debug!("set overlay texture for {:?}", overlay.name);
                         vr::EVROverlayError::None
-                    },
+                    }
                     Err(e) => {
                         debug!(
                             "failed to set overlay texture for {:?}: {e:?}",
@@ -1696,7 +1696,18 @@ impl vr::IVROverlay013On014 for OverlayMan {
     }
 }
 
-impl vr::IVROverlay007On013 for OverlayMan {
+impl vr::IVROverlay011On013 for OverlayMan {
+    fn PollNextOverlayEvent(
+        &self,
+        _: vr::VROverlayHandle_t,
+        _: *mut vr::vr_0_9_20::VREvent_t,
+        _: u32,
+    ) -> bool {
+        todo!()
+    }
+}
+
+impl vr::IVROverlay007On011 for OverlayMan {
     fn PollNextOverlayEvent(
         &self,
         _: vr::VROverlayHandle_t,
