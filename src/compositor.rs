@@ -1843,6 +1843,20 @@ mod tests {
     }
 
     #[test]
+    fn explicit_timing_multiple_submit_explicit_timing_data() {
+        let f = Fixture::new();
+        f.ensure_real_session(false);
+        f.comp.SetExplicitTimingMode(
+            vr::EVRCompositorTimingMode::Explicit_ApplicationPerformsPostPresentHandoff,
+        );
+
+        assert_eq!(f.comp.SubmitExplicitTimingData(), None);
+        f.check_frame_state(fakexr::FrameState::Begun);
+        assert_eq!(f.comp.SubmitExplicitTimingData(), None);
+        f.check_frame_state(fakexr::FrameState::Begun);
+    }
+
+    #[test]
     fn explicit_timing_session_restart_after_waitgetposes() {
         let f = Fixture::new();
         f.comp.SetExplicitTimingMode(
