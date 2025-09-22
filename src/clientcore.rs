@@ -2,6 +2,7 @@ use crate::{
     applications::Applications,
     chaperone::Chaperone,
     compositor::Compositor,
+    extended_display::ExtendedDisplay,
     input::Input,
     misc_unknown::UnknownInterfaces,
     openxr_data::{OpenXrData, RealOpenXrData},
@@ -227,6 +228,7 @@ impl IVRClientCore003_Interface for ClientCore {
             .or_else(|| self.try_interface(interface, |_| Screenshots::default()))
             .or_else(|| self.try_interface(interface, |_| Settings::default()))
             .or_else(|| self.try_interface(interface, |_| UnknownInterfaces::default()))
+            .or_else(|| self.try_interface(interface, |_| ExtendedDisplay::default()))
             .unwrap_or_else(|| {
                 warn!("app requested unknown interface {interface:?}");
                 std::ptr::null_mut()
@@ -246,6 +248,7 @@ impl IVRClientCore003_Interface for ClientCore {
                 OverlayView::supported_versions(),
                 Screenshots::supported_versions(),
                 UnknownInterfaces::supported_versions(),
+                ExtendedDisplay::supported_versions(),
             ]
             .concat()
             .into_boxed_slice()
