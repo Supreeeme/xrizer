@@ -28,22 +28,31 @@ impl vr::IVRChaperone004_Interface for Chaperone {
         crate::warn_unimplemented!("ForceBoundsVisible");
     }
     fn AreBoundsVisible(&self) -> bool {
+        crate::warn_unimplemented!("AreBoundsVisible");
         false
     }
     fn GetBoundsColor(
         &self,
-        _: *mut vr::HmdColor_t,
-        _: std::os::raw::c_int,
-        _: f32,
-        _: *mut vr::HmdColor_t,
+        color_array: *mut vr::HmdColor_t,
+        count: std::ffi::c_int,
+        _collision_bounds_fade_distance: f32,
+        camera_color: *mut vr::HmdColor_t,
     ) {
-        todo!()
+        crate::warn_unimplemented!("GetBoundsColor");
+        if color_array.is_null() || camera_color.is_null() || count <= 0 {
+            return;
+        }
+        let color_array = unsafe { std::slice::from_raw_parts_mut(color_array, count as usize) };
+        color_array.fill(vr::HmdColor_t::default());
+        unsafe {
+            camera_color.write(vr::HmdColor_t::default());
+        }
     }
     fn SetSceneColor(&self, _: vr::HmdColor_t) {
-        todo!()
+        crate::warn_unimplemented!("SetSceneColor");
     }
     fn ReloadInfo(&self) {
-        todo!()
+        crate::warn_unimplemented!("ReloadInfo");
     }
     fn GetPlayAreaRect(&self, rect: *mut vr::HmdQuad_t) -> bool {
         crate::warn_unimplemented!("GetPlayAreaRect");
