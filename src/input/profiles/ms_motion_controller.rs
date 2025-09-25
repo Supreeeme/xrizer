@@ -99,6 +99,7 @@ impl InteractionProfile for HolographicController {
             main_xy: stp.leftright("input/thumbstick"),
             main_xy_click: stp.leftright("input/thumbstick/click"),
             main_xy_touch: vec![],
+            haptic: stp.leftright("output/haptic"),
         }
     }
 
