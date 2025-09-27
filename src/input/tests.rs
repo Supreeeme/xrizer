@@ -573,6 +573,10 @@ fn actions_with_bad_paths() {
     let paren = f.get_action_handle(c"/actions/set1/in/(action)(with)(parenthesis)");
     let long_bad1 = f.get_action_handle(c"/actions/set1/in/ThisActionHasAReallyLongNameThatIsMostCertainlyLongerThanTheOpenXRLimit,However,ItWillBeGivenASimpleLocalizedName");
     let long_bad2 = f.get_action_handle(c"/actions/set1/in/ThisActionWillAlsoHaveAReallyLongNameAndAShortLocalizedName,MuchLikeThePreviousAction");
+    let long_exact = f.get_action_handle(
+        c"/actions/set1/in/this right here is an action that is exactly 64 characters long!",
+    );
+
     let set1 = f.get_action_set_handle(c"/actions/set1");
     f.load_actions(c"actions_malformed_paths.json");
 
@@ -598,6 +602,11 @@ fn actions_with_bad_paths() {
     );
     fakexr::set_action_state(
         f.get_action::<bool>(long_bad2),
+        fakexr::ActionState::Bool(false),
+        LeftHand,
+    );
+    fakexr::set_action_state(
+        f.get_action::<bool>(long_exact),
         fakexr::ActionState::Bool(false),
         LeftHand,
     );
@@ -632,6 +641,11 @@ fn actions_with_bad_paths() {
     assert!(!s.bChanged);
 
     let s = f.get_bool_state(long_bad2).unwrap();
+    assert!(s.bActive);
+    assert!(!s.bState);
+    assert!(!s.bChanged);
+
+    let s = f.get_bool_state(long_exact).unwrap();
     assert!(s.bActive);
     assert!(!s.bState);
     assert!(!s.bChanged);

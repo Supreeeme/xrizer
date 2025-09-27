@@ -390,7 +390,7 @@ fn create_action<T: xr::ActionTy>(
         entry.get()
     };
     let mut xr_friendly_name = data.name.cleaned_name();
-    if xr_friendly_name.len() > xr::sys::MAX_ACTION_NAME_SIZE {
+    if xr_friendly_name.len() + 1 > xr::sys::MAX_ACTION_NAME_SIZE {
         let idx_str = ["_ln", &long_name_idx.to_string()].concat();
         xr_friendly_name.replace_range(
             xr::sys::MAX_ACTION_NAME_SIZE - idx_str.len() - 1..,
