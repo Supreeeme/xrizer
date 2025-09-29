@@ -70,6 +70,33 @@ impl From<SessionCreationError> for InitError {
     }
 }
 
+fn get_app_name() -> Option<String> {
+    let exe = std::fs::read_link("/proc/self/exe")
+        .inspect_err(|e| warn!("Couldn't get app name from /proc/self/exe: {e}"))
+        .ok()?;
+
+    let basename = exe.file_name().unwrap();
+    if basename == "wine64-preloader" {
+        fn extract_wine_exe_name() -> Option<String> {
+            let exe_path = std::env::args().next()?;
+            // The Windows path separator is \ (instead of /) so we can't use Path.
+            // We just want the basename anyway, so we'll just grab the last piece.
+            let exe_name = exe_path.rsplit_once('\\')?.1;
+            Some(
+                exe_name
+                    .strip_suffix(".exe")
+                    .unwrap_or(exe_name)
+                    .to_string(),
+            )
+        }
+        if let Some(name) = extract_wine_exe_name() {
+            return Some(name);
+        }
+    }
+
+    Some(basename.to_string_lossy().into_owned())
+}
+
 impl<C: Compositor> OpenXrData<C> {
     pub fn new(injector: &Injector) -> Result<Self, InitError> {
         #[cfg(not(test))]
@@ -96,7 +123,7 @@ impl<C: Compositor> OpenXrData<C> {
         let instance = entry
             .create_instance(
                 &xr::ApplicationInfo {
-                    application_name: "XRizer",
+                    application_name: get_app_name().as_deref().unwrap_or("XRizer"),
                     application_version: 0,
                     ..Default::default()
                 },
