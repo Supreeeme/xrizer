@@ -123,7 +123,7 @@ impl<C: Compositor> OpenXrData<C> {
         let instance = entry
             .create_instance(
                 &xr::ApplicationInfo {
-                    application_name: get_app_name().as_deref().unwrap_or("XRizer"),
+                    application_name: ("XRizer_".to_owned() + &get_app_name().unwrap_or_else(|| "Unknown".into())).as_ref(),
                     application_version: 0,
                     ..Default::default()
                 },
