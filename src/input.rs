@@ -558,6 +558,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         origins.fill(vr::k_ulInvalidInputValueHandle);
 
+        info!("Bindings for action {action_set}/{action}:");
+
         fn get_hand_bindings<C: openxr_data::Compositor>(
             hand: Hand,
             openxr: Arc<OpenXrData<C>>,
@@ -565,39 +567,56 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         ) -> Option<Vec<xr::Path>> {
             let session = openxr.session_data.get();
             session.input_data.actions.get().and_then(|actions| {
+                info!("Actions");
                 let LoadedActions::Manifest(loaded_actions) = actions else {
                     return None;
                 };
+                info!("Manifest");
                 let subaction = match hand {
                     Hand::Left => openxr.left_hand.subaction_path,
                     Hand::Right => openxr.right_hand.subaction_path,
                 };
+                info!("Subaction: {}", subaction.into_raw());
                 session
                     .session
                     .current_interaction_profile(subaction)
                     .ok()
                     .and_then(|interaction_profile| {
+                        info!("Interaction profile: {}", interaction_profile.into_raw());
+
+                        let Some(per_profile_bindings) = loaded_actions
+                            .per_profile_bindings
+                            .get(&interaction_profile)
+                        else {
+                            return None;
+                        };
+
+                        info!("Per profile bindings: {}", per_profile_bindings.len());
+
                         loaded_actions
                             .try_get_bindings(action_handle, interaction_profile)
                             .ok()
                             .map(|bindings| {
+                                info!("Bindings: {}", bindings.len());
                                 bindings.iter().map(|b| b.hand).collect::<Vec<xr::Path>>()
                             })
                     })
             })
         }
 
-        let mut bindings =
-            get_hand_bindings(Hand::Left, self.openxr.clone(), action_handle).unwrap();
-        bindings
-            .extend(get_hand_bindings(Hand::Right, self.openxr.clone(), action_handle).unwrap());
-
-        info!("Bindings for action {action_set}/{action}: {bindings:?}");
+        let mut bindings = get_hand_bindings(Hand::Left, self.openxr.clone(), action_handle)
+            .unwrap_or_else(Vec::new);
+        bindings.extend(
+            get_hand_bindings(Hand::Right, self.openxr.clone(), action_handle)
+                .unwrap_or_else(Vec::new),
+        );
 
         let mut index = 0;
 
         for binding in bindings.iter() {
+            info!("Binding: {}", binding.into_raw());
             if let Some(hand) = Hand::try_from(*binding).ok() {
+                info!("Hand: {:?} {}", hand, index);
                 match hand {
                     Hand::Left => origins[index] = self.left_hand_key.data().as_ffi(),
                     Hand::Right => origins[index] = self.right_hand_key.data().as_ffi(),
