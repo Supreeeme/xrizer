@@ -76,7 +76,7 @@ fn get_app_name() -> Option<String> {
         .ok()?;
 
     let basename = exe.file_name().unwrap();
-    if basename == "wine64-preloader" {
+    if basename == "wine64-preloader" || basename == "wine-preloader" {
         fn extract_wine_exe_name() -> Option<String> {
             let exe_path = std::env::args().next()?;
             // The Windows path separator is \ (instead of /) so we can't use Path.
@@ -123,7 +123,7 @@ impl<C: Compositor> OpenXrData<C> {
         let instance = entry
             .create_instance(
                 &xr::ApplicationInfo {
-                    application_name: get_app_name().as_deref().unwrap_or("XRizer"),
+                    application_name: ("XRizer_".to_owned() + &get_app_name().unwrap_or_else(|| "Unknown".into())).as_ref(),
                     application_version: 0,
                     ..Default::default()
                 },
