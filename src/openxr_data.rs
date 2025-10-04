@@ -97,6 +97,12 @@ fn get_app_name() -> Option<String> {
     Some(basename.to_string_lossy().into_owned())
 }
 
+fn make_version() -> u32 {
+    env!("CARGO_PKG_VERSION_MAJOR").parse::<u32>().unwrap_or(0) * 1000000
+        + env!("CARGO_PKG_VERSION_MINOR").parse::<u32>().unwrap_or(0) * 1000
+        + env!("CARGO_PKG_VERSION_PATCH").parse::<u32>().unwrap_or(1)
+}
+
 impl<C: Compositor> OpenXrData<C> {
     pub fn new(injector: &Injector) -> Result<Self, InitError> {
         #[cfg(not(test))]
@@ -125,6 +131,8 @@ impl<C: Compositor> OpenXrData<C> {
                 &xr::ApplicationInfo {
                     application_name: get_app_name().as_deref().unwrap_or("XRizer"),
                     application_version: 0,
+                    engine_name: "XRizer",
+                    engine_version: make_version(),
                     ..Default::default()
                 },
                 &exts,
