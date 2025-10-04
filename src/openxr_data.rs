@@ -8,6 +8,7 @@ use glam::f32::{Quat, Vec3};
 use log::{info, warn};
 use openvr as vr;
 use openxr as xr;
+use pkg_version::*;
 use std::mem::ManuallyDrop;
 use std::sync::{
     atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
@@ -97,6 +98,12 @@ fn get_app_name() -> Option<String> {
     Some(basename.to_string_lossy().into_owned())
 }
 
+fn make_version() -> u32 {
+    pkg_version_major!() * 1000000
+        + pkg_version_minor!() * 1000
+        + pkg_version_patch!()
+}
+
 impl<C: Compositor> OpenXrData<C> {
     pub fn new(injector: &Injector) -> Result<Self, InitError> {
         #[cfg(not(test))]
@@ -125,6 +132,8 @@ impl<C: Compositor> OpenXrData<C> {
                 &xr::ApplicationInfo {
                     application_name: get_app_name().as_deref().unwrap_or("XRizer"),
                     application_version: 0,
+                    engine_name: "XRizer",
+                    engine_version: make_version(),
                     ..Default::default()
                 },
                 &exts,
