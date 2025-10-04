@@ -57,6 +57,7 @@ glutin_glx_sys = "0.6.0"
 libc = "0.2.169"
 derive_more = { workspace = true }
 gl = "0.14.0"
+pkg-version = "1.0.0"
 
 [build-dependencies]
 anyhow = "1.0.99"
