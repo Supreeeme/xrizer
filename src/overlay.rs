@@ -792,7 +792,8 @@ impl vr::IVROverlay028_Interface for OverlayMan {
         _: *const c_char,
         _: u64,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("ShowKeyboardForOverlay");
+        vr::EVROverlayError::RequestFailed
     }
     fn ShowKeyboard(
         &self,
