@@ -1000,8 +1000,13 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     ) -> vr::EVROverlayError {
         todo!()
     }
-    fn IsOverlayVisible(&self, _: vr::VROverlayHandle_t) -> bool {
-        todo!()
+    fn IsOverlayVisible(&self, handle: vr::VROverlayHandle_t) -> bool {
+        let overlays = self.overlays.read().unwrap();
+
+        overlays
+            .get(OverlayKey::from(KeyData::from_ffi(handle)))
+            .map(|overlay| overlay.visible)
+            .unwrap_or(false)
     }
     fn SetSubviewPosition(
         &self,
