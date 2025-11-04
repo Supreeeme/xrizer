@@ -32,7 +32,8 @@ pub fn session_create_info() -> xr_sys::GraphicsBindingVulkanKHR {
     }
 }
 
-pub extern "system" fn get_instance_proc_addr(
+#[allow(clippy::missing_transmute_annotations, clippy::missing_safety_doc)]
+pub unsafe extern "system" fn get_instance_proc_addr(
     instance: vk::Instance,
     name: *const c_char,
 ) -> vk::PFN_vkVoidFunction {
@@ -50,7 +51,7 @@ pub extern "system" fn get_instance_proc_addr(
         ]
     }
 }
-
+#[allow(clippy::missing_transmute_annotations)]
 extern "system" fn get_device_proc_addr(
     device: vk::Device,
     name: *const c_char,

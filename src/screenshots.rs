@@ -15,7 +15,7 @@ impl vr::IVRScreenshots001_Interface for Screenshots {
         _: *const std::os::raw::c_char,
         _: *const std::os::raw::c_char,
     ) -> vr::EVRScreenshotError {
-        todo!()
+        vr::EVRScreenshotError::IncompatibleVersion
     }
     fn TakeStereoScreenshot(
         &self,
@@ -23,14 +23,14 @@ impl vr::IVRScreenshots001_Interface for Screenshots {
         _: *const std::os::raw::c_char,
         _: *const std::os::raw::c_char,
     ) -> vr::EVRScreenshotError {
-        todo!()
+        vr::EVRScreenshotError::IncompatibleVersion
     }
     fn UpdateScreenshotProgress(
         &self,
         _: vr::ScreenshotHandle_t,
         _: f32,
     ) -> vr::EVRScreenshotError {
-        todo!()
+        vr::EVRScreenshotError::IncompatibleVersion
     }
     fn GetScreenshotPropertyFilename(
         &self,
@@ -38,16 +38,22 @@ impl vr::IVRScreenshots001_Interface for Screenshots {
         _: vr::EVRScreenshotPropertyFilenames,
         _: *mut std::os::raw::c_char,
         _: u32,
-        _: *mut vr::EVRScreenshotError,
+        err: *mut vr::EVRScreenshotError,
     ) -> u32 {
-        todo!()
+        if !err.is_null() {
+            unsafe { *err = vr::EVRScreenshotError::IncompatibleVersion };
+        }
+        0
     }
     fn GetScreenshotPropertyType(
         &self,
         _: vr::ScreenshotHandle_t,
-        _: *mut vr::EVRScreenshotError,
+        err: *mut vr::EVRScreenshotError,
     ) -> vr::EVRScreenshotType {
-        todo!()
+        if !err.is_null() {
+            unsafe { *err = vr::EVRScreenshotError::IncompatibleVersion };
+        }
+        vr::EVRScreenshotType::None
     }
     fn HookScreenshot(
         &self,
@@ -63,6 +69,6 @@ impl vr::IVRScreenshots001_Interface for Screenshots {
         _: *const std::os::raw::c_char,
         _: *const std::os::raw::c_char,
     ) -> vr::EVRScreenshotError {
-        todo!()
+        vr::EVRScreenshotError::IncompatibleVersion
     }
 }

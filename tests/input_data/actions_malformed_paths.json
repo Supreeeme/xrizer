@@ -25,9 +25,22 @@
 		{
 			"name": "/actions/set1/in/ThisActionWillAlsoHaveAReallyLongNameAndAShortLocalizedName,MuchLikeThePreviousAction",
 			"type": "boolean"
+		},
+		{
+    		"name": "/actions/set1/in/(Action)(With)(Parenthesis)",
+    		"type": "boolean"
+		},
+		{
+    		"name": "/actions/set1/in/this right here is an action that is exactly 64 characters long!",
+    		"type": "boolean"
 		}
 	],
-	"default_bindings": [],
+	"default_bindings": [
+    	{
+        	"binding_url": "knuckles_malformed.json",
+        	"controller_type": "knuckles"
+    	}
+	],
 	"localization": [
 		{
 			"language_tag": "en_US",

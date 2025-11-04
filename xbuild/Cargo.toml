@@ -3,5 +3,8 @@ name = "xbuild"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 nanoserde = { version = "0.2.0-beta", default-features = false, features = ["std", "json"]}

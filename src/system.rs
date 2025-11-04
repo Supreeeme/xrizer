@@ -5,7 +5,7 @@ use crate::{
     tracy_span,
 };
 use glam::{Mat3, Quat, Vec3};
-use log::{debug, trace, warn};
+use log::{debug, error, trace, warn};
 use openvr as vr;
 use openxr as xr;
 use std::ffi::CStr;
@@ -17,9 +17,15 @@ pub struct ViewData {
     pub views: [xr::View; 2],
 }
 
+#[derive(Copy, Clone)]
+struct ViewDataViewSpace {
+    data: ViewData,
+    original_orientations: [Quat; 2],
+}
+
 #[derive(Default)]
 struct ViewCache {
-    view: Option<ViewData>,
+    view: Option<ViewDataViewSpace>,
     local: Option<ViewData>,
     stage: Option<ViewData>,
 }
@@ -31,36 +37,118 @@ impl ViewCache {
         display_time: xr::Time,
         ty: xr::ReferenceSpaceType,
     ) -> ViewData {
-        let data = match ty {
-            xr::ReferenceSpaceType::VIEW => &mut self.view,
-            xr::ReferenceSpaceType::LOCAL => &mut self.local,
-            xr::ReferenceSpaceType::STAGE => &mut self.stage,
+        match ty {
+            xr::ReferenceSpaceType::VIEW => {
+                self.view
+                    .get_or_insert_with(|| Self::get_views_view_space(session, display_time))
+                    .data
+            }
+            xr::ReferenceSpaceType::LOCAL | xr::ReferenceSpaceType::STAGE => {
+                let view = match ty {
+                    xr::ReferenceSpaceType::LOCAL => &mut self.local,
+                    xr::ReferenceSpaceType::STAGE => &mut self.stage,
+                    _ => unreachable!(),
+                };
+
+                *view.get_or_insert_with(|| {
+                    let view_rots = self
+                        .view
+                        .get_or_insert_with(|| Self::get_views_view_space(session, display_time))
+                        .original_orientations;
+
+                    Self::get_views_other_space(session, display_time, ty, view_rots)
+                })
+            }
             other => panic!("unexpected reference space type: {other:?}"),
-        };
+        }
+    }
 
-        *data.get_or_insert_with(|| {
-            let (flags, views) = session
-                .session
-                .locate_views(
-                    xr::ViewConfigurationType::PRIMARY_STEREO,
-                    display_time,
-                    session.get_space_from_type(ty),
-                )
-                .expect("Couldn't locate views");
+    fn get_views_view_space(session: &SessionData, display_time: xr::Time) -> ViewDataViewSpace {
+        let (flags, mut views) = session
+            .session
+            .locate_views(
+                xr::ViewConfigurationType::PRIMARY_STEREO,
+                display_time,
+                session.get_space_from_type(xr::ReferenceSpaceType::VIEW),
+            )
+            .expect("Couldn't locate views");
 
-            ViewData {
+        let original_orientations = views
+            .iter_mut()
+            .map(
+                |xr::View {
+                     pose: xr::Posef { orientation: o, .. },
+                     ..
+                 }| {
+                    let ret = Quat::from_xyzw(o.x, o.y, o.z, o.w).inverse();
+                    *o = xr::Quaternionf::IDENTITY; // parallel views
+                    ret
+                },
+            )
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        ViewDataViewSpace {
+            data: ViewData {
                 flags,
                 views: views
                     .try_into()
                     .unwrap_or_else(|v: Vec<xr::View>| panic!("Expected 2 views, got {}", v.len())),
-            }
-        })
+            },
+            original_orientations,
+        }
+    }
+
+    fn get_views_other_space(
+        session: &SessionData,
+        display_time: xr::Time,
+        ty: xr::ReferenceSpaceType,
+        view_data_orientations_inverse: [Quat; 2],
+    ) -> ViewData {
+        let (flags, mut views) = session
+            .session
+            .locate_views(
+                xr::ViewConfigurationType::PRIMARY_STEREO,
+                display_time,
+                session.get_space_from_type(ty),
+            )
+            .expect("Couldn't locate views");
+
+        for (
+            xr::View {
+                pose: xr::Posef {
+                    orientation: rot, ..
+                },
+                ..
+            },
+            view_rot,
+        ) in views.iter_mut().zip(view_data_orientations_inverse)
+        {
+            let quat = Quat::from_xyzw(rot.x, rot.y, rot.z, rot.w);
+            // rotate the inverse of the view space view rotation by this space's
+            // view orientation to remove the canting from the displays in this space
+            let adjusted_rot = quat * view_rot;
+            *rot = xr::Quaternionf {
+                x: adjusted_rot.x,
+                y: adjusted_rot.y,
+                z: adjusted_rot.z,
+                w: adjusted_rot.w,
+            };
+        }
+
+        ViewData {
+            flags,
+            views: views
+                .try_into()
+                .unwrap_or_else(|v: Vec<xr::View>| panic!("Expected 2 views, got {}", v.len())),
+        }
     }
 }
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRSystem"]
-#[versions(022, 021, 020, 019, 017, 016, 015, 014)]
+#[versions(022, 021, 020, 019, 017, 016, 015, 014, 012, 009)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
     input: Injected<Input<crate::compositor::Compositor>>,
@@ -200,7 +288,8 @@ impl vr::IVRSystem022_Interface for System {
         }
     }
     fn GetTimeSinceLastVsync(&self, _: *mut f32, _: *mut u64) -> bool {
-        todo!()
+        crate::warn_unimplemented!("GetTimeSinceLastVsync");
+        false
     }
     fn GetRuntimeVersion(&self) -> *const std::os::raw::c_char {
         static VERSION: &CStr = c"2.5.1";
@@ -231,13 +320,24 @@ impl vr::IVRSystem022_Interface for System {
         &self,
         _: vr::EVRControllerAxisType,
     ) -> *const std::os::raw::c_char {
-        todo!()
+        crate::warn_unimplemented!("GetControllerAxisTypeNameFromEnum");
+        static NAME: &CStr = c"Unknown";
+        NAME.as_ptr()
     }
     fn GetButtonIdNameFromEnum(&self, _: vr::EVRButtonId) -> *const std::os::raw::c_char {
-        todo!()
+        crate::warn_unimplemented!("GetButtonIdNameFromEnum");
+        static NAME: &CStr = c"Unknown";
+        NAME.as_ptr()
     }
-    fn TriggerHapticPulse(&self, _: vr::TrackedDeviceIndex_t, _: u32, _: std::os::raw::c_ushort) {
-        crate::warn_unimplemented!("TriggerHapticPulse");
+    fn TriggerHapticPulse(
+        &self,
+        device_index: vr::TrackedDeviceIndex_t,
+        axis_id: u32,
+        duration_us: std::ffi::c_ushort,
+    ) {
+        self.input
+            .force(|_| Input::new(self.openxr.clone()))
+            .legacy_haptic(device_index, axis_id, duration_us);
     }
     fn GetControllerStateWithPose(
         &self,
@@ -468,11 +568,22 @@ impl vr::IVRSystem022_Interface for System {
     }
     fn GetMatrix34TrackedDeviceProperty(
         &self,
-        _: vr::TrackedDeviceIndex_t,
-        _: vr::ETrackedDeviceProperty,
-        _: *mut vr::ETrackedPropertyError,
+        device_index: vr::TrackedDeviceIndex_t,
+        prop: vr::ETrackedDeviceProperty,
+        err: *mut vr::ETrackedPropertyError,
     ) -> vr::HmdMatrix34_t {
-        todo!()
+        debug!(target: log_tags::TRACKED_PROP, "requesting matrix property: {prop:?} ({device_index})");
+        if !self.IsTrackedDeviceConnected(device_index) {
+            if let Some(err) = unsafe { err.as_mut() } {
+                *err = vr::ETrackedPropertyError::InvalidDevice;
+            }
+            return Default::default();
+        }
+
+        if let Some(err) = unsafe { err.as_mut() } {
+            *err = vr::ETrackedPropertyError::UnknownProperty;
+        }
+        Default::default()
     }
     fn GetUint64TrackedDeviceProperty(
         &self,
@@ -485,12 +596,27 @@ impl vr::IVRSystem022_Interface for System {
             if let Some(err) = unsafe { err.as_mut() } {
                 *err = vr::ETrackedPropertyError::InvalidDevice;
             }
-        }
-        if let Some(err) = unsafe { err.as_mut() } {
-            *err = vr::ETrackedPropertyError::UnknownProperty;
+            return 0;
         }
 
-        0
+        if let Some(err) = unsafe { err.as_mut() } {
+            *err = vr::ETrackedPropertyError::Success;
+        }
+
+        self.input.get().and_then(|input| {
+            match device_index {
+                x if matches!(input.device_index_to_device_type(x), Some(TrackedDeviceType::Controller { hand })) => {
+                    input.get_controller_int_tracked_property(hand, prop)
+                },
+                _ => None,
+            }
+        })
+        .unwrap_or_else(|| {
+            if let Some(err) = unsafe { err.as_mut() } {
+                *err = vr::ETrackedPropertyError::UnknownProperty;
+            }
+            0
+        })
     }
     fn GetInt32TrackedDeviceProperty(
         &self,
@@ -503,6 +629,7 @@ impl vr::IVRSystem022_Interface for System {
             if let Some(err) = unsafe { err.as_mut() } {
                 *err = vr::ETrackedPropertyError::InvalidDevice;
             }
+            return 0;
         }
 
         let Some(input) = self.input.get() else {
@@ -655,10 +782,10 @@ impl vr::IVRSystem022_Interface for System {
         0
     }
     fn GetRawZeroPoseToStandingAbsoluteTrackingPose(&self) -> vr::HmdMatrix34_t {
-        todo!()
+        xr::Posef::IDENTITY.into()
     }
     fn GetSeatedZeroPoseToStandingAbsoluteTrackingPose(&self) -> vr::HmdMatrix34_t {
-        todo!()
+        xr::Posef::IDENTITY.into()
     }
     fn GetDeviceToAbsoluteTrackingPose(
         &self,
@@ -713,7 +840,8 @@ impl vr::IVRSystem022_Interface for System {
 
 impl vr::IVRSystem021On022 for System {
     fn ResetSeatedZeroPose(&self) {
-        crate::warn_unimplemented!("ResetSeatedZeroPose");
+        self.openxr
+            .reset_tracking_space(vr::ETrackingUniverseOrigin::Seated);
     }
 }
 
@@ -762,6 +890,106 @@ impl vr::IVRSystem014On015 for System {
         // is straight up ignored in SteamVR anyway, lol. Bug for bug compat!
 
         <Self as vr::IVRSystem022_Interface>::GetProjectionMatrix(self, eye, near_z, far_z)
+    }
+}
+
+impl vr::IVRSystem012On014 for System {
+    fn ComputeDistortion(&self, eye: vr::EVREye, u: f32, v: f32) -> vr::DistortionCoordinates_t {
+        let mut ret = vr::DistortionCoordinates_t::default();
+        <Self as vr::IVRSystem022_Interface>::ComputeDistortion(self, eye, u, v, &mut ret);
+        ret
+    }
+
+    fn GetHiddenAreaMesh(&self, eye: vr::EVREye) -> vr::HiddenAreaMesh_t {
+        <Self as vr::IVRSystem022_Interface>::GetHiddenAreaMesh(
+            self,
+            eye,
+            vr::EHiddenAreaMeshType::Standard,
+        )
+    }
+
+    fn GetControllerState(
+        &self,
+        device_index: vr::TrackedDeviceIndex_t,
+        state: *mut vr::VRControllerState_t,
+    ) -> bool {
+        <Self as vr::IVRSystem022_Interface>::GetControllerState(
+            self,
+            device_index,
+            state,
+            std::mem::size_of::<vr::VRControllerState_t>() as u32,
+        )
+    }
+
+    fn GetControllerStateWithPose(
+        &self,
+        origin: vr::ETrackingUniverseOrigin,
+        device_index: vr::TrackedDeviceIndex_t,
+        state: *mut vr::VRControllerState_t,
+        device_pose: *mut vr::TrackedDevicePose_t,
+    ) -> bool {
+        <Self as vr::IVRSystem022_Interface>::GetControllerStateWithPose(
+            self,
+            origin,
+            device_index,
+            state,
+            std::mem::size_of::<vr::VRControllerState_t>() as u32,
+            device_pose,
+        )
+    }
+}
+
+impl vr::IVRSystem009On012 for System {
+    fn PollNextEvent(&self, event: *mut vr::vr_0_9_12::VREvent_t) -> bool {
+        self.PollNextEventWithPose(
+            vr::ETrackingUniverseOrigin::Seated,
+            event,
+            std::ptr::null_mut(),
+        )
+    }
+
+    fn PollNextEventWithPose(
+        &self,
+        origin: vr::ETrackingUniverseOrigin,
+        event: *mut vr::vr_0_9_12::VREvent_t,
+        pose: *mut vr::TrackedDevicePose_t,
+    ) -> bool {
+        let mut e = vr::VREvent_t::default();
+        let ret = <Self as vr::IVRSystem022_Interface>::PollNextEventWithPose(
+            self,
+            origin,
+            &mut e,
+            std::mem::size_of_val(&event) as u32,
+            pose,
+        );
+
+        if ret && !event.is_null() {
+            let event = unsafe { event.as_mut() }.unwrap();
+            event.eventType = if let Ok(t) = vr::EVREventType::try_from(e.eventType) {
+                t
+            } else {
+                error!("Unhandled event type for 0.9.12: {}", e.eventType);
+                return false;
+            };
+            event.trackedDeviceIndex = e.trackedDeviceIndex;
+            event.data = match e.eventType {
+                x if x == vr::EVREventType::ButtonPress as u32
+                    || x == vr::EVREventType::ButtonUnpress as u32
+                    || x == vr::EVREventType::ButtonTouch as u32
+                    || x == vr::EVREventType::ButtonUntouch as u32 =>
+                {
+                    vr::vr_0_9_12::VREvent_Data_t {
+                        controller: unsafe { e.data.controller },
+                    }
+                }
+                other => {
+                    error!("Unhandled event type data for 0.9.12: {other:?}");
+                    return false;
+                }
+            }
+        }
+
+        ret
     }
 }
 

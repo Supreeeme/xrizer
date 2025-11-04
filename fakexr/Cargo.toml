@@ -3,6 +3,9 @@ name = "fakexr"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 openxr-sys = { workspace = true }
 paste = "1.0.15"

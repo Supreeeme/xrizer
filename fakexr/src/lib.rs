@@ -14,10 +14,12 @@ use std::sync::{
 #[derive(Clone, Copy, PartialEq)]
 pub enum ActionState {
     Bool(bool),
-    Pose,
+    /// True if locatable (action set was synced this frame).
+    Pose(bool),
     Float(f32),
     Vector2(f32, f32),
-    Haptic,
+    /// True if active
+    Haptic(bool),
 }
 
 impl From<bool> for ActionState {
@@ -26,7 +28,12 @@ impl From<bool> for ActionState {
     }
 }
 
-pub fn set_action_state(action: xr::Action, state: ActionState, hand: UserPath) {
+pub fn set_action_state_with_time(
+    action: xr::Action,
+    state: ActionState,
+    hand: UserPath,
+    time: xr::Time,
+) {
     let action = action.to_handle().unwrap();
     assert_eq!(
         std::mem::discriminant(&state),
@@ -35,19 +42,38 @@ pub fn set_action_state(action: xr::Action, state: ActionState, hand: UserPath) 
     let mut d = action.pending_state.take();
     match hand {
         UserPath::RightHand => {
-            d.right = Some(state);
+            d.right = Some((state, time));
         }
         UserPath::LeftHand => {
-            d.left = Some(state);
+            d.left = Some((state, time));
         }
     }
     action.pending_state.store(d);
     action.active.store(true, Ordering::Relaxed);
 }
 
+pub fn set_action_state(action: xr::Action, state: ActionState, hand: UserPath) {
+    set_action_state_with_time(action, state, hand, xr::Time::from_nanos(0));
+}
+
 pub fn deactivate_action(action: xr::Action) {
     let action = action.to_handle().unwrap();
     action.active.store(false, Ordering::Relaxed);
+}
+
+#[track_caller]
+pub fn is_haptic_activated(action: xr::Action, hand: UserPath) -> bool {
+    println!("{}", action.into_raw());
+    let action = action.to_handle().unwrap();
+    let instance = action.instance.upgrade().expect("Failed to get instance");
+
+    let hand_key = instance.string_to_path.lock().unwrap()[hand.as_path()];
+    let path = xr::Path::from_raw(hand_key.data().as_ffi());
+    let ActionState::Haptic(state) = action.get_hand_state(path).state else {
+        panic!("Wrong action type!");
+    };
+
+    state
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -67,7 +93,7 @@ impl UserPath {
         }
     }
 
-    fn to_path(&self) -> &'static str {
+    fn as_path(&self) -> &'static str {
         match self {
             Self::LeftHand => "/user/hand/left",
             Self::RightHand => "/user/hand/right",
@@ -145,7 +171,8 @@ macro_rules! fn_unimplemented_impl {
 
 fn_unimplemented_impl!(A, B, C, D, E, F);
 
-pub extern "system" fn get_instance_proc_addr(
+#[allow(clippy::missing_transmute_annotations, clippy::missing_safety_doc)]
+pub unsafe extern "system" fn get_instance_proc_addr(
     instance: xr::Instance,
     name: *const c_char,
     function: *mut Option<xr::pfn::VoidFunction>,
@@ -251,7 +278,7 @@ pub extern "system" fn get_instance_proc_addr(
                 BeginFrame,
                 EndFrame,
                 WaitFrame,
-                (ApplyHapticFeedback),
+                ApplyHapticFeedback,
                 (StopHapticFeedback),
                 (PollEvent),
                 StringToPath,
@@ -326,7 +353,7 @@ macro_rules! get_handle {
         match <_ as XrType>::to_handle($handle) {
             Some(handle) => handle,
             None => {
-                println!("unknown handle for {} ({:?})", stringify!($handle), $handle);
+                eprintln!("unknown handle for {} ({:?})", stringify!($handle), $handle);
                 return xr::Result::ERROR_HANDLE_INVALID;
             }
         }
@@ -370,6 +397,8 @@ struct Instance {
     paths: Mutex<SlotMap<DefaultKey, String>>,
     string_to_path: Mutex<HashMap<String, DefaultKey>>,
     action_sets: Mutex<HashSet<xr::ActionSet>>,
+    left_hand_key: DefaultKey,
+    right_hand_key: DefaultKey,
 }
 
 impl Instance {
@@ -383,7 +412,7 @@ impl Instance {
                 .unwrap()
                 .get(key)
                 .cloned()
-                .map(|s| Some(s))
+                .map(Some)
                 .ok_or(())
         }
     }
@@ -413,6 +442,13 @@ impl Default for HandData {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FrameState {
+    Waited,
+    Begun,
+    Ended,
+}
+
 struct Session {
     instance: Weak<Instance>,
     event_sender: mpsc::Sender<EventDataBuffer>,
@@ -427,11 +463,66 @@ struct Session {
     frame_state: AtomicCell<FrameState>,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum FrameState {
-    Waited,
-    Begun,
-    Ended,
+impl Session {
+    fn synchronized(self: &Arc<Self>) {
+        self.state.store(xr::SessionState::SYNCHRONIZED);
+        let session = Self::instances()
+            .iter()
+            .find_map(|(key, s)| {
+                Arc::ptr_eq(s, self).then(|| xr::Session::from_raw(key.data().as_ffi()))
+            })
+            .expect("Couldn't find session?");
+        let s = self.clone();
+        send_event(
+            &self.event_sender,
+            xr::EventDataSessionStateChanged {
+                ty: xr::EventDataSessionStateChanged::TYPE,
+                next: std::ptr::null_mut(),
+                session,
+                state: xr::SessionState::SYNCHRONIZED,
+                time: xr::Time::from_nanos(0),
+            },
+            Some(Box::new(move || {
+                s.state_synced.store(true, Ordering::Relaxed);
+                s.should_render.store(true, Ordering::Relaxed);
+            })),
+        );
+    }
+
+    fn add_space(&self, space: Arc<Space>) -> xr::Space {
+        let xr = space.to_xr();
+        let key = DefaultKey::from(KeyData::from_ffi(xr.into_raw()));
+        let mut spaces = self.spaces.lock().unwrap();
+        spaces.insert(key);
+
+        xr
+    }
+
+    fn get_action_if_attached(
+        &self,
+        info: *const xr::ActionStateGetInfo,
+    ) -> Option<(Arc<ActionSet>, Arc<Action>)> {
+        let sets = self.attached_sets.get()?;
+        let action = xr::Action::to_handle(unsafe { (*info).action })?;
+        sets.into_iter().find_map(|set| {
+            let set = xr::ActionSet::to_handle(*set)?;
+            for a in set.actions.get().unwrap() {
+                if Arc::as_ptr(a) == Arc::as_ptr(&action) {
+                    return Some((set, action.clone()));
+                }
+            }
+            None
+        })
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        let spaces = self.spaces.lock().unwrap();
+        for space in spaces.iter() {
+            Space::instances().remove(*space);
+        }
+    }
 }
 
 fn transition_frame_state(
@@ -461,42 +552,6 @@ fn transition_frame_state(
     ret
 }
 
-impl Drop for Session {
-    fn drop(&mut self) {
-        let spaces = self.spaces.lock().unwrap();
-        for space in spaces.iter() {
-            Space::instances().remove(*space);
-        }
-    }
-}
-
-impl Session {
-    fn synchronized(self: &Arc<Self>) {
-        self.state.store(xr::SessionState::SYNCHRONIZED);
-        let session = Self::instances()
-            .iter()
-            .find_map(|(key, s)| {
-                Arc::ptr_eq(s, self).then(|| xr::Session::from_raw(key.data().as_ffi()))
-            })
-            .expect("Couldn't find session?");
-        let s = self.clone();
-        send_event(
-            &self.event_sender,
-            xr::EventDataSessionStateChanged {
-                ty: xr::EventDataSessionStateChanged::TYPE,
-                next: std::ptr::null_mut(),
-                session,
-                state: xr::SessionState::SYNCHRONIZED,
-                time: xr::Time::from_nanos(0),
-            },
-            Some(Box::new(move || {
-                s.state_synced.store(true, Ordering::Relaxed);
-                s.should_render.store(true, Ordering::Relaxed);
-            })),
-        );
-    }
-}
-
 static LOCATION_FLAGS_TRACKED: LazyLock<xr::SpaceLocationFlags> = LazyLock::new(|| {
     xr::SpaceLocationFlags::POSITION_VALID
         | xr::SpaceLocationFlags::POSITION_TRACKED
@@ -504,11 +559,18 @@ static LOCATION_FLAGS_TRACKED: LazyLock<xr::SpaceLocationFlags> = LazyLock::new(
         | xr::SpaceLocationFlags::ORIENTATION_TRACKED
 });
 
+enum SpaceType {
+    Action {
+        hand: Option<UserPath>,
+        action: Weak<Action>,
+    },
+    Reference(xr::ReferenceSpaceType),
+}
+
 struct Space {
-    hand: Option<UserPath>,
+    ty: SpaceType,
     offset: xr::Posef,
     session: Weak<Session>,
-    action: Weak<Action>,
 }
 
 impl Space {
@@ -524,13 +586,17 @@ impl Space {
             .upgrade()
             .ok_or(xr::Result::ERROR_SESSION_LOST)?;
 
+        let SpaceType::Action { hand, action } = &self.ty else {
+            todo!()
+        };
+
         // Check if this hand has an interaction profile
-        let hand = self.hand.unwrap_or(UserPath::LeftHand);
+        let hand = hand.unwrap_or(UserPath::LeftHand);
         let hand_data = match hand {
             UserPath::LeftHand => &session.left_hand,
             UserPath::RightHand => &session.right_hand,
         };
-        let hand_path = hand.to_path();
+        let hand_path = hand.as_path();
         let profile = match hand_data.profile.load() {
             xr::Path::NULL => {
                 // no profile - no data
@@ -540,11 +606,24 @@ impl Space {
         };
 
         // Check if this action has bindings for the current profile
-        let action = self.action.upgrade().unwrap();
+        let action = action.upgrade().unwrap();
         let bindings = action.suggested.lock().unwrap();
         let Some(bindings) = bindings.get(&profile) else {
             return Ok(default());
         };
+
+        // Check if this action has been synced
+        let state = match hand {
+            UserPath::LeftHand => &action.state.left,
+            UserPath::RightHand => &action.state.right,
+        };
+
+        let ActionState::Pose(state) = state.load().state else {
+            unreachable!();
+        };
+        if !state {
+            return Ok(default());
+        }
 
         // Find what it's bound to
         let instance = session
@@ -559,12 +638,9 @@ impl Space {
                 let val = instance.get_path_value(p).unwrap().unwrap();
                 val.starts_with(hand_path).then_some(val)
             })
-            .expect(&format!(
-                "expected binding for space for action {:?}",
-                action.name
-            ));
+            .unwrap_or_else(|| panic!("expected binding for space for action {:?}", action.name));
 
-        let pose = match binding.strip_prefix(hand.to_path()).unwrap() {
+        let pose = match binding.strip_prefix(hand.as_path()).unwrap() {
             "/input/grip/pose" => hand_data.grip_pose.load(),
             "/input/aim/pose" => hand_data.aim_pose.load(),
             other => panic!(
@@ -610,12 +686,13 @@ struct Action {
     active: AtomicBool,
     localized_name: CString,
     state: LeftRight<AtomicCell<ActionStateData>>,
-    pending_state: AtomicCell<LeftRight<Option<ActionState>>>,
+    pending_state: AtomicCell<LeftRight<Option<(ActionState, xr::Time)>>>,
     suggested: Mutex<HashMap<xr::Path, Vec<xr::Path>>>,
 }
 
 impl Action {
-    fn get_hand_state(&self, instance: &Instance, path: xr::Path) -> ActionStateData {
+    fn get_hand_state(&self, path: xr::Path) -> ActionStateData {
+        let instance = self.instance.upgrade().expect("Failed to get instance");
         match instance.get_user_path(path).unwrap() {
             None | Some(UserPath::LeftHand) => self.state.left.load(),
             Some(UserPath::RightHand) => self.state.right.load(),
@@ -633,6 +710,7 @@ struct LeftRight<T> {
 struct ActionStateData {
     state: ActionState,
     changed: bool,
+    last_change_time: xr::Time,
 }
 
 struct Swapchain {
@@ -663,11 +741,11 @@ extern "system" fn create_instance(
     );
     let mut paths = SlotMap::new();
     let mut string_to_path = HashMap::new();
-    paths.insert_with_key(|key| {
+    let left_hand_key = paths.insert_with_key(|key| {
         string_to_path.insert(left.clone(), key);
         left
     });
-    paths.insert_with_key(|key| {
+    let right_hand_key = paths.insert_with_key(|key| {
         string_to_path.insert(right.clone(), key);
         right
     });
@@ -677,6 +755,8 @@ extern "system" fn create_instance(
         paths: Mutex::new(paths),
         string_to_path: Mutex::new(string_to_path),
         action_sets: Default::default(),
+        left_hand_key,
+        right_hand_key,
     });
     unsafe {
         *instance = inst.to_xr();
@@ -840,15 +920,16 @@ extern "system" fn create_action(
 
     let state = match info.action_type {
         xr::ActionType::BOOLEAN_INPUT => ActionState::Bool(false),
-        xr::ActionType::POSE_INPUT => ActionState::Pose,
+        xr::ActionType::POSE_INPUT => ActionState::Pose(false),
         xr::ActionType::FLOAT_INPUT => ActionState::Float(0.0),
         xr::ActionType::VECTOR2F_INPUT => ActionState::Vector2(0.0, 0.0),
-        xr::ActionType::VIBRATION_OUTPUT => ActionState::Haptic,
+        xr::ActionType::VIBRATION_OUTPUT => ActionState::Haptic(false),
         other => unimplemented!("unhandled action type: {other:?}"),
     };
     let data = ActionStateData {
         state,
         changed: false,
+        last_change_time: xr::Time::from_nanos(0),
     };
     let a = Arc::new(Action {
         instance: set.instance.clone(),
@@ -889,7 +970,7 @@ extern "system" fn create_action_space(
     let session = get_handle!(session);
     let info = unsafe { info.as_ref() }.unwrap();
     let action = get_handle!(info.action);
-    if !matches!(action.state.left.load().state, ActionState::Pose) {
+    if !matches!(action.state.left.load().state, ActionState::Pose(_)) {
         return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
     }
 
@@ -900,15 +981,17 @@ extern "system" fn create_action_space(
         return xr::Result::ERROR_PATH_INVALID;
     };
     let s = Arc::new(Space {
-        hand,
+        ty: SpaceType::Action {
+            hand,
+            action: Arc::downgrade(&action),
+        },
         offset: info.pose_in_action_space,
         session: Arc::downgrade(&session),
-        action: Arc::downgrade(&action),
     });
-    let key = Space::instances().insert(s);
-    let mut spaces = session.spaces.lock().unwrap();
-    spaces.insert(key);
-    unsafe { space.write(xr::Space::from_raw(key.data().as_ffi())) };
+
+    unsafe {
+        *space = session.add_space(s);
+    }
     xr::Result::SUCCESS
 }
 
@@ -945,25 +1028,23 @@ extern "system" fn destroy_space(space: xr::Space) -> xr::Result {
     destroy_handle(space)
 }
 
-static VIEW: LazyLock<xr::Space> = LazyLock::new(|| xr::Space::from_raw(1));
-static LOCAL: LazyLock<xr::Space> = LazyLock::new(|| xr::Space::from_raw(2));
-static STAGE: LazyLock<xr::Space> = LazyLock::new(|| xr::Space::from_raw(3));
-
 extern "system" fn create_reference_space(
-    _: xr::Session,
+    session: xr::Session,
     create_info: *const xr::ReferenceSpaceCreateInfo,
     space: *mut xr::Space,
 ) -> xr::Result {
     let info = unsafe { create_info.as_ref().unwrap() };
     assert_eq!(info.pose_in_reference_space, xr::Posef::IDENTITY);
+    let session = get_handle!(session);
+
     unsafe {
-        *space = match info.reference_space_type {
-            xr::ReferenceSpaceType::VIEW => *VIEW,
-            xr::ReferenceSpaceType::LOCAL => *LOCAL,
-            xr::ReferenceSpaceType::STAGE => *STAGE,
-            other => panic!("unimplemented reference space type: {other:?}"),
-        };
+        *space = session.add_space(Arc::new(Space {
+            ty: SpaceType::Reference(info.reference_space_type),
+            offset: info.pose_in_reference_space,
+            session: Arc::downgrade(&session),
+        }));
     }
+
     xr::Result::SUCCESS
 }
 
@@ -1089,7 +1170,7 @@ extern "system" fn suggest_interaction_profile_bindings(
             .suggested
             .lock()
             .unwrap()
-            .entry(profile_path.clone())
+            .entry(profile_path)
             .or_default()
             .push(binding);
     }
@@ -1122,7 +1203,7 @@ extern "system" fn sync_actions(
 ) -> xr::Result {
     let session = get_handle!(session_xr);
     for hand in [&session.left_hand, &session.right_hand] {
-        if let Some(profile) = hand.pending_profile.load().take() {
+        if let Some(profile) = hand.pending_profile.load() {
             hand.profile.store(profile);
             send_event(
                 &session.event_sender,
@@ -1159,42 +1240,60 @@ extern "system" fn sync_actions(
         set.active.store(true, Ordering::Relaxed);
 
         for action in actions {
-            let data = action.pending_state.take();
-            for (new, state) in [
-                (data.left, &action.state.left),
-                (data.right, &action.state.right),
-            ] {
-                let mut d = state.load();
-                d.changed = false;
-                if let Some(new_state) = new {
-                    if d.state != new_state {
-                        d.changed = true;
-                        d.state = new_state;
-                    }
+            // activate pose actions
+            if matches!(action.state.left.load().state, ActionState::Pose(_)) {
+                for state in [&action.state.left, &action.state.right] {
+                    let mut d = state.load();
+                    d.state = ActionState::Pose(true);
+                    state.store(d);
                 }
-                state.store(d);
+            } else {
+                // other actions
+                let data = action.pending_state.take();
+                for (new, state) in [
+                    (data.left, &action.state.left),
+                    (data.right, &action.state.right),
+                ] {
+                    let mut d = state.load();
+                    d.changed = false;
+                    if let Some((new_state, change_time)) = new {
+                        if d.state != new_state {
+                            d.changed = true;
+                            d.state = new_state;
+                            d.last_change_time = change_time;
+                        }
+                    }
+                    state.store(d);
+                }
+            }
+        }
+    }
+
+    let instance = session.instance.upgrade().unwrap();
+    for inactive_set in instance
+        .action_sets
+        .lock()
+        .unwrap()
+        .iter()
+        .copied()
+        .filter(|set| !sets.iter().any(|active_set| *set == active_set.action_set))
+    {
+        let inactive_set = get_handle!(inactive_set);
+        let Some(actions) = inactive_set.actions.get() else {
+            continue;
+        };
+        for action in actions {
+            if matches!(action.state.left.load().state, ActionState::Pose(_)) {
+                for state in [&action.state.left, &action.state.right] {
+                    let mut d = state.load();
+                    d.state = ActionState::Pose(false);
+                    state.store(d);
+                }
             }
         }
     }
 
     xr::Result::SUCCESS
-}
-
-fn get_action_if_attached(
-    session: &Session,
-    info: *const xr::ActionStateGetInfo,
-) -> Option<(Arc<ActionSet>, Arc<Action>)> {
-    let sets = session.attached_sets.get()?;
-    let action = xr::Action::to_handle(unsafe { (*info).action })?;
-    sets.into_iter().find_map(|set| {
-        let set = xr::ActionSet::to_handle(*set)?;
-        for a in set.actions.get().unwrap() {
-            if Arc::as_ptr(a) == Arc::as_ptr(&action) {
-                return Some((set, action.clone()));
-            }
-        }
-        None
-    })
 }
 
 extern "system" fn get_action_state_boolean(
@@ -1213,13 +1312,12 @@ extern "system" fn get_action_state_boolean(
         });
     }
     let session = get_handle!(session);
-    let Some((set, action)) = get_action_if_attached(&session, info) else {
+    let Some((set, action)) = session.get_action_if_attached(info) else {
         return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
     };
 
     let info = unsafe { info.as_ref().unwrap() };
-    let instance = session.instance.upgrade().unwrap();
-    let hand_state = action.get_hand_state(&instance, info.subaction_path);
+    let hand_state = action.get_hand_state(info.subaction_path);
     let ActionState::Bool(b) = hand_state.state else {
         return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
     };
@@ -1229,6 +1327,7 @@ extern "system" fn get_action_state_boolean(
         if active {
             state.current_state = b.into();
             state.changed_since_last_sync = hand_state.changed.into();
+            state.last_change_time = hand_state.last_change_time;
         }
         state.is_active = active.into();
     }
@@ -1251,11 +1350,10 @@ extern "system" fn get_action_state_float(
         });
     }
     let session = get_handle!(session);
-    let Some((set, action)) = get_action_if_attached(&session, info) else {
+    let Some((set, action)) = session.get_action_if_attached(info) else {
         return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
     };
-    let instance = session.instance.upgrade().unwrap();
-    let hand_state = action.get_hand_state(&instance, unsafe { (*info).subaction_path });
+    let hand_state = action.get_hand_state(unsafe { (*info).subaction_path });
     let ActionState::Float(f) = hand_state.state else {
         return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
     };
@@ -1286,12 +1384,11 @@ extern "system" fn get_action_state_vector2f(
         });
     }
     let session = get_handle!(session);
-    let Some((set, action)) = get_action_if_attached(&session, info) else {
+    let Some((set, action)) = session.get_action_if_attached(info) else {
         return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
     };
 
-    let instance = session.instance.upgrade().unwrap();
-    let hand_state = action.get_hand_state(&instance, unsafe { (*info).subaction_path });
+    let hand_state = action.get_hand_state(unsafe { (*info).subaction_path });
     let ActionState::Vector2(x, y) = hand_state.state else {
         return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
     };
@@ -1319,7 +1416,7 @@ extern "system" fn get_current_interaction_profile(
     let Ok(val) = instance.get_path_value(user_path) else {
         return xr::Result::ERROR_PATH_INVALID;
     };
-    let profile = match val.as_ref().map(String::as_str) {
+    let profile = match val.as_deref() {
         Some("/user/hand/left") => session.left_hand.profile.load(),
         Some("/user/hand/right") => session.right_hand.profile.load(),
         _ => xr::Path::NULL,
@@ -1342,14 +1439,21 @@ extern "system" fn locate_space(
     _time: xr::Time,
     location: *mut xr::SpaceLocation,
 ) -> xr::Result {
+    let base_space = get_handle!(base_space);
     assert!(
-        base_space != *STAGE && base_space != *VIEW,
+        !matches!(
+            base_space.ty,
+            SpaceType::Reference(xr::ReferenceSpaceType::STAGE | xr::ReferenceSpaceType::VIEW),
+        ),
         "stage/view locate unimplemented"
     );
-    assert_ne!(space, *LOCAL);
 
     let space = get_handle!(space);
-    let next = unsafe { *&raw mut (*location).next };
+    assert!(!matches!(
+        space.ty,
+        SpaceType::Reference(xr::ReferenceSpaceType::LOCAL)
+    ));
+    let next = unsafe { (*location).next };
     let mut out_loc = xr::SpaceLocation {
         ty: xr::SpaceLocation::TYPE,
         next,
@@ -1360,11 +1464,11 @@ extern "system" fn locate_space(
     if !next.is_null() {
         let header = next as *mut xr::BaseOutStructure;
         unsafe {
-            if *&raw mut (*header).ty == xr::SpaceVelocity::TYPE {
+            if (*header).ty == xr::SpaceVelocity::TYPE {
                 let velo = next as *mut xr::SpaceVelocity;
                 velo.write(xr::SpaceVelocity {
                     ty: xr::SpaceVelocity::TYPE,
-                    next: *&raw mut (*velo).next,
+                    next: (*velo).next,
                     velocity_flags: xr::SpaceVelocityFlags::EMPTY,
                     linear_velocity: Default::default(),
                     angular_velocity: Default::default(),
@@ -1373,7 +1477,10 @@ extern "system" fn locate_space(
             }
         }
     }
-    if base_space == *LOCAL {
+    if matches!(
+        base_space.ty,
+        SpaceType::Reference(xr::ReferenceSpaceType::LOCAL)
+    ) {
         match space.get_pose_relative_to_local() {
             Ok(loc) => {
                 out_loc = loc;
@@ -1381,7 +1488,6 @@ extern "system" fn locate_space(
             Err(e) => return e,
         };
     } else {
-        let base_space = get_handle!(base_space);
         let base_loc = match base_space.get_pose_relative_to_local() {
             Ok(loc) => loc,
             Err(e) => return e,
@@ -1607,4 +1713,60 @@ fn mat_to_pose(mat: Affine3A) -> xr::Posef {
             z: pos.z,
         },
     }
+}
+
+extern "system" fn apply_haptic_feedback(
+    session: xr::Session,
+    action_info: *const xr::HapticActionInfo,
+    haptic_feedback: *const xr::HapticBaseHeader,
+) -> xr::Result {
+    let session = get_handle!(session);
+
+    const {
+        assert!(
+            std::mem::size_of::<xr::HapticActionInfo>()
+                == std::mem::size_of::<xr::ActionStateGetInfo>()
+        );
+        assert!(
+            std::mem::offset_of!(xr::HapticActionInfo, action)
+                == std::mem::offset_of!(xr::ActionStateGetInfo, action)
+        );
+    }
+
+    println!(
+        "{}",
+        unsafe { action_info.as_ref().unwrap().action }.into_raw()
+    );
+    let Some((_, action)) =
+        session.get_action_if_attached(action_info as *const xr::ActionStateGetInfo)
+    else {
+        return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
+    };
+
+    let info = unsafe { action_info.as_ref().unwrap() };
+    let mut hand_state = action.get_hand_state(info.subaction_path);
+    let ActionState::Haptic(_) = hand_state.state else {
+        return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
+    };
+
+    #[allow(clippy::deref_addrof)]
+    if unsafe { *(&raw const (*haptic_feedback).ty) } != xr::HapticVibration::TYPE {
+        return xr::Result::ERROR_VALIDATION_FAILURE;
+    }
+
+    hand_state.state = ActionState::Haptic(true);
+
+    let instance = session.instance.upgrade().unwrap();
+
+    match DefaultKey::from(KeyData::from_ffi(info.subaction_path.into_raw())) {
+        x if x == instance.left_hand_key => {
+            action.state.left.store(hand_state);
+        }
+        x if x == instance.right_hand_key => {
+            action.state.right.store(hand_state);
+        }
+        _ => unreachable!(),
+    }
+
+    xr::Result::SUCCESS
 }

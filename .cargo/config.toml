@@ -4,6 +4,7 @@ MIRIFLAGS = "-Zmiri-disable-isolation -Zmiri-permissive-provenance -Zmiri-ignore
 
 [alias]
 xbuild = "run --package xbuild --quiet --"
+c = "clippy --workspace --all-targets"
 
 [profile.release]
 strip = "debuginfo"

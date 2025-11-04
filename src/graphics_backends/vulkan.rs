@@ -88,8 +88,12 @@ impl GraphicsBackend for VulkanData {
         }
     }
 
-    fn get_texture(texture: &vr::Texture_t) -> Self::OpenVrTexture {
-        texture.handle.cast()
+    fn get_texture(texture: &vr::Texture_t) -> Option<Self::OpenVrTexture> {
+        if !texture.handle.is_null() {
+            Some(texture.handle.cast())
+        } else {
+            None
+        }
     }
     fn store_swapchain_images(&mut self, images: Vec<u64>, format: u32) {
         let images: Vec<vk::Image> = images.into_iter().map(vk::Image::from_raw).collect();
@@ -176,7 +180,7 @@ impl GraphicsBackend for VulkanData {
         let buf = data.bufs[2 * image_index + eye as usize];
 
         let (extent, offset) = texture_extent_from_bounds(texture, bounds);
-        log::trace!("{:?} extent: {:?} | bounds: {:?}", eye, extent, bounds);
+        log::trace!("{eye:?} extent: {extent:?} | bounds: {bounds:?}");
 
         self.record_commands(buf, || unsafe {
             // transition swapchain image to TRANSFER_DST

@@ -2,20 +2,34 @@ use super::{
     InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
     SkeletalInputBindings, StringToPath,
 };
-use crate::input::legacy::LegacyBindings;
+use crate::button_mask_from_ids;
+use crate::input::legacy::{self, button_mask_from_id, LegacyBindings};
 use crate::openxr_data::Hand;
 use glam::Mat4;
+use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};
 
 pub struct ViveWands;
 
 impl InteractionProfile for ViveWands {
     fn properties(&self) -> &'static ProfileProperties {
-        &ProfileProperties {
-            model: c"Vive. Controller MV",
+        static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
+            model: Property::BothHands(c"Vive. MV"),
             openvr_controller_type: c"vive_controller",
             render_model_name: Property::BothHands(c"vr_controller_vive_1_5"),
             main_axis: MainAxisType::Trackpad,
-        }
+            registered_device_type: Property::PerHand {
+                left: c"htc/vive_controllerLHR-00000001",
+                right: c"htc/vive_controllerLHR-00000002",
+            },
+            serial_number: Property::PerHand {
+                left: c"LHR-00000001",
+                right: c"LHR-00000002",
+            },
+            tracking_system_name: c"lighthouse",
+            manufacturer_name: c"HTC",
+            legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, Axis0, Axis1),
+        };
+        &DEVICE_PROPERTIES
     }
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/htc/vive_controller"
@@ -72,8 +86,9 @@ impl InteractionProfile for ViveWands {
 
     fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
         LegacyBindings {
-            grip_pose: stp.leftright("input/grip/pose"),
-            aim_pose: stp.leftright("input/aim/pose"),
+            extra: legacy::Bindings {
+                grip_pose: stp.leftright("input/grip/pose"),
+            },
             trigger: stp.leftright("input/trigger/value"),
             trigger_click: stp.leftright("input/trigger/click"),
             app_menu: stp.leftright("input/menu/click"),
@@ -83,6 +98,7 @@ impl InteractionProfile for ViveWands {
             main_xy: stp.leftright("input/trackpad"),
             main_xy_click: stp.leftright("input/trackpad/click"),
             main_xy_touch: stp.leftright("input/trackpad/touch"),
+            haptic: stp.leftright("output/haptic"),
         }
     }
 

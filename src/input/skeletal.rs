@@ -25,7 +25,7 @@ impl<C: openxr_data::Compositor> Input<C> {
     ) {
         use HandSkeletonBone::*;
 
-        let legacy = session_data.input_data.legacy_actions.get().unwrap();
+        let pose_data = session_data.input_data.pose_data.get().unwrap();
         let display_time = self.openxr.display_time.get();
         let devices = self.devices.read().unwrap();
 
@@ -35,8 +35,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         };
 
         let Some(raw) = match hand {
-            Hand::Left => &legacy.left_spaces,
-            Hand::Right => &legacy.right_spaces,
+            Hand::Left => &pose_data.left_space,
+            Hand::Right => &pose_data.right_space,
         }
         .try_get_or_init_raw(
             &controller.get_interaction_profile(),

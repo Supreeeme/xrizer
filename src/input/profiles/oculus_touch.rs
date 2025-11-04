@@ -2,23 +2,48 @@ use super::{
     InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
     SkeletalInputBindings, StringToPath,
 };
-use crate::input::legacy::LegacyBindings;
+use crate::button_mask_from_ids;
+use crate::input::legacy::{self, button_mask_from_id, LegacyBindings};
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
+use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Axis2, Grip, System, A};
 
 pub struct Touch;
 
 impl InteractionProfile for Touch {
     fn properties(&self) -> &'static ProfileProperties {
-        &ProfileProperties {
-            model: c"Miramar",
+        static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
+            model: Property::PerHand {
+                left: c"Miramar (Left Controller)",
+                right: c"Miramar (Right Controller)",
+            },
             openvr_controller_type: c"oculus_touch",
             render_model_name: Property::PerHand {
                 left: c"oculus_quest_controller_left",
                 right: c"oculus_quest_controller_right",
             },
+            registered_device_type: Property::PerHand {
+                left: c"oculus/WMHD315M3010GV_Controller_Left",
+                right: c"oculus/WMHD315M3010GV_Controller_Right",
+            },
+            serial_number: Property::PerHand {
+                left: c"WMHD315M3010GV_Controller_Left",
+                right: c"WMHD315M3010GV_Controller_Right",
+            },
+            tracking_system_name: c"oculus",
+            manufacturer_name: c"Oculus",
             main_axis: MainAxisType::Thumbstick,
-        }
+            legacy_buttons_mask: button_mask_from_ids!(
+                System,
+                ApplicationMenu,
+                Grip,
+                A,
+                Axis0,
+                Axis1,
+                Axis2
+            ),
+        };
+        &DEVICE_PROPERTIES
     }
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/oculus/touch_controller"
@@ -65,8 +90,9 @@ impl InteractionProfile for Touch {
 
     fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
         LegacyBindings {
-            grip_pose: stp.leftright("input/grip/pose"),
-            aim_pose: stp.leftright("input/aim/pose"),
+            extra: legacy::Bindings {
+                grip_pose: stp.leftright("input/grip/pose"),
+            },
             trigger: stp.leftright("input/trigger/value"),
             trigger_click: stp.leftright("input/trigger/value"),
             app_menu: vec![
@@ -82,6 +108,7 @@ impl InteractionProfile for Touch {
             main_xy: stp.leftright("input/thumbstick"),
             main_xy_click: stp.leftright("input/thumbstick/click"),
             main_xy_touch: stp.leftright("input/thumbstick/touch"),
+            haptic: stp.leftright("output/haptic"),
         }
     }
 

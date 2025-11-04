@@ -1,11 +1,13 @@
-use glam::{EulerRot, Mat4, Quat, Vec3};
-
 use super::{
     InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
     SkeletalInputBindings, StringToPath,
 };
-use crate::input::legacy::LegacyBindings;
+use crate::button_mask_from_ids;
+use crate::input::legacy::{self, button_mask_from_id, LegacyBindings};
 use crate::openxr_data::Hand;
+use glam::{EulerRot, Mat4, Quat, Vec3};
+use openvr::EVRButtonId;
+use std::iter::Iterator;
 
 pub struct Knuckles;
 
@@ -14,15 +16,38 @@ impl InteractionProfile for Knuckles {
         "/interaction_profiles/valve/index_controller"
     }
     fn properties(&self) -> &'static ProfileProperties {
-        &ProfileProperties {
-            model: c"Knuckles",
+        static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
+            model: Property::PerHand {
+                left: c"Knuckles Left",
+                right: c"Knuckles Right",
+            },
             openvr_controller_type: c"knuckles",
             render_model_name: Property::PerHand {
-                left: c"valve_controller_knu_1_0_left",
-                right: c"valve_controller_knu_1_0_right",
+                left: c"{indexcontroller}valve_controller_knu_1_0_left",
+                right: c"{indexcontroller}valve_controller_knu_1_0_right",
             },
             main_axis: MainAxisType::Thumbstick,
-        }
+            registered_device_type: Property::PerHand {
+                left: c"valve/index_controllerLHR-FFFFFFF1",
+                right: c"valve/index_controllerLHR-FFFFFFF2",
+            },
+            serial_number: Property::PerHand {
+                left: c"LHR-FFFFFFF1",
+                right: c"LHR-FFFFFFF2",
+            },
+            tracking_system_name: c"lighthouse",
+            manufacturer_name: c"Valve",
+            legacy_buttons_mask: button_mask_from_ids!(
+                EVRButtonId::System,
+                EVRButtonId::ApplicationMenu,
+                EVRButtonId::Grip,
+                EVRButtonId::A,
+                EVRButtonId::Axis0,
+                EVRButtonId::Axis1,
+                EVRButtonId::Axis2
+            ),
+        };
+        &DEVICE_PROPERTIES
     }
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
@@ -94,8 +119,9 @@ impl InteractionProfile for Knuckles {
 
     fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
         LegacyBindings {
-            grip_pose: stp.leftright("input/grip/pose"),
-            aim_pose: stp.leftright("input/aim/pose"),
+            extra: legacy::Bindings {
+                grip_pose: stp.leftright("input/grip/pose"),
+            },
             app_menu: stp.leftright("input/b/click"),
             a: stp.leftright("input/a/click"),
             trigger: stp.leftright("input/trigger/value"),
@@ -105,6 +131,7 @@ impl InteractionProfile for Knuckles {
             main_xy: stp.leftright("input/thumbstick"),
             main_xy_click: stp.leftright("input/thumbstick/click"),
             main_xy_touch: stp.leftright("input/thumbstick/touch"),
+            haptic: stp.leftright("output/haptic"),
         }
     }
 
@@ -199,7 +226,7 @@ mod tests {
             panic!("no");
         };
 
-        let grab_data = extra.grab_action.as_ref().unwrap();
+        let grab_data = extra.grab_actions.as_ref().unwrap();
         let p = f.input.openxr.instance.string_to_path(path).unwrap();
         let suggested = fakexr::get_suggested_bindings(grab_data.force_action.as_raw(), p);
         assert!(suggested.contains(&"/user/hand/right/input/squeeze/force".to_string()));

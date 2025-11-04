@@ -6,7 +6,7 @@ use std::os::raw::c_char;
 
 #[derive(Default, macros::InterfaceImpl)]
 #[interface = "IVRSettings"]
-#[versions(003)]
+#[versions(003, 002)]
 pub struct Settings {
     vtables: Vtables,
 }
@@ -37,7 +37,7 @@ impl vr::IVRSettings003_Interface for Settings {
         let section = unsafe { CStr::from_ptr(section) }.to_string_lossy();
         let key = unsafe { CStr::from_ptr(settings_key) }.to_string_lossy();
         debug!("Setting bool on {section}/{key} to {value}");
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
     }
@@ -52,7 +52,7 @@ impl vr::IVRSettings003_Interface for Settings {
         let section = unsafe { CStr::from_ptr(section) }.to_string_lossy();
         let key = unsafe { CStr::from_ptr(settings_key) }.to_string_lossy();
         debug!("Setting int on {section}/{key} to {value}");
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
     }
@@ -67,7 +67,7 @@ impl vr::IVRSettings003_Interface for Settings {
         let section = unsafe { CStr::from_ptr(section) }.to_string_lossy();
         let key = unsafe { CStr::from_ptr(settings_key) }.to_string_lossy();
         debug!("Setting float on {section}/{key} to {value}");
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
     }
@@ -83,7 +83,7 @@ impl vr::IVRSettings003_Interface for Settings {
         let key = unsafe { CStr::from_ptr(settings_key) }.to_string_lossy();
         let value = unsafe { CStr::from_ptr(value) }.to_string_lossy();
         debug!("Setting string on {section}/{key} to {value}");
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
     }
@@ -96,7 +96,7 @@ impl vr::IVRSettings003_Interface for Settings {
     ) -> bool {
         let section = unsafe { CStr::from_ptr(section) }.to_string_lossy();
         let key = unsafe { CStr::from_ptr(settings_key) }.to_string_lossy();
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
         debug!("Getting bool on {section}/{key}");
@@ -111,7 +111,7 @@ impl vr::IVRSettings003_Interface for Settings {
     ) -> i32 {
         let section = unsafe { CStr::from_ptr(section) }.to_string_lossy();
         let key = unsafe { CStr::from_ptr(settings_key) }.to_string_lossy();
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
         debug!("Getting int on {section}/{key}");
@@ -126,7 +126,7 @@ impl vr::IVRSettings003_Interface for Settings {
     ) -> f32 {
         let section = unsafe { CStr::from_ptr(section) }.to_string_lossy();
         let key = unsafe { CStr::from_ptr(settings_key) }.to_string_lossy();
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
         debug!("Getting float on {section}/{key}");
@@ -143,7 +143,7 @@ impl vr::IVRSettings003_Interface for Settings {
     ) {
         let section = unsafe { CStr::from_ptr(section) }.to_string_lossy();
         let key = unsafe { CStr::from_ptr(settings_key) }.to_string_lossy();
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
         if value_len > 0 {
@@ -156,7 +156,7 @@ impl vr::IVRSettings003_Interface for Settings {
 
     fn RemoveSection(&self, section: *const c_char, error: *mut EVRSettingsError) {
         let section = unsafe { CStr::from_ptr(section) }.to_string_lossy();
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
         debug!("Removing section {section}");
@@ -170,9 +170,18 @@ impl vr::IVRSettings003_Interface for Settings {
     ) {
         let section = unsafe { CStr::from_ptr(section) }.to_string_lossy();
         let key = unsafe { CStr::from_ptr(settings_key) }.to_string_lossy();
-        unsafe {
+        if let Some(error) = unsafe { error.as_mut() } {
             *error = EVRSettingsError::None;
         }
         debug!("Removing {section}/{key}");
+    }
+}
+
+impl vr::IVRSettings002On003 for Settings {
+    fn Sync(&self, _force: bool, error: *mut EVRSettingsError) -> bool {
+        if let Some(error) = unsafe { error.as_mut() } {
+            *error = EVRSettingsError::None;
+        }
+        false
     }
 }

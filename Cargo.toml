@@ -1,9 +1,13 @@
 [package]
 name = "xrizer"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 resolver = "2"
 rust-version = "1.83"
+license = "GPL-3.0-or-later"
+description = "XR-ize your favorite OpenVR games"
+repository = "https://github.com/Supreeeme/xrizer"
+readme = "README.md"
 
 [lib]
 crate-type = ["cdylib"]
@@ -22,9 +26,13 @@ ash = "0.38.0"
 openxr = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3", version = "0.19.0", features = ["static"] }
 openxr-sys = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3", version = "0.11.0" }
 slotmap = "1.0.7"
-glam = "0.29.0"
+glam = "0.30.4"
 log = "0.4.22"
 tracy-client = "0.17.6"
+derive_more = { version = "2.0.1", features = ["deref", "from", "try_into"] }
+
+[lints]
+workspace = true
 
 [dependencies]
 ash = { workspace = true }
@@ -41,17 +49,19 @@ serde_json = "1.0.127"
 slotmap = { workspace = true }
 time = { version = "0.3.36", features = ["formatting", "local-offset", "macros"] }
 tracy-client = { workspace = true, features = ["only-localhost", "demangle"], optional = true }
-egui = "0.28.1"
-egui-miniquad = "0.15.0"
-miniquad = "=0.4.0"
-webbrowser = "0.5.5"
+egui = "0.31.1"
+egui-miniquad = "0.16"
+miniquad = "0.4.8"
+webbrowser = "1.0.5"
 glutin_glx_sys = "0.6.0"
 libc = "0.2.169"
-derive_more = { version = "1.0.0", features = ["deref", "from", "try_into"] }
+derive_more = { workspace = true }
 gl = "0.14.0"
 
 [build-dependencies]
+anyhow = "1.0.99"
 shaders = { path = "shaders" }
+vergen-gitcl = "1.0.8"
 
 [dev-dependencies]
 libloading = "0.8.5"

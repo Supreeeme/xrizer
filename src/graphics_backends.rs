@@ -16,7 +16,8 @@ pub trait GraphicsBackend: Into<SupportedBackend> {
 
     fn session_create_info(&self) -> <Self::Api as xr::Graphics>::SessionCreateInfo;
 
-    fn get_texture(texture: &vr::Texture_t) -> Self::OpenVrTexture;
+    /// Returns None if the texture is invalid.
+    fn get_texture(texture: &vr::Texture_t) -> Option<Self::OpenVrTexture>;
 
     fn swapchain_info_for_texture(
         &self,
@@ -107,17 +108,17 @@ pub trait WithAnyGraphicsOwned<G>: WithAnyGraphicsParams {
 }
 
 impl SupportedBackend {
-    pub fn new(texture: &vr::Texture_t, _bounds: vr::VRTextureBounds_t) -> Self {
+    pub fn new(texture: &vr::Texture_t, _bounds: vr::VRTextureBounds_t) -> Option<Self> {
         match texture.eType {
             vr::ETextureType::Vulkan => {
                 let vk_texture = unsafe { &*(texture.handle as *const vr::VRVulkanTextureData_t) };
-                Self::Vulkan(VulkanData::new(vk_texture))
+                Some(Self::Vulkan(VulkanData::new(vk_texture)))
             }
-            vr::ETextureType::OpenGL => Self::OpenGL(GlData::new()),
+            vr::ETextureType::OpenGL => GlData::new().map(Self::OpenGL),
             #[cfg(test)]
-            vr::ETextureType::Reserved => {
-                Self::Fake(crate::compositor::FakeGraphicsData::new(texture))
-            }
+            vr::ETextureType::Reserved => Some(Self::Fake(
+                crate::compositor::FakeGraphicsData::new(texture),
+            )),
             other => panic!("Unsupported texture type: {other:?}"),
         }
     }

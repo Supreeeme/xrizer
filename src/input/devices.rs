@@ -129,17 +129,17 @@ impl XrTrackedDevice {
         hand: Hand,
         origin: vr::ETrackingUniverseOrigin,
     ) -> Option<vr::TrackedDevicePose_t> {
-        let legacy_actions = session_data.input_data.legacy_actions.get()?;
+        let pose_data = session_data.input_data.pose_data.get()?;
 
         let spaces = match hand {
-            Hand::Left => &legacy_actions.left_spaces,
-            Hand::Right => &legacy_actions.right_spaces,
+            Hand::Left => &pose_data.left_space,
+            Hand::Right => &pose_data.right_space,
         };
 
         let (location, velocity) = if let Some(raw) = spaces.try_get_or_init_raw(
             &self.get_interaction_profile(),
             session_data,
-            &legacy_actions.actions,
+            &session_data.input_data.get_legacy_actions(),
         ) {
             raw.relate(
                 session_data.get_space_for_origin(origin),
@@ -371,7 +371,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
                 // I Expect You To Die 3 identifies controllers with this property -
                 // why it couldn't just use ControllerType instead is beyond me...
-                vr::ETrackedDeviceProperty::ModelNumber_String => Some(data.model),
+                vr::ETrackedDeviceProperty::ModelNumber_String => Some(data.model.get(hand)),
                 // Resonite won't recognize controllers without this
                 vr::ETrackedDeviceProperty::RenderModelName_String => {
                     Some(*data.render_model_name.get(hand))

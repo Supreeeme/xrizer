@@ -65,10 +65,7 @@ impl ClientCore {
     pub fn new(version: &CStr) -> Option<Arc<Self>> {
         crate::init_logging();
 
-        if ![c"IVRClientCore_003", c"IVRClientCore_002"]
-            .iter()
-            .any(|s| *s == version)
-        {
+        if ![c"IVRClientCore_003", c"IVRClientCore_002"].contains(&version) {
             error!("Application requested unknown ClientCore version: {version:?}");
             return None;
         }
@@ -219,7 +216,11 @@ impl IVRClientCore003_Interface for ClientCore {
             })
             .or_else(|| self.try_interface(interface, |_| Input::new(openxr.clone())))
             .or_else(|| self.try_interface(interface, |_| RenderModels::default()))
-            .or_else(|| self.try_interface(interface, |_| OverlayMan::new(openxr.clone())))
+            .or_else(|| {
+                self.try_interface(interface, |injector| {
+                    OverlayMan::new(openxr.clone(), injector)
+                })
+            })
             .or_else(|| self.try_interface(interface, |_| Chaperone::new(openxr.clone())))
             .or_else(|| self.try_interface(interface, |_| Applications::default()))
             .or_else(|| self.try_interface(interface, |_| OverlayView::default()))
@@ -297,7 +298,7 @@ impl<T: InterfaceImpl> Injected<T> {
                     .unwrap_or_else(|_| unreachable!());
                 Some(self.item.get().unwrap())
             })
-            .map(|i| i.upgrade().unwrap().downcast().unwrap())
+            .and_then(|i| Some(i.upgrade()?.downcast().unwrap()))
     }
 
     pub fn force(&self, init: impl FnOnce(&Injector) -> T) -> Arc<T> {

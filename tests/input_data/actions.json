@@ -21,6 +21,11 @@
 			"type": "boolean"
 		},
 		{
+			"name": "/actions/set1/in/BoolAct3",
+			"requirement": "optional",
+			"type": "boolean"
+		},
+		{
 			"name": "/actions/set1/in/Vec1Act",
 			"requirement": "optional",
 			"type": "vector1"
@@ -29,6 +34,11 @@
 			"name": "/actions/set1/in/Vec2Act",
 			"requirement": "optional",
 			"type": "vector2"
+		},
+		{
+			"name": "/actions/set1/in/Vec3Act",
+			"requirement": "optional",
+			"type": "vector3"
 		},
 		{
 			"name": "/actions/set1/in/Pose",

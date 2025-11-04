@@ -3,6 +3,9 @@ name = "openvr"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [features]
 tracing = ["dep:tracy-client"]
 
@@ -11,6 +14,7 @@ log = { workspace = true }
 openxr = { workspace = true }
 glam = { workspace = true }
 tracy-client = { workspace = true, optional = true }
+derive_more = { workspace = true, features = ["try_from"] }
 
 [build-dependencies]
 bindgen = "0.69.4"

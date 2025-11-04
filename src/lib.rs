@@ -160,11 +160,6 @@ fn init_logging() {
             }));
         }
 
-        // safety: who cares lol
-        unsafe {
-            time::util::local_offset::set_soundness(time::util::local_offset::Soundness::Unsound)
-        };
-
         builder
             .filter_level(log::LevelFilter::Info)
             .parse_default_env()
@@ -184,13 +179,17 @@ fn init_logging() {
 
                 write!(buf, "[{now} {style}{:5}{style:#}", record.level())?;
                 if let Some(path) = record.module_path() {
-                    write!(buf, " {}", path)?;
+                    write!(buf, " {path}")?;
                 }
                 writeln!(buf, " {:?}] {}", std::thread::current().id(), record.args())
             })
             .init();
 
-        log::info!("Initializing XRizer");
+        let mut version = env!("VERGEN_GIT_DESCRIBE");
+        if version == "VERGEN_IDEMPOTENT_OUTPUT" {
+            version = env!("CARGO_PKG_VERSION");
+        }
+        log::info!("Initializing XRizer version {version}");
         if let Some(err) = startup_err {
             log::warn!("{err}");
         }

@@ -6,17 +6,18 @@ use super::{
     ActionData, Input, InteractionProfile,
 };
 use crate::{
-    graphics_backends::GraphicsBackend,
-    openxr_data::{FrameStream, Hand, OpenXrData, SessionCreateInfo},
+    input::ActionKey,
+    openxr_data::{FakeCompositor, Hand, OpenXrData},
     vr::{self, IVRInput010_Interface},
 };
 use fakexr::UserPath::*;
 use glam::{Mat4, Quat};
 use openxr as xr;
+use slotmap::KeyData;
 use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_4;
 use std::ffi::CStr;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 
 static ACTIONS_JSONS_DIR: &CStr = unsafe {
     CStr::from_bytes_with_nul_unchecked(
@@ -30,40 +31,16 @@ impl std::fmt::Debug for ActionData {
             ActionData::Bool(_) => f.write_str("InputAction::Bool"),
             ActionData::Vector1 { .. } => f.write_str("InputAction::Float"),
             ActionData::Vector2 { .. } => f.write_str("InputAction::Vector2"),
-            ActionData::Pose { .. } => f.write_str("InputAction::Pose"),
+            ActionData::Pose => f.write_str("InputAction::Pose"),
             ActionData::Skeleton { .. } => f.write_str("InputAction::Skeleton"),
             ActionData::Haptic(_) => f.write_str("InputAction::Haptic"),
         }
     }
 }
 
-pub(super) struct FakeCompositor(crate::graphics_backends::VulkanData);
-impl openvr::InterfaceImpl for FakeCompositor {
-    fn get_version(_: &CStr) -> Option<Box<dyn FnOnce(&Arc<Self>) -> *mut std::ffi::c_void>> {
-        None
-    }
-    fn supported_versions() -> &'static [&'static CStr] {
-        &[]
-    }
-}
-impl crate::openxr_data::Compositor for FakeCompositor {
-    fn get_session_create_info(
-        &self,
-        _: crate::compositor::CompositorSessionData,
-    ) -> SessionCreateInfo {
-        SessionCreateInfo::from_info::<xr::Vulkan>(self.0.session_create_info())
-    }
-    fn post_session_restart(
-        &self,
-        _: &crate::openxr_data::SessionData,
-        _: openxr::FrameWaiter,
-        _: FrameStream,
-    ) {
-    }
-}
-
 pub(super) struct Fixture {
     pub input: Arc<Input<FakeCompositor>>,
+    pending_profile_change: bool,
     _comp: Arc<FakeCompositor>,
 }
 
@@ -90,16 +67,26 @@ impl_action_type!(xr::Vector2f, "vector2", ActionData::Vector2{ action, .. } => 
 impl_action_type!(xr::Haptic, "haptic", ActionData::Haptic(a) => a.as_raw());
 //impl_action_type!(xr::Posef, "pose", ActionData::Pose { action, .. } => action.as_raw());
 
+#[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
+pub enum ExtraActionType {
+    Analog,
+    GrabTouch,
+    GrabForce,
+    DpadDirection,
+    ToggleAction,
+    Double,
+}
+
 impl Fixture {
     pub fn new() -> Self {
         crate::init_logging();
         let xr = Arc::new(OpenXrData::new(&crate::clientcore::Injector::default()).unwrap());
-        let comp = Arc::new(FakeCompositor(
-            crate::graphics_backends::VulkanData::new_temporary(&xr.instance, xr.system_id),
-        ));
+        let comp = Arc::new(FakeCompositor::new(&xr));
         xr.compositor.set(Arc::downgrade(&comp));
         let ret = Self {
             input: Input::new(xr.clone()).into(),
+            pending_profile_change: false,
             _comp: comp,
         };
         xr.input.set(Arc::downgrade(&ret.input));
@@ -117,23 +104,20 @@ impl Fixture {
         );
     }
 
-    #[track_caller]
-    pub fn verify_bindings<T: ActionType>(
+    fn verify_bindings_core(
         &self,
+        action: xr::sys::Action,
         interaction_profile: &str,
         action_name: &CStr,
-        expected_bindings: impl Into<HashSet<String>>,
+        action_type: &str,
+        mut expected_bindings: HashSet<String>,
     ) {
-        let mut expected_bindings = expected_bindings.into();
         let profile = self
             .input
             .openxr
             .instance
             .string_to_path(interaction_profile)
             .unwrap();
-
-        let handle = self.get_action_handle(action_name);
-        let action = self.get_action::<T>(handle);
 
         let bindings = fakexr::get_suggested_bindings(action, profile);
 
@@ -148,7 +132,7 @@ impl Fixture {
                     "remaining bindings: {:#?}"
                 ),
                 binding,
-                std::any::type_name::<T>(),
+                action_type,
                 action_name,
                 found_bindings,
                 expected_bindings,
@@ -159,9 +143,68 @@ impl Fixture {
 
         assert!(
             expected_bindings.is_empty(),
-            "Missing expected bindings for {} action {action_name:?}: {expected_bindings:#?}",
-            std::any::type_name::<T>(),
+            "Missing expected bindings for {action_type} action {action_name:?}: {expected_bindings:#?}",
         );
+    }
+
+    #[track_caller]
+    pub fn verify_bindings<T: ActionType>(
+        &self,
+        interaction_profile: &str,
+        action_name: &CStr,
+        expected_bindings: impl Into<HashSet<String>>,
+    ) {
+        let handle = self.get_action_handle(action_name);
+        let action = self.get_action::<T>(handle);
+
+        self.verify_bindings_core(
+            action,
+            interaction_profile,
+            action_name,
+            std::any::type_name::<T>(),
+            expected_bindings.into(),
+        )
+    }
+
+    #[track_caller]
+    pub fn verify_extra_bindings(
+        &self,
+        interaction_profile: &str,
+        action_name: &CStr,
+        extra_action_type: ExtraActionType,
+        expected_bindings: impl Into<HashSet<String>>,
+    ) {
+        let handle = self.get_action_handle(action_name);
+        let action = self
+            .get_extra_action(handle, extra_action_type)
+            .unwrap_or_else(|| panic!("No extra action {extra_action_type:?} for {action_name:?}"));
+
+        self.verify_bindings_core(
+            action,
+            interaction_profile,
+            action_name,
+            &format!("{extra_action_type:?}"),
+            expected_bindings.into(),
+        );
+    }
+
+    #[track_caller]
+    pub fn verify_no_extra_bindings(
+        &self,
+        interaction_profile: &str,
+        action_name: &CStr,
+        extra_action_type: ExtraActionType,
+    ) {
+        let handle = self.get_action_handle(action_name);
+        if let Some(action) = self.get_extra_action(handle, extra_action_type) {
+            self.verify_bindings_core(
+                action,
+                interaction_profile,
+                action_name,
+                &format!("{extra_action_type:?}"),
+                [].into(),
+            );
+        }
     }
 }
 
@@ -195,7 +238,7 @@ impl Fixture {
         src
     }
 
-    pub fn sync(&self, mut active: vr::VRActiveActionSet_t) {
+    pub fn sync(&mut self, mut active: vr::VRActiveActionSet_t) {
         assert_eq!(
             self.input.UpdateActionState(
                 &mut active,
@@ -204,6 +247,10 @@ impl Fixture {
             ),
             vr::EVRInputError::None
         );
+        if self.pending_profile_change {
+            self.input.openxr.poll_events();
+            self.pending_profile_change = false;
+        }
     }
 
     #[track_caller]
@@ -213,11 +260,38 @@ impl Fixture {
             .input_data
             .get_loaded_actions()
             .expect("Actions aren't loaded");
-        let action = actions
-            .try_get_action(handle)
-            .expect("Couldn't find action for handle");
+        let action = actions.try_get_action(handle).unwrap_or_else(|_| {
+            let key = ActionKey::from(KeyData::from_ffi(handle));
+            panic!(
+                "Couldn't find action ({}) for handle ({handle})",
+                self.input.action_map.read().unwrap()[key].path
+            );
+        });
 
         T::get_xr_action(action).expect("Couldn't get OpenXR handle for action")
+    }
+
+    #[track_caller]
+    pub fn get_extra_action(
+        &self,
+        handle: vr::VRActionHandle_t,
+        extra_action_type: ExtraActionType,
+    ) -> Option<xr::sys::Action> {
+        let data = self.input.openxr.session_data.get();
+        let actions = data
+            .input_data
+            .get_loaded_actions()
+            .expect("Actions aren't loaded");
+        let extras = actions.try_get_extra(handle).ok()?;
+
+        Some(match extra_action_type {
+            ExtraActionType::Analog => extras.analog_action.as_ref()?.as_raw(),
+            ExtraActionType::GrabTouch => extras.grab_actions.as_ref()?.value_action.as_raw(),
+            ExtraActionType::GrabForce => extras.grab_actions.as_ref()?.force_action.as_raw(),
+            ExtraActionType::DpadDirection => extras.vector2_action.as_ref()?.as_raw(),
+            ExtraActionType::ToggleAction => extras.toggle_action.as_ref()?.as_raw(),
+            ExtraActionType::Double => extras.double_action.as_ref()?.as_raw(),
+        })
     }
 
     pub fn get_pose(
@@ -270,7 +344,7 @@ impl Fixture {
     }
 
     pub fn set_interaction_profile(
-        &self,
+        &mut self,
         profile: &dyn InteractionProfile,
         hand: fakexr::UserPath,
     ) {
@@ -283,6 +357,7 @@ impl Fixture {
                 .string_to_path(profile.profile_path())
                 .unwrap(),
         );
+        self.pending_profile_change = true;
     }
 
     pub fn raw_session(&self) -> xr::sys::Session {
@@ -325,7 +400,7 @@ fn handles_dont_change_after_load() {
 
 #[test]
 fn input_state_flow() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
 
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
@@ -338,9 +413,8 @@ fn input_state_flow() {
         .session_data
         .get()
         .input_data
-        .legacy_actions
-        .get()
-        .is_some());
+        .get_legacy_actions()
+        .is_none());
 
     f.sync(vr::VRActiveActionSet_t {
         ulActionSet: set1,
@@ -381,7 +455,7 @@ fn input_state_flow() {
 
 #[test]
 fn reload_manifest_on_session_restart() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
 
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
@@ -425,7 +499,7 @@ pub fn compare_pose(expected: xr::Posef, actual: xr::Posef) {
 
 #[test]
 fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let left_hand = f.get_input_source_handle(c"/user/hand/left");
     let pose_handle = f.get_action_handle(c"/actions/set1/in/pose");
     let skel_handle = f.get_action_handle(c"/actions/set1/in/skellyl");
@@ -469,8 +543,7 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     let seated_origin = vr::ETrackingUniverseOrigin::Seated;
     let waitgetposes_pose = f
         .input
-        .get_controller_pose(super::Hand::Left, Some(seated_origin))
-        .expect("WaitGetPoses should succeed");
+        .get_controller_pose(super::Hand::Left, Some(seated_origin));
 
     let mut raw_pose = vr::InputPoseActionData_t {
         pose: vr::TrackedDevicePose_t {
@@ -511,12 +584,17 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
 
 #[test]
 fn actions_with_bad_paths() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let spaces = f.get_action_handle(c"/actions/set1/in/action with spaces");
     let commas = f.get_action_handle(c"/actions/set1/in/action,with,commas");
     let mixed = f.get_action_handle(c"/actions/set1/in/mixed, action");
+    let paren = f.get_action_handle(c"/actions/set1/in/(action)(with)(parenthesis)");
     let long_bad1 = f.get_action_handle(c"/actions/set1/in/ThisActionHasAReallyLongNameThatIsMostCertainlyLongerThanTheOpenXRLimit,However,ItWillBeGivenASimpleLocalizedName");
     let long_bad2 = f.get_action_handle(c"/actions/set1/in/ThisActionWillAlsoHaveAReallyLongNameAndAShortLocalizedName,MuchLikeThePreviousAction");
+    let long_exact = f.get_action_handle(
+        c"/actions/set1/in/this right here is an action that is exactly 64 characters long!",
+    );
+
     let set1 = f.get_action_set_handle(c"/actions/set1");
     f.load_actions(c"actions_malformed_paths.json");
 
@@ -545,6 +623,16 @@ fn actions_with_bad_paths() {
         fakexr::ActionState::Bool(false),
         LeftHand,
     );
+    fakexr::set_action_state(
+        f.get_action::<bool>(long_exact),
+        fakexr::ActionState::Bool(false),
+        LeftHand,
+    );
+    fakexr::set_action_state(
+        f.get_action::<bool>(paren),
+        fakexr::ActionState::Bool(false),
+        LeftHand,
+    );
     f.sync(vr::VRActiveActionSet_t {
         ulActionSet: set1,
         ..Default::default()
@@ -560,12 +648,22 @@ fn actions_with_bad_paths() {
     assert!(s.bState);
     assert!(s.bChanged);
 
+    let s = f.get_bool_state(paren).unwrap();
+    assert!(s.bActive);
+    assert!(!s.bState);
+    assert!(!s.bChanged);
+
     let s = f.get_bool_state(long_bad1).unwrap();
     assert!(s.bActive);
     assert!(!s.bState);
     assert!(!s.bChanged);
 
     let s = f.get_bool_state(long_bad2).unwrap();
+    assert!(s.bActive);
+    assert!(!s.bState);
+    assert!(!s.bChanged);
+
+    let s = f.get_bool_state(long_exact).unwrap();
     assert!(s.bActive);
     assert!(!s.bState);
     assert!(!s.bChanged);
@@ -582,7 +680,7 @@ fn actions_with_bad_paths() {
 
 #[test]
 fn pose_action_no_restrict() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
 
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let posel = f.get_action_handle(c"/actions/set1/in/posel");
@@ -628,7 +726,7 @@ fn pose_action_no_restrict() {
 
 #[test]
 fn raw_pose_switch_profile() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
 
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let posel = f.get_action_handle(c"/actions/set1/in/posel");
@@ -719,7 +817,7 @@ fn raw_pose_switch_profile() {
 
 #[test]
 fn cased_actions() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let set1 = f.get_action_set_handle(c"/actions/set1");
     f.load_actions(c"actions_cased.json");
 
@@ -871,7 +969,7 @@ fn analog_action_initialize_on_failure() {
 
 #[test]
 fn implicit_action_sets() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let set1 = f.get_action_set_handle(c"/actions/set1");
     let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
     f.load_actions(c"actions_missing_sets.json");
@@ -887,12 +985,13 @@ fn implicit_action_sets() {
 
 #[test]
 fn detect_controller_after_manifest_load() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     f.load_actions(c"actions.json");
 
+    let input = f.input.clone();
     let frame = || {
-        f.input.openxr.poll_events();
-        f.input.frame_start_update();
+        input.openxr.poll_events();
+        input.frame_start_update();
     };
 
     frame();
@@ -906,4 +1005,65 @@ fn detect_controller_after_manifest_load() {
     frame();
     let index = f.input.get_controller_device_index(Hand::Left);
     assert!(index.is_some_and(|i| f.input.is_device_connected(i)));
+}
+
+#[test]
+fn empty_manifest() {
+    let f = Fixture::new();
+    f.input
+        .SetActionManifestPath(c"empty_manifest.json".as_ptr() as _);
+
+    f.input.openxr.restart_session();
+    assert!(f.input.action_map.read().unwrap().is_empty());
+}
+
+#[test]
+fn load_actions_race() {
+    let mut f = Arc::new(Fixture::new());
+    f.input.openxr.restart_session(); // get to real session
+    f.input.frame_start_update(); // load legacy
+    let got_input = f.input.get_legacy_controller_state(
+        1,
+        &mut vr::VRControllerState_t::default(),
+        std::mem::size_of::<vr::VRControllerState_t>() as _,
+    );
+    assert!(got_input);
+
+    std::thread::scope(|scope| {
+        let barrier = Arc::new(Barrier::new(2));
+        {
+            let input = f.input.clone();
+            let barrier = barrier.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                // arbitrary delay, so we get the frame start update right after restart
+                std::thread::sleep(std::time::Duration::from_micros(500));
+                input.frame_start_update();
+            });
+        }
+        {
+            let f = f.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                f.load_actions(c"actions.json");
+            });
+        }
+    });
+
+    let got_input = f.input.get_legacy_controller_state(
+        0,
+        &mut vr::VRControllerState_t::default(),
+        std::mem::size_of::<vr::VRControllerState_t>() as _,
+    );
+    assert!(!got_input);
+
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+    Arc::get_mut(&mut f).unwrap().sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    let res = f.get_bool_state(boolact);
+    assert!(res.is_ok(), "{res:?}");
 }

@@ -29,6 +29,10 @@
 				{
 					"output": "/actions/set1/in/skellyr",
 					"path": "/user/hand/right/input/skeleton/right"
+				},
+				{
+					"output": "/actions/set1/in/skellyl",
+					"path":	"/user/hand/right/input/skeleton/left"
 				}
 			],
 			"sources": [
@@ -36,6 +40,9 @@
 					"inputs": {
 						"click": {
 							"output": "/actions/set1/in/boolact"
+						},
+						"double": {
+							"output": "/actions/set1/in/boolact3"
 						}
 					},
 					"mode": "button",

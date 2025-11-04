@@ -37,12 +37,15 @@ struct Callbacks;
 
 impl ParseCallbacks for Callbacks {
     fn add_derives(&self, info: &bindgen::callbacks::DeriveInfo<'_>) -> Vec<String> {
-        if info.kind == bindgen::callbacks::TypeKind::Struct
-            && MANUAL_DERIVE_DEFAULT.contains(&info.name)
-        {
-            vec!["Default".to_string()]
-        } else {
-            Vec::new()
+        use bindgen::callbacks::TypeKind;
+        match (info.kind, info.name) {
+            (TypeKind::Struct, x) if MANUAL_DERIVE_DEFAULT.contains(&x) => {
+                vec!["Default".to_string()]
+            }
+            (TypeKind::Enum, "EVREventType") => {
+                vec!["derive_more::TryFrom".to_string()]
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -101,6 +104,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version!(1, 0, 7),
         version!(1, 0, 5),
         version!(1, 0, 4),
+        version!(1, 0, 3),
+        version!(0, 9, 20),
+        version!(0, 9, 12),
     ];
     let mut pruned_headers = headers.map(|(header, version)| {
         (
@@ -156,6 +162,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             "c++",
             "-fparse-all-comments",
             "-DOPENVR_INTERFACE_INTERNAL",
+            "-DGNUC",
         ])
         .enable_cxx_namespaces()
         .allowlist_item("vr.*::k_.*") // constants
@@ -190,7 +197,7 @@ fn prune_header(header: &str, version: &str) -> String {
         "#define VR_COMPOSITOR",
     ];
 
-    let version = format!("vr_{}", version);
+    let version = format!("vr_{version}");
     let reader = BufReader::new(
         File::open(header).unwrap_or_else(|e| panic!("Couldn't open {header}: {e}")),
     );
@@ -281,7 +288,12 @@ fn verify_fields_are_identical<'a, T>(
             .last()
             .map(|segment| segment.ident.to_string());
 
-        static KNOWN_NAME_CHANGES: &[(&str, &str)] = &[("ETextureType", "EGraphicsAPIConvention")];
+        static KNOWN_NAME_CHANGES: &[(&str, &str)] = &[
+            ("ETextureType", "EGraphicsAPIConvention"),
+            ("u32", "EVRButtonId"),
+            ("u32", "EVRMouseButton"),
+            ("u32", "EVRState"),
+        ];
 
         if existing_type
             .as_ref()
@@ -343,16 +355,16 @@ fn unversion_path(path: &mut syn::Path) {
     path.segments = segments.collect();
 }
 
-fn unversion_type(ty: &mut syn::Type) -> Result<(), String> {
-    fn extract_array_or_ptr_type(array: &mut syn::Type) -> &mut syn::Type {
-        match array {
-            syn::Type::Array(a) => extract_array_or_ptr_type(&mut a.elem),
-            syn::Type::Ptr(p) => extract_array_or_ptr_type(&mut p.elem),
-            syn::Type::Reference(r) => extract_array_or_ptr_type(&mut r.elem),
-            other => other,
-        }
+fn extract_array_or_ptr_type(array: &mut syn::Type) -> &mut syn::Type {
+    match array {
+        syn::Type::Array(a) => extract_array_or_ptr_type(&mut a.elem),
+        syn::Type::Ptr(p) => extract_array_or_ptr_type(&mut p.elem),
+        syn::Type::Reference(r) => extract_array_or_ptr_type(&mut r.elem),
+        other => other,
     }
+}
 
+fn unversion_type(ty: &mut syn::Type) -> Result<(), String> {
     match extract_array_or_ptr_type(ty) {
         syn::Type::Path(ty) => {
             unversion_path(&mut ty.path);
@@ -489,9 +501,9 @@ struct VersionedInterface {
 
 enum ImplItem {
     // Item that can go in a free impl block
-    Free(syn::ImplItem),
+    Free(Box<syn::ImplItem>),
     // Trait implementation block
-    TraitImpl(syn::ItemImpl),
+    TraitImpl(Box<syn::ItemImpl>),
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -510,16 +522,14 @@ fn versionify_interface(
     version_item: syn::ItemConst,
     item_mod: &syn::Ident,
     versioned: &mut VersionedInterfaces,
+    incompat: &IncompatibleItems,
 ) {
     static VERSION_REGEX: LazyLock<Regex> =
         LazyLock::new(|| Regex::new("\"([a-zA-Z]+)_([0-9]+)").unwrap());
     // Extract the version and struct name
     let version_str = version_item.to_token_stream().to_string();
     let caps = VERSION_REGEX.captures(&version_str).unwrap_or_else(|| {
-        panic!(
-            "Couldn't find version number from version const ({})",
-            version_str
-        )
+        panic!("Couldn't find version number from version const ({version_str})")
     });
     let interface = caps.get(1).unwrap().as_str();
     let version_str = caps.get(2).unwrap().as_str();
@@ -585,6 +595,22 @@ fn versionify_interface(
         };
         let versioned_ident = &versioned_struct.ident;
         this.elem = Box::new(parse_quote!(#versioned_ident));
+
+        for arg in args {
+            let syn::Type::Path(path) = extract_array_or_ptr_type(&mut arg.ty) else {
+                unreachable!()
+            };
+
+            if path
+                .path
+                .get_ident()
+                .is_some_and(|i| incompat.contains_key(&i.to_string()))
+            {
+                path.path
+                    .segments
+                    .insert(0, syn::PathSegment::from(item_mod.clone()));
+            }
+        }
     }
 
     let ret = VersionedInterface {
@@ -603,12 +629,47 @@ fn versionify_interface(
     }
 }
 
+type IncompatibleItems = HashMap<String, syn::Item>;
 fn process_vr_namespace_content(
     unversioned: &mut UnversionedItems,
     versioned: &mut VersionedInterfaces,
     impl_map: &mut ImplMap,
     vr_mod: syn::ItemMod,
 ) {
+    // Items that clash with types from other version
+    let mut incompatible_items = IncompatibleItems::new();
+    let span = vr_mod.ident.span();
+    let reversion_type = |incompatible_items: &IncompatibleItems, ty: &mut syn::Type| {
+        fn inner(
+            span: proc_macro2::Span,
+            incompatible_items: &IncompatibleItems,
+            ty: &mut syn::Type,
+        ) {
+            static PRIMITIVES: &[&str] = &["u32", "i32", "f32", "u64", "f64", "bool", "c_char"];
+            match extract_array_or_ptr_type(ty) {
+                syn::Type::Path(type_path) => {
+                    let type_name = type_path.path.segments.last().unwrap().ident.to_string();
+                    if !incompatible_items.contains_key(&type_name)
+                        && !PRIMITIVES.contains(&type_name.as_str())
+                    {
+                        type_path
+                            .path
+                            .segments
+                            .insert(0, syn::PathSegment::from(syn::Token![super](span)));
+                    }
+                }
+                syn::Type::BareFn(type_fn) => {
+                    for arg in &mut type_fn.inputs {
+                        inner(span, incompatible_items, &mut arg.ty);
+                    }
+                }
+                other => unimplemented!("Unhandled type to reversion: {other:?}"),
+            }
+        }
+
+        inner(span, incompatible_items, ty);
+    };
+
     for item in vr_mod.content.unwrap().1 {
         match item {
             syn::Item::Impl(mut item) => {
@@ -641,9 +702,9 @@ fn process_vr_namespace_content(
                             }
                         }
                     }
-                    items.push(ImplItem::TraitImpl(item));
+                    items.push(ImplItem::TraitImpl(Box::new(item)));
                 } else {
-                    items.extend(item.items.into_iter().map(ImplItem::Free));
+                    items.extend(item.items.into_iter().map(|i| ImplItem::Free(Box::new(i))));
                 }
             }
             syn::Item::Enum(item) => {
@@ -651,16 +712,51 @@ fn process_vr_namespace_content(
             }
             syn::Item::Union(mut item) => {
                 unversion_fields(&mut item.fields.named);
-                unversioned.insert(item.ident.to_string(), (item.into(), vr_mod.ident.clone()));
+                if (vr_mod.ident == "vr_0_9_12" || vr_mod.ident == "vr_0_9_20")
+                    && item.ident == "VREvent_Data_t"
+                {
+                    for field in &mut item.fields.named {
+                        reversion_type(&incompatible_items, &mut field.ty);
+                    }
+                    incompatible_items.insert(item.ident.to_string(), item.into());
+                } else {
+                    unversioned.insert(item.ident.to_string(), (item.into(), vr_mod.ident.clone()));
+                }
             }
             syn::Item::Type(mut item) => {
                 unversion_type(&mut item.ty).unwrap();
                 unversioned.insert(item.ident.to_string(), (item.into(), vr_mod.ident.clone()));
             }
             syn::Item::Struct(mut item) => {
+                static INCOMPAT_STRUCTS: &[(&str, &[&str])] = &[
+                    (
+                        "vr_0_9_12",
+                        &["VREvent_t", "VREvent_Reserved_t", "Compositor_FrameTiming"],
+                    ),
+                    (
+                        "vr_0_9_20",
+                        &["VREvent_t", "VREvent_Reserved_t", "Compositor_FrameTiming"],
+                    ),
+                    ("vr_1_0_3", &["Compositor_FrameTiming"]),
+                ];
+                let should_reversion = INCOMPAT_STRUCTS
+                    .iter()
+                    .find(|(version, _)| vr_mod.ident == version)
+                    .is_some_and(|(_, structs)| structs.contains(&item.ident.to_string().as_str()));
+
+                for field in &mut item.fields {
+                    unversion_type(&mut field.ty).unwrap();
+                    if should_reversion {
+                        reversion_type(&incompatible_items, &mut field.ty);
+                    }
+                }
+
+                if should_reversion {
+                    incompatible_items.insert(item.ident.to_string(), item.into());
+                    continue;
+                }
                 match unversioned.entry(item.ident.to_string()) {
                     Entry::Vacant(e) => {
-                        unversion_fields(&mut item.fields);
                         e.insert((item.into(), vr_mod.ident.clone()));
                     }
                     Entry::Occupied(mut e) => {
@@ -678,7 +774,6 @@ fn process_vr_namespace_content(
 
                         // Replace if new item is superset of old item
                         if item.fields.len() > existing.fields.len() {
-                            unversion_fields(&mut item.fields);
                             e.insert((item.into(), vr_mod.ident.clone()));
                         }
                     }
@@ -687,7 +782,13 @@ fn process_vr_namespace_content(
             syn::Item::Const(mut item) => {
                 let name = item.ident.to_string();
                 if name.ends_with("_Version") {
-                    versionify_interface(unversioned, item, &vr_mod.ident, versioned);
+                    versionify_interface(
+                        unversioned,
+                        item,
+                        &vr_mod.ident,
+                        versioned,
+                        &incompatible_items,
+                    );
                 } else {
                     unversion_type(&mut item.ty).unwrap();
                     unversioned.insert(item.ident.to_string(), (item.into(), vr_mod.ident.clone()));
@@ -695,6 +796,17 @@ fn process_vr_namespace_content(
             }
             _ => {}
         }
+    }
+
+    if !incompatible_items.is_empty() {
+        let vr_mod_ident = vr_mod.ident.clone();
+        let items = incompatible_items.values();
+        let incompat_mod = parse_quote! {
+            pub mod #vr_mod_ident {
+                #(#items)*
+            }
+        };
+        unversioned.insert(vr_mod.ident.to_string(), (incompat_mod, vr_mod.ident));
     }
 }
 /// Returns pretty prineted file with types unified and versioned.
@@ -804,29 +916,39 @@ fn process_and_versionify_types(tokens: TokenStream) -> String {
 
         items
     });
-    let unversioned = unversioned.into_iter().flat_map(|(name, (item, parent))| {
-        let mut items = vec![item];
-
-        if let Some(impl_items) = impl_items.remove(&ImplMapKey {
-            impl_type: name.clone(),
-            vr_mod: parent.to_string(),
-        }) {
-            let mut free_items = Vec::new();
-            items.extend(impl_items.into_iter().filter_map(|item| match item {
-                ImplItem::Free(item) => {
-                    free_items.push(item);
-                    None
+    let unversioned = unversioned
+        .into_iter()
+        .flat_map(|(name, (mut item, parent))| {
+            // TODO: use the add_attributes method on ParseCallbacks instead
+            // after updating bindgen?
+            if let syn::Item::Enum(e) = &mut item {
+                if e.ident == "EVREventType" {
+                    e.attrs.push(parse_quote!(#[try_from(repr)]));
                 }
-                ImplItem::TraitImpl(item) => Some(item.into()),
-            }));
-            if !free_items.is_empty() {
-                let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
-                items.push(parse_quote! { impl #ident { #(#free_items)* }})
             }
-        }
 
-        items
-    });
+            let mut items = vec![item];
+
+            if let Some(impl_items) = impl_items.remove(&ImplMapKey {
+                impl_type: name.clone(),
+                vr_mod: parent.to_string(),
+            }) {
+                let mut free_items = Vec::new();
+                items.extend(impl_items.into_iter().filter_map(|item| match item {
+                    ImplItem::Free(item) => {
+                        free_items.push(item);
+                        None
+                    }
+                    ImplItem::TraitImpl(item) => Some((*item).into()),
+                }));
+                if !free_items.is_empty() {
+                    let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
+                    items.push(parse_quote! { impl #ident { #(#free_items)* }})
+                }
+            }
+
+            items
+        });
 
     let item_names = outer_items.iter().filter_map(|item| match item {
         syn::Item::Struct(s) => Some(syn::UseTree::Name(syn::UseName {
@@ -884,7 +1006,7 @@ fn generate_vtable_trait(
     let interface_version_start_pos = interface_name.find(|c: char| c.is_numeric()).unwrap();
     let interface_ident = format_ident!("{interface_name}");
     let interface_no_version = &interface_name[0..interface_version_start_pos];
-    let struct_prefix = format!("{}_", interface_no_version);
+    let struct_prefix = format!("{interface_no_version}_");
     let trait_ident = format_ident!("{interface_name}_Interface");
     let mod_ident = format_ident!("{}", interface_name.to_lowercase());
 
@@ -1007,24 +1129,44 @@ fn generate_vtable_trait(
         let init: TokenStream = parse_quote!(#field_ident: #fn_name_fntable);
         fntable_init.push(init);
 
-        let inputs = f.inputs.iter().map(|arg| {
-            let ident = &arg.name.as_ref().unwrap().0;
-            if ident == "this" {
-                // replace this pointer with self
-                let self_ty: syn::Receiver = parse_quote! { &self };
-                syn::FnArg::Receiver(self_ty)
-            } else {
-                // pass through other types
-                ty_to_fnarg(ident, &arg.ty)
-            }
-        });
+        let inputs: Vec<syn::FnArg> = f
+            .inputs
+            .iter()
+            .map(|arg| {
+                let ident = &arg.name.as_ref().unwrap().0;
+                if ident == "this" {
+                    // replace this pointer with self
+                    let self_ty: syn::Receiver = parse_quote! { &self };
+                    syn::FnArg::Receiver(self_ty)
+                } else {
+                    // pass through other types
+                    ty_to_fnarg(ident, &arg.ty)
+                }
+            })
+            .collect();
 
         let trait_fn: syn::TraitItemFn = parse_quote! {
             fn #fn_name(#(#inputs),*) #fn_output;
         };
 
         if let Some((_, previous_trait_fns)) = previous_trait {
-            let block: syn::Block = if !previous_trait_fns.contains(&trait_fn.sig) {
+            fn args_to_types<'a>(
+                args: impl Iterator<Item = &'a syn::FnArg> + Clone,
+            ) -> impl Iterator<Item = &'a Box<syn::Type>> + Clone {
+                args.map(|arg| match arg {
+                    syn::FnArg::Receiver(r) => &r.ty,
+                    syn::FnArg::Typed(ty) => &ty.ty,
+                })
+            }
+
+            let input_types = args_to_types(inputs.iter());
+            let block: syn::Block = if !previous_trait_fns.iter().any(|prev_sig| {
+                if prev_sig.ident != fn_name {
+                    return false;
+                }
+                let arg_types = args_to_types(prev_sig.inputs.iter());
+                arg_types.eq(input_types.clone())
+            }) {
                 previous_incompatible_fns.push(trait_fn.clone());
                 let conv_trait = manual_conversion_trait_name.as_ref().unwrap();
                 // In the event that we need our conversion interface, we need to disambiguate the
