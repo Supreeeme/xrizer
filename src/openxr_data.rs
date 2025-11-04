@@ -174,7 +174,7 @@ impl<C: Compositor> OpenXrData<C> {
                 }
                 xr::Event::InteractionProfileChanged(_) => {
                     if let Some(input) = self.input.get() {
-                        input.interaction_profile_changed();
+                        input.interaction_profile_changed(session_data);
                     }
                 }
                 _ => {

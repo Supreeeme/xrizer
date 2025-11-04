@@ -1243,8 +1243,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput005On006 for Input<C> {
 }
 
 impl<C: openxr_data::Compositor> Input<C> {
-    pub fn interaction_profile_changed(&self) {
-        let session = self.openxr.session_data.get();
+    pub fn interaction_profile_changed(&self, session_data: &SessionData) {
         let mut devices = self.devices.write().unwrap();
 
         let mut devices_to_create = vec![];
@@ -1254,7 +1253,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             let controller = devices.get_controller(hand);
             let subaction_path = self.get_subaction_path(hand);
 
-            let profile_path = session
+            let profile_path = session_data
                 .session
                 .current_interaction_profile(subaction_path)
                 .unwrap();
@@ -1293,7 +1292,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 hmd.set_interaction_profile(p);
             };
 
-            session.input_data.interaction_profile_changed();
+            session_data.input_data.interaction_profile_changed();
 
             info!(
                 "{} interaction profile changed: {}",
