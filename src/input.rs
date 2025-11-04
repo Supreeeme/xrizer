@@ -1407,7 +1407,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         for (i, device) in devices.iter().enumerate() {
             let current = device.connected();
 
-            if device.compare_exchange_connected().is_ok() {
+            if device.has_connected_changed() {
                 debug!(
                     "sending {:?} {}connected",
                     device.get_type(),

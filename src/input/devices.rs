@@ -106,7 +106,7 @@ impl XrTrackedDevice {
         std::mem::take(&mut *self.pose_cache.lock().unwrap());
     }
 
-    pub fn compare_exchange_connected(&self) -> Result<bool, bool> {
+    pub fn has_connected_changed(&self) -> bool {
         let current = self.connected();
 
         self.previous_connected.compare_exchange(
@@ -114,7 +114,7 @@ impl XrTrackedDevice {
             current,
             Ordering::Relaxed,
             Ordering::Relaxed,
-        )
+        ).is_ok()
     }
 
     pub fn get_type(&self) -> TrackedDeviceType {
