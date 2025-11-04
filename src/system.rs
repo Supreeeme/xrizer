@@ -347,9 +347,7 @@ impl vr::IVRSystem022_Interface for System {
         state_size: u32,
         pose: *mut vr::TrackedDevicePose_t,
     ) -> bool {
-        let Some(input) = self.input.get() else {
-            return false;
-        };
+        let input = self.input.force(|_| Input::new(self.openxr.clone()));
 
         let Some(hand) = input.device_index_to_hand(device_index) else {
             return false;
@@ -527,12 +525,11 @@ impl vr::IVRSystem022_Interface for System {
                 | vr::ETrackedDeviceProperty::ControllerType_String => Some(c"<unknown>"),
                 _ => None,
             },
-            x if input.device_index_to_hand(x).is_some() => self.input.get().and_then(|i| {
-                i.get_controller_string_tracked_property(
+            x if input.device_index_to_hand(x).is_some() =>
+                input.get_controller_string_tracked_property(
                     input.device_index_to_hand(x).unwrap(),
                     prop,
-                )
-            }),
+                ),
             _ => None,
         };
 
