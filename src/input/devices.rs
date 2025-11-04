@@ -288,7 +288,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         hand: Hand,
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) -> Option<vr::TrackedDevicePose_t> {
-        let controller_index = self.devices.read().ok()?.get_controller_index(hand);
+        let controller_index = self.devices.read().unwrap().get_controller_index(hand);
 
         self.get_device_pose(controller_index, origin)
     }
@@ -302,7 +302,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let session_data = self.openxr.session_data.get();
 
-        self.devices.read().ok()?.get_device(index)?.get_pose(
+        self.devices.read().unwrap().get_device(index)?.get_pose(
             &self.openxr,
             &session_data,
             origin.unwrap_or(session_data.current_origin),
@@ -310,36 +310,30 @@ impl<C: openxr_data::Compositor> Input<C> {
     }
 
     pub fn is_device_connected(&self, index: vr::TrackedDeviceIndex_t) -> bool {
-        let Some(devices) = self.devices.read().ok() else {
-            return false;
-        };
+        let devices = self.devices.read().unwrap();
 
-        let Some(device) = devices.get_device(index) else {
-            return false;
-        };
-
-        device.connected()
+        devices.get_device(index).is_some_and(XrTrackedDevice::connected)
     }
 
     pub fn device_index_to_device_type(
         &self,
         index: vr::TrackedDeviceIndex_t,
     ) -> Option<TrackedDeviceType> {
-        let devices = self.devices.read().ok()?;
+        let devices = self.devices.read().unwrap();
         let device = devices.get_device(index)?;
 
         Some(device.get_type())
     }
 
     pub fn device_index_to_hand(&self, index: vr::TrackedDeviceIndex_t) -> Option<Hand> {
-        let devices = self.devices.read().ok()?;
+        let devices = self.devices.read().unwrap();
         let device = devices.get_device(index)?;
 
         device.get_controller_hand()
     }
 
     pub fn get_controller_device_index(&self, hand: Hand) -> Option<vr::TrackedDeviceIndex_t> {
-        let devices = self.devices.read().ok()?;
+        let devices = self.devices.read().unwrap();
         let controller_index = devices.get_controller_index(hand);
 
         if controller_index == vr::k_unTrackedDeviceIndexInvalid {
@@ -350,7 +344,7 @@ impl<C: openxr_data::Compositor> Input<C> {
     }
 
     fn get_profile_data(&self, hand: Hand) -> Option<&super::profiles::ProfileProperties> {
-        let devices = self.devices.read().ok()?;
+        let devices = self.devices.read().unwrap();
         let controller = devices.get_controller(hand)?;
 
         self.profile_map
