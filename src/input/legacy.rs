@@ -377,10 +377,7 @@ impl LegacyActionData {
             extra: Actions,
         };
 
-        Self {
-            set,
-            actions,
-        }
+        Self { set, actions }
     }
 }
 

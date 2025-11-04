@@ -36,7 +36,11 @@ pub struct XrTrackedDevice {
 }
 
 impl XrTrackedDevice {
-    pub(super) fn new(device_type: TrackedDeviceType, profile_path: Option<xr::Path>, interaction_profile: Option<&'static dyn InteractionProfile>) -> Self {
+    pub(super) fn new(
+        device_type: TrackedDeviceType,
+        profile_path: Option<xr::Path>,
+        interaction_profile: Option<&'static dyn InteractionProfile>,
+    ) -> Self {
         let path = AtomicPath::new();
 
         if let Some(profile_path) = profile_path {
@@ -109,12 +113,9 @@ impl XrTrackedDevice {
     pub fn has_connected_changed(&self) -> bool {
         let current = self.connected();
 
-        self.previous_connected.compare_exchange(
-            !current,
-            current,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        ).is_ok()
+        self.previous_connected
+            .compare_exchange(!current, current, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
     }
 
     pub fn get_type(&self) -> TrackedDeviceType {
@@ -136,11 +137,9 @@ impl XrTrackedDevice {
             Hand::Right => &pose_data.right_space,
         };
 
-        let (location, velocity) = if let Some(raw) = spaces.try_get_or_init_raw(
-            &self.get_interaction_profile(),
-            session_data,
-            pose_data,
-        ) {
+        let (location, velocity) = if let Some(raw) =
+            spaces.try_get_or_init_raw(&self.get_interaction_profile(), session_data, pose_data)
+        {
             raw.relate(
                 session_data.get_space_for_origin(origin),
                 xr_data.display_time.get(),
@@ -312,7 +311,9 @@ impl<C: openxr_data::Compositor> Input<C> {
     pub fn is_device_connected(&self, index: vr::TrackedDeviceIndex_t) -> bool {
         let devices = self.devices.read().unwrap();
 
-        devices.get_device(index).is_some_and(XrTrackedDevice::connected)
+        devices
+            .get_device(index)
+            .is_some_and(XrTrackedDevice::connected)
     }
 
     pub fn device_index_to_device_type(

@@ -1067,8 +1067,14 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         }
 
         let devices = self.devices.read().unwrap();
-        let left_profile = devices.get_controller(Hand::Left).unwrap().get_profile_path();
-        let right_profile = devices.get_controller(Hand::Right).unwrap().get_profile_path();
+        let left_profile = devices
+            .get_controller(Hand::Left)
+            .unwrap()
+            .get_profile_path();
+        let right_profile = devices
+            .get_controller(Hand::Right)
+            .unwrap()
+            .get_profile_path();
         for key in &actions.actions_with_custom_bindings {
             let unsync_custom_bindings = |key, profile| {
                 if profile == xr::Path::NULL {
@@ -1248,7 +1254,11 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let mut devices_to_create = vec![];
 
-        for device_type in [TrackedDeviceType::Hmd, TrackedDeviceType::Controller { hand: Hand::Left }, TrackedDeviceType::Controller { hand: Hand::Right }] {
+        for device_type in [
+            TrackedDeviceType::Hmd,
+            TrackedDeviceType::Controller { hand: Hand::Left },
+            TrackedDeviceType::Controller { hand: Hand::Right },
+        ] {
             let device = match device_type {
                 TrackedDeviceType::Hmd => Some(devices.get_hmd()),
                 TrackedDeviceType::Controller { hand } => devices.get_controller(hand),
@@ -1266,13 +1276,17 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             let profile_name = match profile_path {
                 xr::Path::NULL => {
-                    if device.is_some_and(|d| matches!(d.get_type(), TrackedDeviceType::Controller { .. })) {
+                    if device.is_some_and(|d| {
+                        matches!(d.get_type(), TrackedDeviceType::Controller { .. })
+                    }) {
                         device.unwrap().set_connected(false);
                     }
                     "<null>".to_owned()
                 }
                 path => {
-                    if device.is_some_and(|d| matches!(d.get_type(), TrackedDeviceType::Controller { .. })) {
+                    if device.is_some_and(|d| {
+                        matches!(d.get_type(), TrackedDeviceType::Controller { .. })
+                    }) {
                         device.unwrap().set_connected(true);
                     }
                     self.openxr.instance.path_to_string(path).unwrap()
@@ -1285,7 +1299,11 @@ impl<C: openxr_data::Compositor> Input<C> {
                 if let Some(device) = device {
                     device.set_interaction_profile(p);
                 } else if let TrackedDeviceType::Controller { hand } = device_type {
-                    devices_to_create.push((TrackedDeviceType::Controller { hand }, Some(profile_path), Some(p)));
+                    devices_to_create.push((
+                        TrackedDeviceType::Controller { hand },
+                        Some(profile_path),
+                        Some(p),
+                    ));
                 }
             };
 

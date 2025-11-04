@@ -5,7 +5,7 @@ use crate::input::custom_bindings::{
 use crate::input::skeletal::SkeletalInputActionData;
 use crate::input::ActionData::{Bool, Vector1, Vector2};
 use crate::input::{ActionData, BoundPose, ExtraActionData, Input, InteractionProfile};
-use crate::openxr_data::{self, OpenXrData, Hand};
+use crate::openxr_data::{self, Hand, OpenXrData};
 use log::{trace, warn};
 use openxr as xr;
 use std::collections::HashMap;
