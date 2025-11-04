@@ -57,8 +57,8 @@ impl BindingsLoadContext<'_> {
         };
 
         let hands = [
-            input.get_subaction_path(Hand::Left),
-            input.get_subaction_path(Hand::Right),
+            input.get_subaction_path(Hand::Left.into()),
+            input.get_subaction_path(Hand::Right.into()),
         ];
 
         let bindings_parsed = self

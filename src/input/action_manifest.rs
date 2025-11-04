@@ -99,8 +99,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         )?;
         debug!("Loaded {} action sets.", sets.len());
 
-        let left_hand_subaction_path = self.get_subaction_path(Hand::Left);
-        let right_hand_subaction_path = self.get_subaction_path(Hand::Right);
+        let left_hand_subaction_path = self.get_subaction_path(Hand::Left.into());
+        let right_hand_subaction_path = self.get_subaction_path(Hand::Right.into());
 
         let actions = load_actions(
             &self.openxr.instance,

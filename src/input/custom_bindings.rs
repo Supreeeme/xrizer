@@ -1244,13 +1244,13 @@ mod tests {
         let left_binding = bindings
             .iter()
             .find_map(|(data, path)| {
-                (*path == f.input.get_subaction_path(Hand::Left)).then_some(*data)
+                (*path == f.input.get_subaction_path(Hand::Left.into())).then_some(*data)
             })
             .unwrap();
         let right_binding = bindings
             .iter()
             .find_map(|(data, path)| {
-                (*path == f.input.get_subaction_path(Hand::Right)).then_some(*data)
+                (*path == f.input.get_subaction_path(Hand::Right.into())).then_some(*data)
             })
             .unwrap();
         assert!(!std::ptr::eq(left_binding, right_binding));
