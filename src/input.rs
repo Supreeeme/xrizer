@@ -1069,10 +1069,10 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let devices = self.devices.read().unwrap();
         let left_profile = devices
             .get_controller(Hand::Left)
-            .and_then(|c| Some(c.get_profile_path()));
+            .map(XrTrackedDevice::get_profile_path);
         let right_profile = devices
             .get_controller(Hand::Right)
-            .and_then(|c| Some(c.get_profile_path()));
+            .map(XrTrackedDevice::get_profile_path);
         for key in &actions.actions_with_custom_bindings {
             let unsync_custom_bindings = |key, profile| {
                 if profile == xr::Path::NULL {
