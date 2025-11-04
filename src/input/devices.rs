@@ -35,25 +35,19 @@ pub struct XrTrackedDevice {
     pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
 }
 
-pub struct TrackedDeviceCreateInfo {
-    pub device_type: TrackedDeviceType,
-    pub profile_path: Option<xr::Path>,
-    pub interaction_profile: Option<&'static dyn InteractionProfile>,
-}
-
 impl XrTrackedDevice {
-    pub(super) fn new(info: TrackedDeviceCreateInfo) -> Self {
-        let profile_path = AtomicPath::new();
+    pub(super) fn new(device_type: TrackedDeviceType, profile_path: Option<xr::Path>, interaction_profile: Option<&'static dyn InteractionProfile>) -> Self {
+        let path = AtomicPath::new();
 
-        if let Some(path) = info.profile_path {
-            profile_path.store(path);
+        if let Some(profile_path) = profile_path {
+            path.store(profile_path);
         }
 
         Self {
-            device_type: info.device_type,
-            interaction_profile: Mutex::new(info.interaction_profile),
-            profile_path,
-            connected: if info.device_type == TrackedDeviceType::Hmd {
+            device_type,
+            interaction_profile: Mutex::new(interaction_profile),
+            profile_path: path,
+            connected: if device_type == TrackedDeviceType::Hmd {
                 true.into()
             } else {
                 false.into()
@@ -217,11 +211,7 @@ impl SubactionPaths {
 impl TrackedDeviceList {
     pub(super) fn new() -> Self {
         Self {
-            devices: vec![XrTrackedDevice::new(TrackedDeviceCreateInfo {
-                device_type: TrackedDeviceType::Hmd,
-                profile_path: None,
-                interaction_profile: None,
-            })],
+            devices: vec![XrTrackedDevice::new(TrackedDeviceType::Hmd, None, None)],
         }
     }
 

@@ -11,7 +11,7 @@ mod tests;
 pub use devices::TrackedDeviceType;
 pub use profiles::{InteractionProfile, Profiles};
 
-use devices::{SubactionPaths, TrackedDeviceCreateInfo, TrackedDeviceList, XrTrackedDevice};
+use devices::{SubactionPaths, TrackedDeviceList, XrTrackedDevice};
 use skeletal::FingerState;
 use skeletal::SkeletalInputActionData;
 
@@ -1286,11 +1286,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 if let Some(device) = device {
                     device.set_interaction_profile(p);
                 } else if let TrackedDeviceType::Controller { hand } = device_type {
-                    devices_to_create.push(TrackedDeviceCreateInfo {
-                        device_type: TrackedDeviceType::Controller { hand },
-                        profile_path: Some(profile_path),
-                        interaction_profile: Some(p),
-                    });
+                    devices_to_create.push((TrackedDeviceType::Controller { hand }, Some(profile_path), Some(p)));
                 }
             };
 
@@ -1303,8 +1299,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             )
         }
 
-        for device_info in devices_to_create {
-            let device = XrTrackedDevice::new(device_info);
+        for (device_type, profile_path, interaction_profile) in devices_to_create {
+            let device = XrTrackedDevice::new(device_type, profile_path, interaction_profile);
             device.set_connected(true);
 
             devices.push_device(device).unwrap_or_else(|e| {
