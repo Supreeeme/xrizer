@@ -1,7 +1,7 @@
 use super::{Input, PoseData, Profiles, WriteOnDrop};
 use crate::{
     input::LoadedActions,
-    openxr_data::{self, Hand, SessionData},
+    openxr_data::{self, Hand},
 };
 use log::{debug, warn};
 use openvr as vr;

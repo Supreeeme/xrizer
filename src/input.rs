@@ -15,7 +15,6 @@ use devices::{SubactionPaths, TrackedDeviceList, XrTrackedDevice};
 use skeletal::FingerState;
 use skeletal::SkeletalInputActionData;
 
-use crate::openxr_data::HandPath;
 use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span, AtomicF32,
@@ -1550,7 +1549,7 @@ impl PoseData {
     }
 }
 
-pub(super) struct HandSpace {
+struct HandSpace {
     hand: Hand,
     hand_path: xr::Path,
 
@@ -1573,7 +1572,7 @@ impl HandSpace {
         hand_profile: &Option<&dyn InteractionProfile>,
         session_data: &SessionData,
         pose_data: &PoseData,
-    ) -> Option<SpaceReadGuard> {
+    ) -> Option<SpaceReadGuard<'_>> {
         {
             let raw = self.raw.read().unwrap();
             if raw.is_some() {
