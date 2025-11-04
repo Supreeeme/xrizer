@@ -237,7 +237,7 @@ impl TrackedDeviceList {
     }
 
     pub(super) fn get_hmd(&self) -> &XrTrackedDevice {
-        self.devices.get(0).unwrap()
+        self.devices.first().unwrap()
     }
 
     pub(super) fn get_controller(&self, hand: Hand) -> Option<&XrTrackedDevice> {

@@ -47,6 +47,7 @@ pub trait InterfaceImpl: Sync + Send + 'static {
     fn get_version(version: &CStr) -> Option<InterfaceGetter<Self>>;
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for ETrackingResult {
     fn default() -> Self {
         Self::Uninitialized
