@@ -119,8 +119,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             .collect();
         let pose_data = PoseData::new(
             &openxr.instance,
-            openxr.left_hand.subaction_path,
-            openxr.right_hand.subaction_path,
+            subaction_paths.left,
+            subaction_paths.right,
         );
         openxr
             .session_data
@@ -1066,8 +1066,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             data.session.sync_actions(&sync_sets).unwrap();
         }
 
-        let left_profile = self.openxr.left_hand.profile_path.load();
-        let right_profile = self.openxr.right_hand.profile_path.load();
+        let devices = self.devices.read().unwrap();
+        let left_profile = devices.get_controller(Hand::Left).unwrap().get_profile_path();
+        let right_profile = devices.get_controller(Hand::Right).unwrap().get_profile_path();
         for key in &actions.actions_with_custom_bindings {
             let unsync_custom_bindings = |key, profile| {
                 if profile == xr::Path::NULL {
@@ -1388,8 +1389,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             .pose_data
             .set(PoseData::new(
                 &self.openxr.instance,
-                self.openxr.left_hand.subaction_path,
-                self.openxr.right_hand.subaction_path,
+                self.subaction_paths.left,
+                self.subaction_paths.right,
             ))
             .unwrap_or_else(|_| panic!("PoseData already setup"));
         if let Some(path) = self.loaded_actions_path.get() {
@@ -1575,7 +1576,7 @@ impl HandSpace {
         &self,
         hand_profile: &Option<&dyn InteractionProfile>,
         session_data: &SessionData,
-        actions: &LegacyActions,
+        pose_data: &PoseData,
     ) -> Option<SpaceReadGuard> {
         {
             let raw = self.raw.read().unwrap();
@@ -1608,8 +1609,8 @@ impl HandSpace {
             };
 
             *self.raw.write().unwrap() = Some(
-                actions
-                    .grip_pose
+                pose_data
+                    .grip
                     .create_space(&session_data.session, self.hand_path, offset_pose)
                     .unwrap(),
             );

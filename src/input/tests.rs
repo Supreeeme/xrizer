@@ -563,7 +563,7 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     );
     assert_eq!(ret, vr::EVRInputError::None);
     compare_pose(
-        waitgetposes_pose.mDeviceToAbsoluteTracking.into(),
+        waitgetposes_pose.unwrap().mDeviceToAbsoluteTracking.into(),
         raw_pose.pose.mDeviceToAbsoluteTracking.into(),
     );
 
@@ -577,7 +577,7 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     assert_eq!(ret, vr::EVRInputError::None);
 
     compare_pose(
-        waitgetposes_pose.mDeviceToAbsoluteTracking.into(),
+        waitgetposes_pose.unwrap().mDeviceToAbsoluteTracking.into(),
         skel_pose.pose.mDeviceToAbsoluteTracking.into(),
     );
 }

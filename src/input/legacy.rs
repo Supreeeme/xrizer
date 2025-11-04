@@ -42,8 +42,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         let session = &session_data.session;
         let legacy = LegacyActionData::new(
             &self.openxr.instance,
-            self.openxr.left_hand.subaction_path,
-            self.openxr.right_hand.subaction_path,
+            self.subaction_paths.left,
+            self.subaction_paths.right,
         );
         let input_data = &session_data.input_data;
 
@@ -98,15 +98,14 @@ impl<C: openxr_data::Compositor> Input<C> {
             return;
         }
 
-        let Ok(hand) = Hand::try_from(device_index) else {
+        let Some(hand) = self.device_index_to_hand(device_index) else {
             debug!("tried triggering haptic on invalid device index: {device_index}");
             return;
         };
-        let hand_info = match hand {
-            Hand::Left => &self.openxr.left_hand,
-            Hand::Right => &self.openxr.right_hand,
+        let hand_path = match hand {
+            Hand::Left => self.subaction_paths.left,
+            Hand::Right => self.subaction_paths.right,
         };
-        let hand_path = hand_info.subaction_path;
 
         let Some(legacy) = data.input_data.get_legacy_actions() else {
             debug!("tried triggering haptic, but legacy actions aren't ready");
@@ -383,38 +382,6 @@ impl LegacyActionData {
             actions,
         }
     }
-}
-
-pub fn setup_legacy_bindings(
-    instance: &xr::Instance,
-    session: &xr::Session<xr::AnyGraphics>,
-    legacy: &LegacyActionData,
-) {
-    debug!("setting up legacy bindings");
-
-    let actions = &legacy.actions;
-    for profile in Profiles::get().profiles_iter() {
-        const fn constrain<F>(f: F) -> F
-        where
-            F: for<'a> Fn(&'a str) -> xr::Path,
-        {
-            f
-        }
-        let stp = constrain(|s| instance.string_to_path(s).unwrap());
-        let bindings = profile.legacy_bindings(&stp);
-        let profile = stp(profile.profile_path());
-        instance
-            .suggest_interaction_profile_bindings(
-                profile,
-                &bindings.binding_iter(actions).collect::<Vec<_>>(),
-            )
-            .unwrap();
-    }
-
-    session.attach_action_sets(&[&legacy.set]).unwrap();
-    session
-        .sync_actions(&[xr::ActiveActionSet::new(&legacy.set)])
-        .unwrap();
 }
 
 #[cfg(test)]
@@ -748,12 +715,13 @@ mod tests {
             .get_controller_pose(super::Hand::Left, Some(seated_origin));
         compare_pose(
             xr::Posef::IDENTITY,
-            left_pose.mDeviceToAbsoluteTracking.into(),
+            left_pose.unwrap().mDeviceToAbsoluteTracking.into(),
         );
         compare_pose(
             xr::Posef::IDENTITY,
             f.input
                 .get_controller_pose(super::Hand::Right, Some(seated_origin))
+                .unwrap()
                 .mDeviceToAbsoluteTracking
                 .into(),
         );
@@ -774,6 +742,7 @@ mod tests {
             new_pose,
             f.input
                 .get_controller_pose(super::Hand::Left, Some(seated_origin))
+                .unwrap()
                 .mDeviceToAbsoluteTracking
                 .into(),
         );
@@ -781,6 +750,7 @@ mod tests {
             new_pose,
             f.input
                 .get_controller_pose(super::Hand::Right, Some(seated_origin))
+                .unwrap()
                 .mDeviceToAbsoluteTracking
                 .into(),
         );

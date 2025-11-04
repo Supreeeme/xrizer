@@ -604,9 +604,9 @@ impl vr::IVRSystem022_Interface for System {
         }
 
         self.input.get().and_then(|input| {
-            match device_index {
-                x if matches!(input.device_index_to_device_type(x), Some(TrackedDeviceType::Controller { hand })) => {
-                    input.get_controller_int_tracked_property(hand, prop)
+            match input.device_index_to_device_type(device_index) {
+                Some(TrackedDeviceType::Controller { hand }) => {
+                    input.get_controller_uint_tracked_property(hand, prop)
                 },
                 _ => None,
             }
@@ -632,25 +632,20 @@ impl vr::IVRSystem022_Interface for System {
             return 0;
         }
 
-        let Some(input) = self.input.get() else {
-            if let Some(err) = unsafe { err.as_mut() } {
-                *err = vr::ETrackedPropertyError::InvalidDevice;
-            }
-            return 0;
-        };
-
         if let Some(err) = unsafe { err.as_mut() } {
             *err = vr::ETrackedPropertyError::Success;
         }
-        match device_index {
-            x if input.device_index_to_hand(x).is_some() => self.input.get().and_then(|input| {
-                input.get_controller_int_tracked_property(
-                    input.device_index_to_hand(x).unwrap(),
-                    prop,
-                )
-            }),
-            _ => None,
-        }
+        self.input.get().and_then(|input| {
+            match device_index {
+                x if input.device_index_to_hand(x).is_some() => {
+                    input.get_controller_int_tracked_property(
+                        input.device_index_to_hand(x).unwrap(),
+                        prop,
+                    )
+                },
+                _ => None,
+            }
+        })
         .unwrap_or_else(|| {
             if let Some(err) = unsafe { err.as_mut() } {
                 *err = vr::ETrackedPropertyError::UnknownProperty;

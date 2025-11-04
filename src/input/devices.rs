@@ -139,7 +139,7 @@ impl XrTrackedDevice {
         let (location, velocity) = if let Some(raw) = spaces.try_get_or_init_raw(
             &self.get_interaction_profile(),
             session_data,
-            &session_data.input_data.get_legacy_actions(),
+            pose_data,
         ) {
             raw.relate(
                 session_data.get_space_for_origin(origin),
@@ -371,14 +371,23 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
                 // I Expect You To Die 3 identifies controllers with this property -
                 // why it couldn't just use ControllerType instead is beyond me...
-                vr::ETrackedDeviceProperty::ModelNumber_String => Some(data.model.get(hand)),
+                // Because some controllers have different model names for each hand......
+                vr::ETrackedDeviceProperty::ModelNumber_String => Some(*data.model.get(hand)),
                 // Resonite won't recognize controllers without this
                 vr::ETrackedDeviceProperty::RenderModelName_String => {
                     Some(*data.render_model_name.get(hand))
                 }
+                vr::ETrackedDeviceProperty::RegisteredDeviceType_String => {
+                    Some(*data.registered_device_type.get(hand))
+                }
+                vr::ETrackedDeviceProperty::TrackingSystemName_String => {
+                    Some(data.tracking_system_name)
+                }
                 // Required for controllers to be acknowledged in I Expect You To Die 3
-                vr::ETrackedDeviceProperty::SerialNumber_String
-                | vr::ETrackedDeviceProperty::ManufacturerName_String => Some(c"<unknown>"),
+                vr::ETrackedDeviceProperty::SerialNumber_String => {
+                    Some(*data.serial_number.get(hand))
+                }
+                vr::ETrackedDeviceProperty::ManufacturerName_String => Some(data.manufacturer_name),
                 _ => None,
             }
         })
@@ -406,6 +415,17 @@ impl<C: openxr_data::Compositor> Input<C> {
             | vr::ETrackedDeviceProperty::Axis4Type_Int32 => {
                 Some(vr::EVRControllerAxisType::None as _)
             }
+            _ => None,
+        })
+    }
+
+    pub fn get_controller_uint_tracked_property(
+        &self,
+        hand: Hand,
+        property: vr::ETrackedDeviceProperty,
+    ) -> Option<u64> {
+        self.get_profile_data(hand).and_then(|data| match property {
+            vr::ETrackedDeviceProperty::SupportedButtons_Uint64 => Some(data.legacy_buttons_mask),
             _ => None,
         })
     }
