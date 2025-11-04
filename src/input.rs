@@ -1418,9 +1418,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                     if current { "" } else { "not " }
                 );
 
-                // VREvent_t can be different sizes depending on the OpenVR version,
-                // so we use raw pointers to avoid creating a reference, because if the
-                // size doesn't match our VREvent_t's size, we are in UB land
                 self.events.lock().unwrap().push_back(InputEvent {
                     ty: if current {
                         vr::EVREventType::TrackedDeviceActivated
@@ -1440,7 +1437,9 @@ impl<C: openxr_data::Compositor> Input<C> {
                 warn!("{FUNC}: Provided event struct size ({size}) is smaller than required ({MIN_CONTROLLER_EVENT_SIZE}).");
                 return false;
             }
-
+            // VREvent_t can be different sizes depending on the OpenVR version,
+            // so we use raw pointers to avoid creating a reference, because if the
+            // size doesn't match our VREvent_t's size, we are in UB land
             unsafe {
                 (&raw mut (*out).eventType).write(event.ty as u32);
                 (&raw mut (*out).trackedDeviceIndex).write(event.index);
