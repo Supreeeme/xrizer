@@ -1069,12 +1069,10 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let devices = self.devices.read().unwrap();
         let left_profile = devices
             .get_controller(Hand::Left)
-            .unwrap()
-            .get_profile_path();
+            .and_then(|c| Some(c.get_profile_path()));
         let right_profile = devices
             .get_controller(Hand::Right)
-            .unwrap()
-            .get_profile_path();
+            .and_then(|c| Some(c.get_profile_path()));
         for key in &actions.actions_with_custom_bindings {
             let unsync_custom_bindings = |key, profile| {
                 if profile == xr::Path::NULL {
@@ -1093,8 +1091,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                     binding.unsync();
                 }
             };
-            unsync_custom_bindings(*key, left_profile);
-            if left_profile != right_profile {
+            if let Some(left_profile) = left_profile {
+                unsync_custom_bindings(*key, left_profile);
+                if right_profile.is_some_and(|p| p != left_profile) {
+                    unsync_custom_bindings(*key, right_profile.unwrap());
+                }
+            } else if let Some(right_profile) = right_profile {
                 unsync_custom_bindings(*key, right_profile);
             }
         }

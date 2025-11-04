@@ -1019,9 +1019,15 @@ fn empty_manifest() {
 
 #[test]
 fn load_actions_race() {
-    let mut f = Arc::new(Fixture::new());
+    let mut f = Fixture::new();
     f.input.openxr.restart_session(); // get to real session
+
+    f.set_interaction_profile(&Touch, LeftHand);
+    f.set_interaction_profile(&Touch, RightHand);
+
+    let mut f = Arc::new(f);
     f.input.frame_start_update(); // load legacy
+    f.input.openxr.poll_events();
     let got_input = f.input.get_legacy_controller_state(
         1,
         &mut vr::VRControllerState_t::default(),
