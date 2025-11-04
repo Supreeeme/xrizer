@@ -695,22 +695,27 @@ impl vr::IVRSystem022_Interface for System {
     }
 
     fn IsTrackedDeviceConnected(&self, device_index: vr::TrackedDeviceIndex_t) -> bool {
-        self.input
-            .get()
-            .is_some_and(|input| input.is_device_connected(device_index))
+        match device_index {
+            vr::k_unTrackedDeviceIndex_Hmd => true,
+            _ => self.input
+                .get()
+                .is_some_and(|input| input.is_device_connected(device_index))
+        }
     }
 
     fn GetTrackedDeviceClass(&self, index: vr::TrackedDeviceIndex_t) -> vr::ETrackedDeviceClass {
-        self.input
-            .get()
-            .and_then(|input| match input.device_index_to_device_type(index) {
-                Some(TrackedDeviceType::Hmd) => Some(vr::ETrackedDeviceClass::HMD),
-                Some(TrackedDeviceType::Controller { .. }) => {
-                    Some(vr::ETrackedDeviceClass::Controller)
-                }
-                _ => None,
-            })
-            .unwrap_or(vr::ETrackedDeviceClass::Invalid)
+        match index {
+            vr::k_unTrackedDeviceIndex_Hmd => vr::ETrackedDeviceClass::HMD,
+            _ => self.input
+                .get()
+                .and_then(|input| match input.device_index_to_device_type(index) {
+                    Some(TrackedDeviceType::Controller { .. }) => {
+                        Some(vr::ETrackedDeviceClass::Controller)
+                    }
+                    _ => None,
+                })
+                .unwrap_or(vr::ETrackedDeviceClass::Invalid),
+        }
     }
 
     fn GetControllerRoleForTrackedDeviceIndex(
@@ -751,13 +756,9 @@ impl vr::IVRSystem022_Interface for System {
         &self,
         device_index: vr::TrackedDeviceIndex_t,
     ) -> vr::EDeviceActivityLevel {
-        let Some(input) = self.input.get() else {
-            return vr::EDeviceActivityLevel::Unknown;
-        };
-
         match device_index {
             vr::k_unTrackedDeviceIndex_Hmd => vr::EDeviceActivityLevel::UserInteraction,
-            x if input.device_index_to_hand(x).is_some() => {
+            x if self.input.get().is_some_and(|input| input.device_index_to_hand(x).is_some()) => {
                 if self.IsTrackedDeviceConnected(x) {
                     vr::EDeviceActivityLevel::UserInteraction
                 } else {
