@@ -267,7 +267,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let devices = self.devices.read().unwrap();
         let session_data = self.openxr.session_data.get();
 
-        poses.iter_mut().enumerate().for_each(|(i, pose)| {
+        for (i, pose) in poses.iter_mut().enumerate() {
             let device = devices.get_device(i as u32);
 
             if let Some(device) = device {
@@ -279,7 +279,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                     )
                     .unwrap_or_default();
             }
-        });
+        }
     }
 
     pub fn get_controller_pose(
