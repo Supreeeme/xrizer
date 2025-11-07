@@ -13,6 +13,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
     Mutex, RwLock,
 };
+#[cfg(feature = "monado")]
+use libmonado::Monado;
 
 pub trait Compositor: vr::InterfaceImpl {
     fn post_session_restart(
@@ -537,6 +539,18 @@ impl SessionData {
             .begin(xr::ViewConfigurationType::PRIMARY_STEREO)
             .map_err(SessionCreationError::BeginSessionFailed)?;
         info!("Began OpenXR session.");
+
+        let monado = Monado::auto_connect().unwrap();
+        info!("Connected to Monado! Version: {}", monado.get_api_version());
+
+	    for device in monado.devices().unwrap() {
+            match device.battery_status() {
+                Ok(status) => {
+                    info!("Device: {} (battery: {}, {}%)", device.name, status.present, status.charge);
+                },
+                Err(_) => { continue; }
+            };
+	    }
 
         Ok((
             SessionData {
