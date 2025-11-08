@@ -1,8 +1,12 @@
 use crate::{
     clientcore::{Injected, Injector},
-    graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData},
+    graphics_backends::{GraphicsBackend, VulkanData, supported_apis_enum},
     input::{InteractionProfile, Profiles},
 };
+
+#[cfg(feature = "monado")]
+use crate::monado::SafeMonado;
+
 use derive_more::Deref;
 use glam::f32::{Quat, Vec3};
 use log::{info, warn};
@@ -13,8 +17,6 @@ use std::sync::{
     atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
     Mutex, RwLock,
 };
-#[cfg(feature = "monado")]
-use libmonado::Monado;
 
 pub trait Compositor: vr::InterfaceImpl {
     fn post_session_restart(
@@ -428,6 +430,8 @@ pub struct SessionData {
     /// \- structs are dropped in declaration order, and if we drop our temporary Vulkan data
     /// before the session, the runtime will likely be very unhappy.
     temp_vulkan: Option<VulkanData>,
+    #[cfg(feature = "monado")]
+    pub monado: Option<SafeMonado>,
 }
 
 #[derive(Debug)]
@@ -540,18 +544,6 @@ impl SessionData {
             .map_err(SessionCreationError::BeginSessionFailed)?;
         info!("Began OpenXR session.");
 
-        let monado = Monado::auto_connect().unwrap();
-        info!("Connected to Monado! Version: {}", monado.get_api_version());
-
-	    for device in monado.devices().unwrap() {
-            match device.battery_status() {
-                Ok(status) => {
-                    info!("Device: {} (battery: {}, {}%)", device.name, status.present, status.charge);
-                },
-                Err(_) => { continue; }
-            };
-	    }
-
         Ok((
             SessionData {
                 temp_vulkan,
@@ -567,6 +559,8 @@ impl SessionData {
                 comp_data: Default::default(),
                 overlay_data: Default::default(),
                 current_origin,
+                #[cfg(feature = "monado")]
+                monado: SafeMonado::safe_connect(),
             },
             waiter,
             stream,
