@@ -480,19 +480,23 @@ fn reload_manifest_on_session_restart() {
 
 #[track_caller]
 pub fn compare_pose(expected: xr::Posef, actual: xr::Posef) {
+    fn float_eq(a: f32, b: f32) -> bool {
+        (a - b).abs() < f32::EPSILON
+    }
     let epos = expected.position;
     let apos = actual.position;
     assert!(
-        (apos.x - epos.x).abs() < f32::EPSILON
-            && (apos.y - epos.y).abs() < f32::EPSILON
-            && (apos.z - epos.z).abs() < f32::EPSILON,
+        float_eq(apos.x, epos.x) && float_eq(apos.y, epos.y) && float_eq(apos.z, epos.z),
         "expected position: {epos:?}\nactual position: {apos:?}"
     );
 
     let erot = expected.orientation;
     let arot = actual.orientation;
     assert!(
-        arot.x == erot.x && arot.y == erot.y && arot.z == erot.z && arot.w == erot.w,
+        float_eq(arot.x, erot.x)
+            && float_eq(arot.y, erot.y)
+            && float_eq(arot.z, erot.z)
+            && float_eq(arot.w, erot.w),
         "expected orientation: {erot:?}\nactual orientation: {arot:?}",
     );
 }
