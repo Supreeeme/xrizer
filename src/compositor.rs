@@ -24,7 +24,7 @@ pub struct CompositorSessionData(Mutex<Option<DynFrameController>>);
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRCompositor"]
-#[versions(028, 027, 026, 022, 021, 020, 019, 018, 016, 014, 009)]
+#[versions(029, 028, 027, 026, 022, 021, 020, 019, 018, 016, 014, 009)]
 pub struct Compositor {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Self>>,
@@ -296,7 +296,7 @@ impl openxr_data::Compositor for Compositor {
 }
 
 #[allow(non_snake_case)]
-impl vr::IVRCompositor028_Interface for Compositor {
+impl vr::IVRCompositor029_Interface for Compositor {
     fn GetPosesForFrame(
         &self,
         _unPosePredictionID: u32,
@@ -698,6 +698,19 @@ impl vr::IVRCompositor028_Interface for Compositor {
         _nSubmitFlags: vr::EVRSubmitFlags,
     ) -> vr::EVRCompositorError {
         todo!()
+    }
+
+    fn GetSubmitTexture(
+        &self,
+        _: *mut vr::Texture_t,
+        __bindgen_vtable: *mut bool,
+        _: vr::EVRCompositorTextureUsage,
+        _: *const vr::Texture_t,
+        _: *const vr::VRTextureBounds_t,
+        _: vr::EVRSubmitFlags,
+    ) -> vr::EVRCompositorError {
+        crate::warn_unimplemented!("GetSubmitTexture");
+        vr::EVRCompositorError::IncompatibleVersion
     }
 
     fn Submit(
