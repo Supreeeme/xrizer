@@ -29,6 +29,53 @@ pub struct TrackedDevice {
     pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
 }
 
+fn get_hmd_pose(
+    xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+    session_data: &SessionData,
+    origin: vr::ETrackingUniverseOrigin,
+) -> Option<vr::TrackedDevicePose_t> {
+    let (location, velocity) = {
+        session_data
+            .view_space
+            .relate(
+                session_data.get_space_for_origin(origin),
+                xr_data.display_time.get(),
+            )
+            .ok()?
+    };
+
+    Some(vr::space_relation_to_openvr_pose(location, velocity))
+}
+
+fn get_controller_pose(
+    xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+    session_data: &SessionData,
+    controller: &TrackedDevice,
+    origin: vr::ETrackingUniverseOrigin,
+) -> Option<vr::TrackedDevicePose_t> {
+    let pose_data = session_data.input_data.pose_data.get()?;
+
+    let spaces = match controller.get_controller_hand().unwrap() {
+        Hand::Left => &pose_data.left_space,
+        Hand::Right => &pose_data.right_space,
+    };
+
+    let (location, velocity) = if let Some(raw) =
+        spaces.try_get_or_init_raw(&controller.get_interaction_profile(), session_data, pose_data)
+    {
+        raw.relate(
+            session_data.get_space_for_origin(origin),
+            xr_data.display_time.get(),
+        )
+        .ok()?
+    } else {
+        trace!("Failed to get raw space, returning empty pose");
+        (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
+    };
+
+    Some(vr::space_relation_to_openvr_pose(location, velocity))
+}
+
 impl TrackedDevice {
     pub(super) fn new(
         device_type: TrackedDeviceType,
@@ -67,9 +114,9 @@ impl TrackedDevice {
         }
 
         *pose_cache = match self.device_type {
-            TrackedDeviceType::Hmd => self.get_hmd_pose(xr_data, session_data, origin),
-            TrackedDeviceType::Controller { hand } => {
-                self.get_controller_pose(xr_data, session_data, hand, origin)
+            TrackedDeviceType::Hmd => get_hmd_pose(xr_data, session_data, origin),
+            TrackedDeviceType::Controller { .. } => {
+                get_controller_pose(xr_data, session_data, self, origin)
             }
         };
 
@@ -116,62 +163,11 @@ impl TrackedDevice {
         self.device_type
     }
 
-    // Controllers
-    fn get_controller_pose(
-        &self,
-        xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
-        session_data: &SessionData,
-        hand: Hand,
-        origin: vr::ETrackingUniverseOrigin,
-    ) -> Option<vr::TrackedDevicePose_t> {
-        let pose_data = session_data.input_data.pose_data.get()?;
-
-        let spaces = match hand {
-            Hand::Left => &pose_data.left_space,
-            Hand::Right => &pose_data.right_space,
-        };
-
-        let (location, velocity) = if let Some(raw) =
-            spaces.try_get_or_init_raw(&self.get_interaction_profile(), session_data, pose_data)
-        {
-            raw.relate(
-                session_data.get_space_for_origin(origin),
-                xr_data.display_time.get(),
-            )
-            .ok()?
-        } else {
-            trace!("Failed to get raw space, returning empty pose");
-            (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
-        };
-
-        Some(vr::space_relation_to_openvr_pose(location, velocity))
-    }
-
     pub fn get_controller_hand(&self) -> Option<Hand> {
         match self.get_type() {
             TrackedDeviceType::Controller { hand, .. } => Some(hand),
             _ => None,
         }
-    }
-
-    // HMD
-    fn get_hmd_pose(
-        &self,
-        xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
-        session_data: &SessionData,
-        origin: vr::ETrackingUniverseOrigin,
-    ) -> Option<vr::TrackedDevicePose_t> {
-        let (location, velocity) = {
-            session_data
-                .view_space
-                .relate(
-                    session_data.get_space_for_origin(origin),
-                    xr_data.display_time.get(),
-                )
-                .ok()?
-        };
-
-        Some(vr::space_relation_to_openvr_pose(location, velocity))
     }
 }
 
