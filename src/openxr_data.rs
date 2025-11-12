@@ -634,17 +634,6 @@ pub enum Hand {
     Right,
 }
 
-pub type HandPath = &'static str;
-
-impl From<Hand> for HandPath {
-    fn from(value: Hand) -> Self {
-        match value {
-            Hand::Left => "/user/hand/left",
-            Hand::Right => "/user/hand/right",
-        }
-    }
-}
-
 impl TryFrom<vr::ETrackedControllerRole> for Hand {
     type Error = ();
     #[inline]

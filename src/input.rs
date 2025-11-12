@@ -16,7 +16,7 @@ use skeletal::FingerState;
 use skeletal::SkeletalInputActionData;
 
 use crate::{
-    openxr_data::{self, Hand, HandPath, OpenXrData, SessionData},
+    openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span, AtomicF32,
 };
 use custom_bindings::{BindingData, GrabActions};
@@ -1297,7 +1297,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             info!(
                 "{} interaction profile changed: {}",
-                HandPath::from(hand),
+                self.openxr.instance.path_to_string(self.get_subaction_path(hand)).unwrap(),
                 profile_name
             )
         }
