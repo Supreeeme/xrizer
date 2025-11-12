@@ -615,7 +615,7 @@ impl SessionData {
 pub struct AtomicPath(AtomicU64);
 impl AtomicPath {
     pub(crate) fn new() -> Self {
-        Self(0.into())
+        Self(xr::Path::NULL.into_raw().into())
     }
 
     pub(crate) fn load(&self) -> xr::Path {
