@@ -11,7 +11,7 @@ mod tests;
 pub use devices::TrackedDeviceType;
 pub use profiles::{InteractionProfile, Profiles};
 
-use devices::{SubactionPaths, TrackedDeviceList, XrTrackedDevice};
+use devices::{SubactionPaths, TrackedDeviceList, TrackedDevice};
 use skeletal::FingerState;
 use skeletal::SkeletalInputActionData;
 
@@ -770,7 +770,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                     _ => unreachable!(),
                 };
 
-                let get_hand_pose = |hand: &XrTrackedDevice| {
+                let get_hand_pose = |hand: &TrackedDevice| {
                     loaded.try_get_pose(action, hand.get_profile_path()).ok()
                 };
 
@@ -1068,10 +1068,10 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let devices = self.devices.read().unwrap();
         let left_profile = devices
             .get_controller(Hand::Left)
-            .map(XrTrackedDevice::get_profile_path);
+            .map(TrackedDevice::get_profile_path);
         let right_profile = devices
             .get_controller(Hand::Right)
-            .map(XrTrackedDevice::get_profile_path);
+            .map(TrackedDevice::get_profile_path);
         for key in &actions.actions_with_custom_bindings {
             let unsync_custom_bindings = |key, profile| {
                 if profile == xr::Path::NULL {
@@ -1303,7 +1303,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
 
         for (device_type, profile_path, interaction_profile) in devices_to_create {
-            let device = XrTrackedDevice::new(device_type, profile_path, interaction_profile);
+            let device = TrackedDevice::new(device_type, profile_path, interaction_profile);
             device.set_connected(true);
 
             devices.push_device(device).unwrap_or_else(|e| {

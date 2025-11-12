@@ -20,7 +20,7 @@ pub enum TrackedDeviceType {
     Hmd,
     Controller { hand: Hand },
 }
-pub struct XrTrackedDevice {
+pub struct TrackedDevice {
     device_type: TrackedDeviceType,
     interaction_profile: Mutex<Option<&'static dyn InteractionProfile>>,
     profile_path: AtomicPath,
@@ -29,7 +29,7 @@ pub struct XrTrackedDevice {
     pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
 }
 
-impl XrTrackedDevice {
+impl TrackedDevice {
     pub(super) fn new(
         device_type: TrackedDeviceType,
         profile_path: Option<xr::Path>,
@@ -176,7 +176,7 @@ impl XrTrackedDevice {
 }
 
 pub struct TrackedDeviceList {
-    devices: Vec<XrTrackedDevice>,
+    devices: Vec<TrackedDevice>,
 }
 
 pub struct SubactionPaths {
@@ -200,20 +200,20 @@ impl SubactionPaths {
 impl TrackedDeviceList {
     pub(super) fn new() -> Self {
         Self {
-            devices: vec![XrTrackedDevice::new(TrackedDeviceType::Hmd, None, None)],
+            devices: vec![TrackedDevice::new(TrackedDeviceType::Hmd, None, None)],
         }
     }
 
     pub(super) fn get_device(
         &self,
         device_index: vr::TrackedDeviceIndex_t,
-    ) -> Option<&XrTrackedDevice> {
+    ) -> Option<&TrackedDevice> {
         self.devices.get(device_index as usize)
     }
 
     pub(super) fn push_device(
         &mut self,
-        device: XrTrackedDevice,
+        device: TrackedDevice,
     ) -> Result<vr::TrackedDeviceIndex_t, vr::EVRInputError> {
         let index = self.devices.len() as vr::TrackedDeviceIndex_t;
 
@@ -226,11 +226,11 @@ impl TrackedDeviceList {
         Ok(index)
     }
 
-    pub(super) fn get_hmd(&self) -> &XrTrackedDevice {
+    pub(super) fn get_hmd(&self) -> &TrackedDevice {
         self.devices.first().unwrap()
     }
 
-    pub(super) fn get_controller(&self, hand: Hand) -> Option<&XrTrackedDevice> {
+    pub(super) fn get_controller(&self, hand: Hand) -> Option<&TrackedDevice> {
         self.get_device(self.get_controller_index(hand))
     }
 
@@ -242,7 +242,7 @@ impl TrackedDeviceList {
             .unwrap_or(vr::k_unTrackedDeviceIndexInvalid)
     }
 
-    pub fn iter(&self) -> std::slice::Iter<'_, XrTrackedDevice> {
+    pub fn iter(&self) -> std::slice::Iter<'_, TrackedDevice> {
         self.devices.iter()
     }
 }
@@ -303,7 +303,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         devices
             .get_device(index)
-            .is_some_and(XrTrackedDevice::connected)
+            .is_some_and(TrackedDevice::connected)
     }
 
     pub fn device_index_to_device_type(
