@@ -170,7 +170,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             return false;
         };
 
-        let hand_path = self.get_subaction_path(hand.into());
+        let hand_path = self.get_subaction_path(hand);
 
         let data = self.openxr.session_data.get();
 

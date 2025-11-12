@@ -20,12 +20,6 @@ pub enum TrackedDeviceType {
     Hmd,
     Controller { hand: Hand },
 }
-
-impl From<Hand> for TrackedDeviceType {
-    fn from(hand: Hand) -> Self {
-        TrackedDeviceType::Controller { hand }
-    }
-}
 pub struct XrTrackedDevice {
     device_type: TrackedDeviceType,
     interaction_profile: Mutex<Option<&'static dyn InteractionProfile>>,
@@ -186,16 +180,12 @@ pub struct TrackedDeviceList {
 }
 
 pub struct SubactionPaths {
-    pub head: xr::Path,
     pub left: xr::Path,
     pub right: xr::Path,
 }
 
 impl SubactionPaths {
     pub fn new(instance: &xr::Instance) -> Self {
-        let head = instance
-            .string_to_path("/user/head")
-            .expect("Failed to convert string to path");
         let left = instance
             .string_to_path("/user/hand/left")
             .expect("Failed to convert string to path");
@@ -203,7 +193,7 @@ impl SubactionPaths {
             .string_to_path("/user/hand/right")
             .expect("Failed to convert string to path");
 
-        Self { head, left, right }
+        Self { left, right }
     }
 }
 
