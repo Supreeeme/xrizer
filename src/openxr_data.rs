@@ -1,6 +1,6 @@
 use crate::{
     clientcore::{Injected, Injector},
-    graphics_backends::{GraphicsBackend, VulkanData, supported_apis_enum},
+    graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData},
     input::{InteractionProfile, Profiles},
 };
 

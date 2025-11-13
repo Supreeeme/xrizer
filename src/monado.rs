@@ -1,4 +1,4 @@
-use libmonado::{Monado, Device, DeviceRole};
+use libmonado::{Device, DeviceRole, Monado};
 use log::{info, warn};
 
 use crate::openxr_data::Hand;

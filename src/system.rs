@@ -216,7 +216,8 @@ impl System {
             None => return None,
         };
 
-        let status = monado.get_device_from_vr_index(device_index)
+        let status = monado
+            .get_device_from_vr_index(device_index)
             .and_then(|device| device.battery_status().ok());
 
         return status;
@@ -766,7 +767,7 @@ impl vr::IVRSystem023_Interface for System {
                 }
 
                 return d.charge;
-            },
+            }
             _ => {}
         }
 
@@ -783,7 +784,7 @@ impl vr::IVRSystem023_Interface for System {
                     }
                     return 0.0;
                 }
-            }   
+            }
         }
 
         if let Some(err) = unsafe { err.as_mut() } {
@@ -816,7 +817,7 @@ impl vr::IVRSystem023_Interface for System {
                 };
 
                 return d.present;
-            },
+            }
             #[cfg(feature = "monado")]
             vr::ETrackedDeviceProperty::DeviceIsCharging_Bool => {
                 let Some(d) = self.mnd_get_device_battery(device_index) else {
