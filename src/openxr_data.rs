@@ -9,7 +9,7 @@ use openvr as vr;
 use openxr as xr;
 use std::mem::ManuallyDrop;
 use std::sync::{
-    atomic::{AtomicI64, AtomicU64, Ordering},
+    atomic::{AtomicI64, Ordering},
     RwLock,
 };
 
@@ -609,21 +609,6 @@ impl SessionData {
     #[inline]
     pub fn is_real_session(&self) -> bool {
         self.temp_vulkan.is_none()
-    }
-}
-
-pub struct AtomicPath(AtomicU64);
-impl AtomicPath {
-    pub(crate) fn new() -> Self {
-        Self(xr::Path::NULL.into_raw().into())
-    }
-
-    pub(crate) fn load(&self) -> xr::Path {
-        xr::Path::from_raw(self.0.load(Ordering::Relaxed))
-    }
-
-    pub(crate) fn store(&self, path: xr::Path) {
-        self.0.store(path.into_raw(), Ordering::Relaxed);
     }
 }
 

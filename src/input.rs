@@ -761,17 +761,17 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             Ok(ActionData::Pose) => {
                 let (mut hand, interaction_profile) = match subaction_path {
                     x if x == self.get_subaction_path(Hand::Left) => left_hand
-                        .map(|h| (Hand::Left, h.get_profile_path()))
+                        .map(|h| (Hand::Left, h.profile_path))
                         .unzip(),
                     x if x == self.get_subaction_path(Hand::Right) => right_hand
-                        .map(|h| (Hand::Right, h.get_profile_path()))
+                        .map(|h| (Hand::Right, h.profile_path))
                         .unzip(),
                     x if x == xr::Path::NULL => (None, None),
                     _ => unreachable!(),
                 };
 
                 let get_hand_pose = |hand: &TrackedDevice| {
-                    loaded.try_get_pose(action, hand.get_profile_path()).ok()
+                    loaded.try_get_pose(action, hand.profile_path).ok()
                 };
 
                 let get_first_bound_hand_profile = || {
@@ -1068,10 +1068,10 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let devices = self.devices.read().unwrap();
         let left_profile = devices
             .get_controller(Hand::Left)
-            .map(TrackedDevice::get_profile_path);
+            .map(|dev| dev.profile_path);
         let right_profile = devices
             .get_controller(Hand::Right)
-            .map(TrackedDevice::get_profile_path);
+            .map(|dev| dev.profile_path);
         for key in &actions.actions_with_custom_bindings {
             let unsync_custom_bindings = |key, profile| {
                 if profile == xr::Path::NULL {
@@ -1256,7 +1256,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let mut devices_to_create = vec![];
 
         for hand in [Hand::Left, Hand::Right] {
-            let controller = devices.get_controller(hand);
+            let mut controller = devices.get_controller_mut(hand);
             let subaction_path = self.get_subaction_path(hand);
 
             let profile_path = session_data
@@ -1264,20 +1264,20 @@ impl<C: openxr_data::Compositor> Input<C> {
                 .current_interaction_profile(subaction_path)
                 .unwrap();
 
-            if let Some(controller) = controller {
-                controller.set_profile_path(profile_path);
+            if let Some(controller) = controller.as_mut() {
+                controller.profile_path = profile_path;
             }
 
             let profile_name = match profile_path {
                 xr::Path::NULL => {
-                    if let Some(controller) = controller {
-                        controller.set_connected(false);
+                    if let Some(controller) = controller.as_mut() {
+                        controller.connected = false;
                     }
                     "<null>".to_owned()
                 }
                 path => {
-                    if let Some(controller) = controller {
-                        controller.set_connected(true);
+                    if let Some(controller) = controller.as_mut() {
+                        controller.connected = true;
                     }
                     self.openxr.instance.path_to_string(path).unwrap()
                 }
@@ -1286,8 +1286,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             let profile = Profiles::get().profile_from_name(&profile_name);
 
             if let Some(p) = profile {
-                if let Some(controller) = controller {
-                    controller.set_interaction_profile(p);
+                if let Some(controller) = controller.as_mut() {
+                    controller.interaction_profile = Some(p);
                 } else {
                     devices_to_create.push((TrackedDeviceType::Controller { hand }, Some(profile_path), Some(p)));
                 }
@@ -1303,8 +1303,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
 
         for (device_type, profile_path, interaction_profile) in devices_to_create {
-            let device = TrackedDevice::new(device_type, profile_path, interaction_profile);
-            device.set_connected(true);
+            let mut device = TrackedDevice::new(device_type, profile_path, interaction_profile);
+            device.connected = true;
 
             devices.push_device(device).unwrap_or_else(|e| {
                 panic!("Failed to create new controller: {:?}", e);
@@ -1331,8 +1331,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             // don't actually call UpdateActionState if no controllers are reported as connected,
             // and interaction profiles are only updated after xrSyncActions is called. So here, we
             // do an action sync to try and get the runtime to update the interaction profile.
-            if (left_hand.is_none_or(|hand| !hand.connected()))
-                && (right_hand.is_none_or(|hand| !hand.connected()))
+            if (left_hand.is_none_or(|hand| !hand.connected))
+                && (right_hand.is_none_or(|hand| !hand.connected))
             {
                 debug!("no controllers connected - syncing info set");
                 data.session
@@ -1405,10 +1405,10 @@ impl<C: openxr_data::Compositor> Input<C> {
             return false;
         }
 
-        let devices = self.devices.read().unwrap();
+        let mut devices = self.devices.write().unwrap();
 
-        for (i, device) in devices.iter().enumerate() {
-            let current = device.connected();
+        for (i, device) in devices.iter_mut().enumerate() {
+            let current = device.connected;
 
             if device.has_connected_changed() {
                 debug!(

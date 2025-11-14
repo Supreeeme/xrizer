@@ -39,7 +39,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             Hand::Right => &pose_data.right_space,
         }
         .try_get_or_init_raw(
-            &controller.get_interaction_profile(),
+            &controller.interaction_profile,
             session_data,
             pose_data,
         ) else {

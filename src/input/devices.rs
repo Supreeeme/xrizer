@@ -1,15 +1,9 @@
-use std::{
-    ffi::CStr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Mutex,
-    },
-};
+use std::{ffi::CStr, sync::Mutex};
 
 use openvr as vr;
 use openxr as xr;
 
-use crate::openxr_data::{self, AtomicPath, Hand, OpenXrData, SessionData};
+use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use crate::tracy_span;
 use log::trace;
 
@@ -22,10 +16,10 @@ pub enum TrackedDeviceType {
 }
 pub struct TrackedDevice {
     device_type: TrackedDeviceType,
-    interaction_profile: Mutex<Option<&'static dyn InteractionProfile>>,
-    profile_path: AtomicPath,
-    connected: AtomicBool,
-    previous_connected: AtomicBool,
+    pub interaction_profile: Option<&'static dyn InteractionProfile>,
+    pub profile_path: xr::Path,
+    pub connected: bool,
+    pub previous_connected: bool,
     pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
 }
 
@@ -61,7 +55,7 @@ fn get_controller_pose(
     };
 
     let (location, velocity) = if let Some(raw) =
-        spaces.try_get_or_init_raw(&controller.get_interaction_profile(), session_data, pose_data)
+        spaces.try_get_or_init_raw(&controller.interaction_profile, session_data, pose_data)
     {
         raw.relate(
             session_data.get_space_for_origin(origin),
@@ -82,21 +76,11 @@ impl TrackedDevice {
         profile_path: Option<xr::Path>,
         interaction_profile: Option<&'static dyn InteractionProfile>,
     ) -> Self {
-        let path = AtomicPath::new();
-
-        if let Some(profile_path) = profile_path {
-            path.store(profile_path);
-        }
-
         Self {
             device_type,
-            interaction_profile: Mutex::new(interaction_profile),
-            profile_path: path,
-            connected: if device_type == TrackedDeviceType::Hmd {
-                true.into()
-            } else {
-                false.into()
-            },
+            interaction_profile,
+            profile_path: profile_path.unwrap_or(xr::Path::NULL),
+            connected: device_type == TrackedDeviceType::Hmd,
             previous_connected: false.into(),
             pose_cache: Mutex::new(None),
         }
@@ -123,40 +107,17 @@ impl TrackedDevice {
         *pose_cache
     }
 
-    pub fn connected(&self) -> bool {
-        self.connected.load(Ordering::Relaxed)
-    }
-
-    pub fn set_connected(&self, connected: bool) {
-        self.connected.store(connected, Ordering::Relaxed);
-    }
-
-    pub fn set_interaction_profile(&self, profile: &'static dyn InteractionProfile) {
-        self.interaction_profile.lock().unwrap().replace(profile);
-    }
-
-    pub fn get_interaction_profile(&self) -> Option<&'static dyn InteractionProfile> {
-        self.interaction_profile.lock().unwrap().as_ref().copied()
-    }
-
-    pub fn get_profile_path(&self) -> xr::Path {
-        self.profile_path.load()
-    }
-
-    pub fn set_profile_path(&self, path: xr::Path) {
-        self.profile_path.store(path);
-    }
-
     pub fn clear_pose_cache(&self) {
         std::mem::take(&mut *self.pose_cache.lock().unwrap());
     }
 
-    pub fn has_connected_changed(&self) -> bool {
-        let current = self.connected();
-
-        self.previous_connected
-            .compare_exchange(!current, current, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
+    pub fn has_connected_changed(&mut self) -> bool {
+        if self.previous_connected != self.connected {
+            self.previous_connected = self.connected;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn get_type(&self) -> TrackedDeviceType {
@@ -206,6 +167,12 @@ impl TrackedDeviceList {
     ) -> Option<&TrackedDevice> {
         self.devices.get(device_index as usize)
     }
+    pub(super) fn get_device_mut(
+        &mut self,
+        device_index: vr::TrackedDeviceIndex_t,
+    ) -> Option<&mut TrackedDevice> {
+        self.devices.get_mut(device_index as usize)
+    }
 
     pub(super) fn push_device(
         &mut self,
@@ -229,6 +196,9 @@ impl TrackedDeviceList {
     pub(super) fn get_controller(&self, hand: Hand) -> Option<&TrackedDevice> {
         self.get_device(self.get_controller_index(hand))
     }
+    pub(super) fn get_controller_mut(&mut self, hand: Hand) -> Option<&mut TrackedDevice> {
+        self.get_device_mut(self.get_controller_index(hand))
+    }
 
     fn get_controller_index(&self, hand: Hand) -> vr::TrackedDeviceIndex_t {
         self.iter()
@@ -240,6 +210,9 @@ impl TrackedDeviceList {
 
     pub fn iter(&self) -> std::slice::Iter<'_, TrackedDevice> {
         self.devices.iter()
+    }
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, TrackedDevice> {
+        self.devices.iter_mut()
     }
 }
 
@@ -299,7 +272,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         devices
             .get_device(index)
-            .is_some_and(TrackedDevice::connected)
+            .is_some_and(|d| d.connected)
     }
 
     pub fn device_index_to_device_type(
@@ -335,7 +308,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let controller = devices.get_controller(hand)?;
 
         self.profile_map
-            .get(&controller.get_profile_path())
+            .get(&controller.profile_path)
             .map(|v| &**v)
     }
 
