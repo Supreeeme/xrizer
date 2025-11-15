@@ -753,19 +753,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         }
         let subaction_path = get_subaction_path!(self, restrict_to_device, action_data);
         let devices = self.devices.read().unwrap();
-
-        let left_hand = devices.get_controller(Hand::Left);
-        let right_hand = devices.get_controller(Hand::Right);
-
+        let get_hand = |hand| devices.get_controller(hand).map(|h| (hand, h.profile_path)).unzip();
         let (active_origin, hand) = match loaded.try_get_action(action) {
             Ok(ActionData::Pose) => {
                 let (mut hand, interaction_profile) = match subaction_path {
-                    x if x == self.get_subaction_path(Hand::Left) => left_hand
-                        .map(|h| (Hand::Left, h.profile_path))
-                        .unzip(),
-                    x if x == self.get_subaction_path(Hand::Right) => right_hand
-                        .map(|h| (Hand::Right, h.profile_path))
-                        .unzip(),
+                    x if x == self.get_subaction_path(Hand::Left) => get_hand(Hand::Left),
+                    x if x == self.get_subaction_path(Hand::Right) => get_hand(Hand::Right),
                     x if x == xr::Path::NULL => (None, None),
                     _ => unreachable!(),
                 };
@@ -775,9 +768,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 };
 
                 let get_first_bound_hand_profile = || {
-                    left_hand
+                    devices.get_controller(Hand::Left)
                         .and_then(get_hand_pose)
-                        .or_else(|| right_hand.and_then(get_hand_pose))
+                        .or_else(|| devices.get_controller(Hand::Right).and_then(get_hand_pose))
                 };
 
                 let Some(bound) = interaction_profile
@@ -842,18 +835,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         drop(data);
 
         unsafe {
-            if let Some(pose) = self.get_controller_pose(hand, Some(origin)) {
-                action_data.write(vr::InputPoseActionData_t {
-                    bActive: true,
-                    activeOrigin: active_origin,
-                    pose,
-                });
-            } else {
-                action_data.write(vr::InputPoseActionData_t {
-                    bActive: false,
-                    ..Default::default()
-                });
-            }
+            let pose = self.get_controller_pose(hand, Some(origin)).unwrap_or_default();
+            action_data.write(vr::InputPoseActionData_t {
+                bActive: true,
+                activeOrigin: active_origin,
+                pose,
+            });
         }
 
         vr::EVRInputError::None
@@ -1090,13 +1077,16 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                     binding.unsync();
                 }
             };
-            if let Some(left_profile) = left_profile {
-                unsync_custom_bindings(*key, left_profile);
-                if right_profile.is_some_and(|p| p != left_profile) {
-                    unsync_custom_bindings(*key, right_profile.unwrap());
+            
+            match (left_profile, right_profile) {
+                (Some(profile), None) | (None, Some(profile)) => unsync_custom_bindings(*key, profile),
+                (Some(left), Some(right)) => {
+                    unsync_custom_bindings(*key, left);
+                    if left != right {
+                        unsync_custom_bindings(*key, right);
+                    }
                 }
-            } else if let Some(right_profile) = right_profile {
-                unsync_custom_bindings(*key, right_profile);
+                (None, None) => {}
             }
         }
 

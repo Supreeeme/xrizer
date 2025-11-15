@@ -132,10 +132,6 @@ impl TrackedDevice {
     }
 }
 
-pub struct TrackedDeviceList {
-    devices: Vec<TrackedDevice>,
-}
-
 pub struct SubactionPaths {
     pub left: xr::Path,
     pub right: xr::Path,
@@ -152,6 +148,10 @@ impl SubactionPaths {
 
         Self { left, right }
     }
+}
+
+pub struct TrackedDeviceList {
+    devices: Vec<TrackedDevice>,
 }
 
 impl TrackedDeviceList {
@@ -194,24 +194,23 @@ impl TrackedDeviceList {
     }
 
     pub(super) fn get_controller(&self, hand: Hand) -> Option<&TrackedDevice> {
-        self.get_device(self.get_controller_index(hand))
+        self.get_device(self.get_controller_index(hand)?)
     }
     pub(super) fn get_controller_mut(&mut self, hand: Hand) -> Option<&mut TrackedDevice> {
-        self.get_device_mut(self.get_controller_index(hand))
+        self.get_device_mut(self.get_controller_index(hand)?)
     }
 
-    fn get_controller_index(&self, hand: Hand) -> vr::TrackedDeviceIndex_t {
+    fn get_controller_index(&self, hand: Hand) -> Option<vr::TrackedDeviceIndex_t> {
         self.iter()
             .enumerate()
             .find(|(_, device)| device.get_controller_hand() == Some(hand))
             .map(|(i, _)| i as vr::TrackedDeviceIndex_t)
-            .unwrap_or(vr::k_unTrackedDeviceIndexInvalid)
     }
 
-    pub fn iter(&self) -> std::slice::Iter<'_, TrackedDevice> {
+    pub fn iter(&self) -> impl Iterator<Item = &TrackedDevice> {
         self.devices.iter()
     }
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, TrackedDevice> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut TrackedDevice> {
         self.devices.iter_mut()
     }
 }
@@ -246,7 +245,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         hand: Hand,
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) -> Option<vr::TrackedDevicePose_t> {
-        let controller_index = self.devices.read().unwrap().get_controller_index(hand);
+        let controller_index = self.devices.read().unwrap().get_controller_index(hand)?;
 
         self.get_device_pose(controller_index, origin)
     }
@@ -294,13 +293,8 @@ impl<C: openxr_data::Compositor> Input<C> {
 
     pub fn get_controller_device_index(&self, hand: Hand) -> Option<vr::TrackedDeviceIndex_t> {
         let devices = self.devices.read().unwrap();
-        let controller_index = devices.get_controller_index(hand);
 
-        if controller_index == vr::k_unTrackedDeviceIndexInvalid {
-            return None;
-        }
-
-        Some(controller_index)
+        Some(devices.get_controller_index(hand)?)
     }
 
     fn get_profile_data(&self, hand: Hand) -> Option<&super::profiles::ProfileProperties> {

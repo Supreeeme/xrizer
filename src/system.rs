@@ -556,12 +556,10 @@ impl vr::IVRSystem023_Interface for System {
                 | vr::ETrackedDeviceProperty::ControllerType_String => Some(c"<unknown>"),
                 _ => None,
             },
-            x if input.device_index_to_hand(x).is_some() => input
-                .get_controller_string_tracked_property(
-                    input.device_index_to_hand(x).unwrap(),
-                    prop,
-                ),
-            _ => None,
+            x => input
+                .device_index_to_hand(x)
+                .map(|x| input.get_controller_string_tracked_property(x, prop))
+                .flatten(),
         };
 
         let Some(data) = data else {
