@@ -25,13 +25,13 @@ impl SafeMonado {
     }
 
     pub fn get_device_from_vr_index(&self, device_index: u32) -> Option<Device<'_>> {
-        return match device_index {
+        match device_index {
             vr::k_unTrackedDeviceIndex_Hmd => self.0.device_from_role(DeviceRole::Head).ok(),
             x if Hand::try_from(x).is_ok() => match Hand::try_from(x).unwrap() {
                 Hand::Left => self.0.device_from_role(DeviceRole::Left).ok(),
                 Hand::Right => self.0.device_from_role(DeviceRole::Right).ok(),
             },
             _ => None,
-        };
+        }
     }
 }

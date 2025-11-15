@@ -211,16 +211,12 @@ impl System {
     #[cfg(feature = "monado")]
     pub fn mnd_get_device_battery(&self, device_index: u32) -> Option<BatteryStatus> {
         let session_data = self.openxr.session_data.get();
-        let monado = match &session_data.monado {
-            Some(m) => m,
-            None => return None,
-        };
 
-        let status = monado
+        session_data
+            .monado
+            .as_ref()?
             .get_device_from_vr_index(device_index)
-            .and_then(|device| device.battery_status().ok());
-
-        return status;
+            .and_then(|device| device.battery_status().ok())
     }
 }
 
@@ -754,7 +750,7 @@ impl vr::IVRSystem023_Interface for System {
             vr::ETrackedDeviceProperty::DeviceBatteryPercentage_Float => {
                 let Some(d) = self.mnd_get_device_battery(device_index) else {
                     if let Some(err) = unsafe { err.as_mut() } {
-                        *err = vr::ETrackedPropertyError::UnknownProperty;
+                        *err = vr::ETrackedPropertyError::ValueNotProvidedByDevice;
                     }
                     return 0.0;
                 };
@@ -778,12 +774,7 @@ impl vr::IVRSystem023_Interface for System {
                     return views[1].pose.position.x - views[0].pose.position.x;
                 }
                 vr::ETrackedDeviceProperty::DisplayFrequency_Float => return 90.0,
-                _ => {
-                    if let Some(err) = unsafe { err.as_mut() } {
-                        *err = vr::ETrackedPropertyError::UnknownProperty;
-                    }
-                    return 0.0;
-                }
+                _ => {}
             }
         }
 
@@ -806,12 +797,16 @@ impl vr::IVRSystem023_Interface for System {
             return false;
         }
 
+        if let Some(err) = unsafe { err.as_mut() } {
+            *err = vr::ETrackedPropertyError::Success;
+        }
+
         match prop {
             #[cfg(feature = "monado")]
             vr::ETrackedDeviceProperty::DeviceProvidesBatteryStatus_Bool => {
                 let Some(d) = self.mnd_get_device_battery(device_index) else {
                     if let Some(err) = unsafe { err.as_mut() } {
-                        *err = vr::ETrackedPropertyError::UnknownProperty;
+                        *err = vr::ETrackedPropertyError::ValueNotProvidedByDevice;
                     }
                     return false;
                 };
@@ -822,7 +817,7 @@ impl vr::IVRSystem023_Interface for System {
             vr::ETrackedDeviceProperty::DeviceIsCharging_Bool => {
                 let Some(d) = self.mnd_get_device_battery(device_index) else {
                     if let Some(err) = unsafe { err.as_mut() } {
-                        *err = vr::ETrackedPropertyError::UnknownProperty;
+                        *err = vr::ETrackedPropertyError::ValueNotProvidedByDevice;
                     }
                     return false;
                 };
