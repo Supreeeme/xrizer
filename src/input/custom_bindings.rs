@@ -1012,7 +1012,7 @@ mod tests {
         f.set_interaction_profile(&ViveWands, LeftHand);
         fakexr::set_action_state(
             dpad_data.xy.as_raw(),
-            fakexr::ActionState::Vector2(0.0, 0.5),
+            fakexr::ActionState::Vector2(0.0, 0.55),
             LeftHand,
         );
         fakexr::set_action_state(
@@ -1043,7 +1043,7 @@ mod tests {
 
         fakexr::set_action_state(
             dpad_data.xy.as_raw(),
-            fakexr::ActionState::Vector2(0.5, 0.0),
+            fakexr::ActionState::Vector2(0.55, 0.0),
             LeftHand,
         );
         f.sync(vr::VRActiveActionSet_t {
@@ -1127,7 +1127,7 @@ mod tests {
         f.set_interaction_profile(&ViveWands, LeftHand);
         fakexr::set_action_state(
             dpad_data_vive.xy.as_raw(),
-            fakexr::ActionState::Vector2(0.0, 0.5),
+            fakexr::ActionState::Vector2(0.0, 0.55),
             LeftHand,
         );
         fakexr::set_action_state(
@@ -1165,7 +1165,7 @@ mod tests {
 
         fakexr::set_action_state(
             dpad_data_knuckles.xy.as_raw(),
-            fakexr::ActionState::Vector2(0.0, 0.5),
+            fakexr::ActionState::Vector2(0.0, 0.55),
             LeftHand,
         );
         f.sync(vr::VRActiveActionSet_t {
