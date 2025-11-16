@@ -665,7 +665,12 @@ impl vr::IVRSystem023_Interface for System {
         }
         self.input
             .get()
-            .and_then(|input| input.get_controller_int_tracked_property(input.device_index_to_hand(device_index)?, prop))
+            .and_then(|input| {
+                input.get_controller_int_tracked_property(
+                    input.device_index_to_hand(device_index)?,
+                    prop,
+                )
+            })
             .unwrap_or_else(|| {
                 if let Some(err) = unsafe { err.as_mut() } {
                     *err = vr::ETrackedPropertyError::UnknownProperty;

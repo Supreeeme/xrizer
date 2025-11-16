@@ -38,11 +38,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             Hand::Left => &pose_data.left_space,
             Hand::Right => &pose_data.right_space,
         }
-        .try_get_or_init_raw(
-            &controller.interaction_profile,
-            session_data,
-            pose_data,
-        ) else {
+        .try_get_or_init_raw(&controller.interaction_profile, session_data, pose_data) else {
             self.get_estimated_bones(session_data, space, hand, transforms);
             return;
         };

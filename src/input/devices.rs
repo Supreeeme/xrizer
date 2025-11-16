@@ -269,9 +269,7 @@ impl<C: openxr_data::Compositor> Input<C> {
     pub fn is_device_connected(&self, index: vr::TrackedDeviceIndex_t) -> bool {
         let devices = self.devices.read().unwrap();
 
-        devices
-            .get_device(index)
-            .is_some_and(|d| d.connected)
+        devices.get_device(index).is_some_and(|d| d.connected)
     }
 
     pub fn device_index_to_device_type(
@@ -301,9 +299,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let devices = self.devices.read().unwrap();
         let controller = devices.get_controller(hand)?;
 
-        self.profile_map
-            .get(&controller.profile_path)
-            .map(|v| &**v)
+        self.profile_map.get(&controller.profile_path).map(|v| &**v)
     }
 
     pub fn get_controller_string_tracked_property(

@@ -11,7 +11,7 @@ mod tests;
 pub use devices::TrackedDeviceType;
 pub use profiles::{InteractionProfile, Profiles};
 
-use devices::{SubactionPaths, TrackedDeviceList, TrackedDevice};
+use devices::{SubactionPaths, TrackedDevice, TrackedDeviceList};
 use skeletal::FingerState;
 use skeletal::SkeletalInputActionData;
 
@@ -753,7 +753,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         }
         let subaction_path = get_subaction_path!(self, restrict_to_device, action_data);
         let devices = self.devices.read().unwrap();
-        let get_hand = |hand| devices.get_controller(hand).map(|h| (hand, h.profile_path)).unzip();
+        let get_hand = |hand| {
+            devices
+                .get_controller(hand)
+                .map(|h| (hand, h.profile_path))
+                .unzip()
+        };
         let (active_origin, hand) = match loaded.try_get_action(action) {
             Ok(ActionData::Pose) => {
                 let (mut hand, interaction_profile) = match subaction_path {
@@ -763,12 +768,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                     _ => unreachable!(),
                 };
 
-                let get_hand_pose = |hand: &TrackedDevice| {
-                    loaded.try_get_pose(action, hand.profile_path).ok()
-                };
+                let get_hand_pose =
+                    |hand: &TrackedDevice| loaded.try_get_pose(action, hand.profile_path).ok();
 
                 let get_first_bound_hand_profile = || {
-                    devices.get_controller(Hand::Left)
+                    devices
+                        .get_controller(Hand::Left)
                         .and_then(get_hand_pose)
                         .or_else(|| devices.get_controller(Hand::Right).and_then(get_hand_pose))
                 };
@@ -835,7 +840,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         drop(data);
 
         unsafe {
-            let pose = self.get_controller_pose(hand, Some(origin)).unwrap_or_default();
+            let pose = self
+                .get_controller_pose(hand, Some(origin))
+                .unwrap_or_default();
             action_data.write(vr::InputPoseActionData_t {
                 bActive: true,
                 activeOrigin: active_origin,
@@ -1077,9 +1084,11 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                     binding.unsync();
                 }
             };
-            
+
             match (left_profile, right_profile) {
-                (Some(profile), None) | (None, Some(profile)) => unsync_custom_bindings(*key, profile),
+                (Some(profile), None) | (None, Some(profile)) => {
+                    unsync_custom_bindings(*key, profile)
+                }
                 (Some(left), Some(right)) => {
                     unsync_custom_bindings(*key, left);
                     if left != right {
@@ -1279,7 +1288,11 @@ impl<C: openxr_data::Compositor> Input<C> {
                 if let Some(controller) = controller.as_mut() {
                     controller.interaction_profile = Some(p);
                 } else {
-                    devices_to_create.push((TrackedDeviceType::Controller { hand }, Some(profile_path), Some(p)));
+                    devices_to_create.push((
+                        TrackedDeviceType::Controller { hand },
+                        Some(profile_path),
+                        Some(p),
+                    ));
                 }
             };
 
@@ -1287,7 +1300,10 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             info!(
                 "{} interaction profile changed: {}",
-                self.openxr.instance.path_to_string(self.get_subaction_path(hand)).unwrap(),
+                self.openxr
+                    .instance
+                    .path_to_string(self.get_subaction_path(hand))
+                    .unwrap(),
                 profile_name
             )
         }
