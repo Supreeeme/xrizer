@@ -1,6 +1,6 @@
 [env]
 # TODO: get leak checker passing
-MIRIFLAGS = "-Zmiri-disable-isolation -Zmiri-permissive-provenance -Zmiri-ignore-leaks"
+MIRIFLAGS = "-Zmiri-disable-isolation -Zmiri-permissive-provenance -Zmiri-ignore-leaks -Zmiri-deterministic-floats"
 
 [alias]
 xbuild = "run --package xbuild --quiet --"
