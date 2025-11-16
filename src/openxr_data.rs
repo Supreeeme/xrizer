@@ -1,7 +1,6 @@
 use crate::{
     clientcore::{Injected, Injector},
     graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData},
-    input::{InteractionProfile, Profiles},
 };
 use derive_more::Deref;
 use glam::f32::{Quat, Vec3};
@@ -10,8 +9,8 @@ use openvr as vr;
 use openxr as xr;
 use std::mem::ManuallyDrop;
 use std::sync::{
-    atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
-    Mutex, RwLock,
+    atomic::{AtomicI64, Ordering},
+    RwLock,
 };
 
 pub trait Compositor: vr::InterfaceImpl {
@@ -38,8 +37,6 @@ pub struct OpenXrData<C: Compositor> {
     pub system_id: xr::SystemId,
     pub session_data: SessionReadGuard,
     pub display_time: AtomicXrTime,
-    pub left_hand: HandInfo,
-    pub right_hand: HandInfo,
     pub enabled_extensions: xr::ExtensionSet,
 
     /// should only be externally accessed for testing
@@ -154,17 +151,12 @@ impl<C: Compositor> OpenXrData<C> {
             .0,
         )));
 
-        let left_hand = HandInfo::new(&instance, "/user/hand/left");
-        let right_hand = HandInfo::new(&instance, "/user/hand/right");
-
         Ok(Self {
             _entry: entry,
             instance,
             system_id,
             session_data,
             display_time: AtomicXrTime(1.into()),
-            left_hand,
-            right_hand,
             enabled_extensions: exts,
             input: injector.inject(),
             compositor: injector.inject(),
@@ -189,32 +181,8 @@ impl<C: Compositor> OpenXrData<C> {
                     info!("OpenXR session state changed: {:?}", event.state());
                 }
                 xr::Event::InteractionProfileChanged(_) => {
-                    for info in [&self.left_hand, &self.right_hand] {
-                        let profile_path = session_data
-                            .session
-                            .current_interaction_profile(info.subaction_path)
-                            .unwrap();
-
-                        info.profile_path.store(profile_path);
-                        let profile = match profile_path {
-                            xr::Path::NULL => {
-                                info.connected.store(false, Ordering::Relaxed);
-                                "<null>".to_owned()
-                            }
-                            path => {
-                                info.connected.store(true, Ordering::Relaxed);
-                                self.instance.path_to_string(path).unwrap()
-                            }
-                        };
-
-                        *info.profile.lock().unwrap() = Profiles::get().profile_from_name(&profile);
-
-                        session_data.input_data.interaction_profile_changed();
-
-                        info!(
-                            "{} interaction profile changed: {}",
-                            info.path_name, profile
-                        );
+                    if let Some(input) = self.input.get() {
+                        input.interaction_profile_changed(session_data);
                     }
                 }
                 _ => {
@@ -644,42 +612,6 @@ impl SessionData {
     }
 }
 
-pub struct AtomicPath(AtomicU64);
-impl AtomicPath {
-    pub(crate) fn load(&self) -> xr::Path {
-        xr::Path::from_raw(self.0.load(Ordering::Relaxed))
-    }
-
-    fn store(&self, path: xr::Path) {
-        self.0.store(path.into_raw(), Ordering::Relaxed);
-    }
-}
-
-pub struct HandInfo {
-    path_name: &'static str,
-    connected: AtomicBool,
-    pub subaction_path: xr::Path,
-    pub profile_path: AtomicPath,
-    pub profile: Mutex<Option<&'static dyn InteractionProfile>>,
-}
-
-impl HandInfo {
-    #[inline]
-    pub fn connected(&self) -> bool {
-        self.connected.load(Ordering::Relaxed)
-    }
-
-    fn new(instance: &xr::Instance, path_name: &'static str) -> Self {
-        Self {
-            path_name,
-            connected: false.into(),
-            subaction_path: instance.string_to_path(path_name).unwrap(),
-            profile_path: AtomicPath(0.into()),
-            profile: Mutex::default(),
-        }
-    }
-}
-
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Hand {
@@ -687,14 +619,23 @@ pub enum Hand {
     Right,
 }
 
-impl TryFrom<vr::TrackedDeviceIndex_t> for Hand {
+impl TryFrom<vr::ETrackedControllerRole> for Hand {
     type Error = ();
     #[inline]
-    fn try_from(value: vr::TrackedDeviceIndex_t) -> Result<Self, Self::Error> {
+    fn try_from(value: vr::ETrackedControllerRole) -> Result<Self, Self::Error> {
         match value {
-            x if x == Hand::Left as u32 => Ok(Hand::Left),
-            x if x == Hand::Right as u32 => Ok(Hand::Right),
+            vr::ETrackedControllerRole::LeftHand => Ok(Hand::Left),
+            vr::ETrackedControllerRole::RightHand => Ok(Hand::Right),
             _ => Err(()),
+        }
+    }
+}
+
+impl From<Hand> for vr::ETrackedControllerRole {
+    fn from(hand: Hand) -> Self {
+        match hand {
+            Hand::Left => vr::ETrackedControllerRole::LeftHand,
+            Hand::Right => vr::ETrackedControllerRole::RightHand,
         }
     }
 }
