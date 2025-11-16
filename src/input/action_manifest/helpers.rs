@@ -4,9 +4,8 @@ use crate::input::custom_bindings::{
 };
 use crate::input::skeletal::SkeletalInputActionData;
 use crate::input::ActionData::{Bool, Vector1, Vector2};
-use crate::input::{ActionData, BoundPose, ExtraActionData, InteractionProfile};
-use crate::openxr_data;
-use crate::openxr_data::OpenXrData;
+use crate::input::{ActionData, BoundPose, ExtraActionData, Input, InteractionProfile};
+use crate::openxr_data::{self, Hand, OpenXrData};
 use log::{trace, warn};
 use openxr as xr;
 use std::collections::HashMap;
@@ -46,6 +45,7 @@ impl<'a> BindingsLoadContext<'a> {
 impl BindingsLoadContext<'_> {
     pub fn for_profile<'a, 'b: 'a, C: openxr_data::Compositor>(
         &'b mut self,
+        input: &'a Input<C>,
         openxr: &'a OpenXrData<C>,
         profile: &'a dyn InteractionProfile,
         controller_type: &'a ControllerType,
@@ -57,8 +57,8 @@ impl BindingsLoadContext<'_> {
         };
 
         let hands = [
-            openxr.left_hand.subaction_path,
-            openxr.right_hand.subaction_path,
+            input.get_subaction_path(Hand::Left),
+            input.get_subaction_path(Hand::Right),
         ];
 
         let bindings_parsed = self

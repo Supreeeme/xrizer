@@ -872,6 +872,7 @@ mod tests {
     use crate::input::profiles::vive_controller::ViveWands;
     use crate::input::tests::{ExtraActionType, Fixture};
     use crate::input::InteractionProfile;
+    use crate::openxr_data::Hand;
     use fakexr::ActionState;
     use fakexr::UserPath::*;
     use openvr as vr;
@@ -1243,13 +1244,13 @@ mod tests {
         let left_binding = bindings
             .iter()
             .find_map(|(data, path)| {
-                (*path == f.input.openxr.left_hand.subaction_path).then_some(*data)
+                (*path == f.input.get_subaction_path(Hand::Left)).then_some(*data)
             })
             .unwrap();
         let right_binding = bindings
             .iter()
             .find_map(|(data, path)| {
-                (*path == f.input.openxr.right_hand.subaction_path).then_some(*data)
+                (*path == f.input.get_subaction_path(Hand::Right)).then_some(*data)
             })
             .unwrap();
         assert!(!std::ptr::eq(left_binding, right_binding));

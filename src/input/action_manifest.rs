@@ -99,14 +99,17 @@ impl<C: openxr_data::Compositor> Input<C> {
         )?;
         debug!("Loaded {} action sets.", sets.len());
 
+        let left_hand_subaction_path = self.get_subaction_path(Hand::Left);
+        let right_hand_subaction_path = self.get_subaction_path(Hand::Right);
+
         let actions = load_actions(
             &self.openxr.instance,
             &session_data.session,
             english.as_ref(),
             &mut sets,
             manifest.actions,
-            self.openxr.left_hand.subaction_path,
-            self.openxr.right_hand.subaction_path,
+            left_hand_subaction_path,
+            right_hand_subaction_path,
         )?;
         debug!("Loaded {} actions.", actions.len());
 
@@ -116,8 +119,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             .get_or_init(|| {
                 SkeletalInputActionData::new(
                     &self.openxr.instance,
-                    self.openxr.left_hand.subaction_path,
-                    self.openxr.right_hand.subaction_path,
+                    left_hand_subaction_path,
+                    right_hand_subaction_path,
                 )
             });
 
@@ -865,7 +868,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                     for profile in profiles {
                         if let Some(bindings) = bindings.as_ref() {
                             if let Some(mut context) =
-                                context.for_profile(&self.openxr, profile, other)
+                                context.for_profile(self, &self.openxr, profile, other)
                             {
                                 self.load_bindings_for_profile(bindings, &mut context);
                             }
