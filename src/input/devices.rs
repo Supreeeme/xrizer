@@ -81,7 +81,7 @@ impl TrackedDevice {
             interaction_profile,
             profile_path: profile_path.unwrap_or(xr::Path::NULL),
             connected: device_type == TrackedDeviceType::Hmd,
-            previous_connected: false.into(),
+            previous_connected: false,
             pose_cache: Mutex::new(None),
         }
     }
@@ -292,7 +292,7 @@ impl<C: openxr_data::Compositor> Input<C> {
     pub fn get_controller_device_index(&self, hand: Hand) -> Option<vr::TrackedDeviceIndex_t> {
         let devices = self.devices.read().unwrap();
 
-        Some(devices.get_controller_index(hand)?)
+        devices.get_controller_index(hand)
     }
 
     fn get_profile_data(&self, hand: Hand) -> Option<&super::profiles::ProfileProperties> {

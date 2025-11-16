@@ -558,8 +558,7 @@ impl vr::IVRSystem023_Interface for System {
             },
             x => input
                 .device_index_to_hand(x)
-                .map(|x| input.get_controller_string_tracked_property(x, prop))
-                .flatten(),
+                .and_then(|hand| input.get_controller_string_tracked_property(hand, prop)),
         };
 
         let Some(data) = data else {
