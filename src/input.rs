@@ -309,8 +309,12 @@ enum BoundPoseType {
     /// "If you provide /pose/tip in your rendermodel you should set it to the position and rotation that are appropriate for pointing (i.e. with a laser pointer) with your controller."
     /// ~https://github.com/ValveSoftware/openvr/wiki/Input-Profiles#pose-components
     Tip,
+    Base,
     /// Not sure why games still use this, but having it be equivalent to raw seems to work fine.
     Gdc2015,
+    Grip,
+    Handgrip,
+    OpenXRHandmodel,
 }
 
 macro_rules! get_action_from_handle {
@@ -449,22 +453,180 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
     }
     fn GetOriginLocalizedName(
         &self,
-        _: vr::VRInputValueHandle_t,
-        _: *mut c_char,
-        _: u32,
-        _: i32,
+        origin: vr::VRInputValueHandle_t,
+        name_array: *mut ::std::os::raw::c_char,
+        name_array_size: u32,
+        string_sections_to_include: i32,
     ) -> vr::EVRInputError {
-        crate::warn_unimplemented!("GetOriginLocalizedName");
+        if name_array.is_null() || name_array_size <= 0 {
+            warn!("GetOriginLocalizedName called with null name_array or non-positive name_array_size");
+            return vr::EVRInputError::InvalidParam;
+        }
+
+        let key = InputSourceKey::from(KeyData::from_ffi(origin));
+        let map = self.input_source_map.read().unwrap();
+        if !map.contains_key(key) {
+            return vr::EVRInputError::InvalidHandle;
+        }
+
+        let index = match key {
+            x if x == self.left_hand_key => Some(Hand::Left),
+            x if x == self.right_hand_key => Some(Hand::Right),
+            _ => None,
+        };
+
+        let mut name = String::from("Unknown");
+
+        if let Some(hand) = index {
+            let mut name_parts = vec![];
+
+            // VRInputString
+            // Hand or All
+            if string_sections_to_include & 0x01 != 0 || string_sections_to_include & -1 != 0 {
+                match hand {
+                    Hand::Left => name_parts.push("Left"),
+                    Hand::Right => name_parts.push("Right"),
+                };
+            }
+            // ControllerType or All
+            if string_sections_to_include & 0x02 != 0 || string_sections_to_include & -1 != 0 {
+                let controller_type = self
+                    .get_controller_string_tracked_property(
+                        hand,
+                        openvr::ETrackedDeviceProperty::ControllerType_String,
+                    )
+                    .unwrap_or(c"ControllerType");
+                name_parts.push(controller_type.to_str().unwrap_or("ControllerType"));
+            }
+            // InputSource or All
+            if string_sections_to_include & 0x04 != 0 || string_sections_to_include & -1 != 0 {
+                name_parts.push("Controller");
+            }
+
+            if !name_parts.is_empty() {
+                name = name_parts.join(" ");
+            }
+        }
+
+        let bytes = name.as_bytes();
+        let len = bytes.len().min((name_array_size - 1) as usize);
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), name_array as *mut u8, len);
+            *name_array.add(len) = 0;
+        }
+
+        info!("GetOriginLocalizedName({origin}, {name}, {name_array_size}, {string_sections_to_include})");
+
         vr::EVRInputError::None
     }
     fn GetActionOrigins(
         &self,
-        _: vr::VRActionSetHandle_t,
-        _: vr::VRActionHandle_t,
-        _: *mut vr::VRInputValueHandle_t,
-        _: u32,
+        action_set_handle: vr::VRActionSetHandle_t,
+        action_handle: vr::VRActionHandle_t,
+        origins_out: *mut vr::VRInputValueHandle_t,
+        origin_out_count: u32,
     ) -> vr::EVRInputError {
-        crate::warn_unimplemented!("GetActionOrigins");
+        let Some(action_set) = self
+            .set_map
+            .read()
+            .unwrap()
+            .get(ActionSetKey::from(KeyData::from_ffi(action_set_handle)))
+            .map(|name| name.to_string())
+        else {
+            warn!("GetActionOrigins called with invalid action_set_handle: {action_set_handle}");
+            return vr::EVRInputError::InvalidHandle;
+        };
+
+        let Some(action) = self
+            .action_map
+            .read()
+            .unwrap()
+            .get(ActionKey::from(KeyData::from_ffi(action_handle)))
+            .map(|action| action.path.to_string())
+        else {
+            warn!("GetActionOrigins called with invalid action_handle: {action_handle}");
+            return vr::EVRInputError::InvalidHandle;
+        };
+
+        if origins_out.is_null() || origin_out_count == 0 {
+            warn!("GetActionOrigins called with null origins_out or zero origin_out_count");
+            return vr::EVRInputError::InvalidParam;
+        }
+
+        let origins =
+            unsafe { std::slice::from_raw_parts_mut(origins_out, origin_out_count as usize) };
+
+        origins.fill(vr::k_ulInvalidInputValueHandle);
+
+        info!("Bindings for action {action_set}/{action}:");
+
+        fn get_hand_bindings<C: openxr_data::Compositor>(
+            hand: Hand,
+            openxr: Arc<OpenXrData<C>>,
+            action_handle: vr::VRActionHandle_t,
+        ) -> Option<Vec<xr::Path>> {
+            let session = openxr.session_data.get();
+            session.input_data.actions.get().and_then(|actions| {
+                info!("Actions");
+                let LoadedActions::Manifest(loaded_actions) = actions else {
+                    return None;
+                };
+                info!("Manifest");
+                let subaction = match hand {
+                    Hand::Left => openxr.left_hand.subaction_path,
+                    Hand::Right => openxr.right_hand.subaction_path,
+                };
+                info!("Subaction: {}", subaction.into_raw());
+                session
+                    .session
+                    .current_interaction_profile(subaction)
+                    .ok()
+                    .and_then(|interaction_profile| {
+                        info!("Interaction profile: {}", interaction_profile.into_raw());
+
+                        let Some(per_profile_bindings) = loaded_actions
+                            .per_profile_bindings
+                            .get(&interaction_profile)
+                        else {
+                            return None;
+                        };
+
+                        info!("Per profile bindings: {}", per_profile_bindings.len());
+
+                        loaded_actions
+                            .try_get_bindings(action_handle, interaction_profile)
+                            .ok()
+                            .map(|bindings| {
+                                info!("Bindings: {}", bindings.len());
+                                bindings.iter().map(|b| b.hand).collect::<Vec<xr::Path>>()
+                            })
+                    })
+            })
+        }
+
+        let mut bindings = get_hand_bindings(Hand::Left, self.openxr.clone(), action_handle)
+            .unwrap_or_else(Vec::new);
+        bindings.extend(
+            get_hand_bindings(Hand::Right, self.openxr.clone(), action_handle)
+                .unwrap_or_else(Vec::new),
+        );
+
+        let mut index = 0;
+
+        for binding in bindings.iter() {
+            info!("Binding: {}", binding.into_raw());
+            if let Some(hand) = Hand::try_from(*binding).ok() {
+                info!("Hand: {:?} {}", hand, index);
+                match hand {
+                    Hand::Left => origins[index] = self.left_hand_key.data().as_ffi(),
+                    Hand::Right => origins[index] = self.right_hand_key.data().as_ffi(),
+                }
+                index += 1;
+            }
+        }
+
+        info!("GetActionOrigins({action_set:?}, {action:?}, {origins:?}, {origin_out_count:?})");
+
         vr::EVRInputError::None
     }
     fn TriggerHapticVibrationAction(
@@ -805,8 +967,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
                 match ty {
                     BoundPoseType::Raw | BoundPoseType::Gdc2015 => (origin, hand),
-                    BoundPoseType::Tip => {
-                        // ToDo: Check if render model has a tip pose otherwise use raw pose
+                    BoundPoseType::Tip
+                    | BoundPoseType::Base
+                    | BoundPoseType::Grip
+                    | BoundPoseType::Handgrip
+                    | BoundPoseType::OpenXRHandmodel => {
+                        // ToDo: Check if render model has a transform for pose otherwise use raw pose
                         // For now, just use the raw pose
                         (origin, hand)
                     }
@@ -1222,30 +1388,32 @@ impl<C: openxr_data::Compositor> Input<C> {
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) {
         tracy_span!();
-        poses[0] = self.get_hmd_pose(origin);
-
-        if poses.len() > Hand::Left as usize {
-            poses[Hand::Left as usize] = self.get_controller_pose(Hand::Left, origin);
-        }
-        if poses.len() > Hand::Right as usize {
-            poses[Hand::Right as usize] = self.get_controller_pose(Hand::Right, origin);
+        for (i, pose) in poses.iter_mut().enumerate() {
+            *pose = self.get_device_pose(i as u32, origin).unwrap_or_default();
         }
     }
 
-    pub fn get_hmd_pose(
+    pub fn get_device_pose(
         &self,
+        device_index: u32,
         origin: Option<vr::ETrackingUniverseOrigin>,
-    ) -> vr::TrackedDevicePose_t {
+    ) -> Option<vr::TrackedDevicePose_t> {
         tracy_span!();
+        let hand = match device_index {
+            vr::k_unTrackedDeviceIndex_Hmd => None,
+            x if x == Hand::Left as u32 => Some(Hand::Left),
+            x if x == Hand::Right as u32 => Some(Hand::Right),
+            _ => return None,
+        };
         let mut spaces = self.cached_poses.lock().unwrap();
         let data = self.openxr.session_data.get();
-        spaces.get_pose_impl(
+        Some(spaces.get_pose_impl(
             &self.openxr,
             &data,
             self.openxr.display_time.get(),
-            None,
+            hand,
             origin.unwrap_or(data.current_origin),
-        )
+        ))
     }
 
     pub fn get_controller_pose(
@@ -1254,15 +1422,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) -> vr::TrackedDevicePose_t {
         tracy_span!();
-        let mut spaces = self.cached_poses.lock().unwrap();
-        let data = self.openxr.session_data.get();
-        spaces.get_pose_impl(
-            &self.openxr,
-            &data,
-            self.openxr.display_time.get(),
-            Some(hand),
-            origin.unwrap_or(data.current_origin),
-        )
+        self.get_device_pose(hand as u32, origin)
+            .unwrap_or_default()
     }
 
     pub fn frame_start_update(&self) {
