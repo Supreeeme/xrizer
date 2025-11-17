@@ -9,6 +9,7 @@ use glam::{Mat3, Quat, Vec3};
 use log::{debug, error, trace, warn};
 use openvr as vr;
 use openxr as xr;
+use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
 use std::sync::{Arc, Mutex};
 
@@ -152,6 +153,7 @@ impl ViewCache {
 #[versions(023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 011, 009)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
+    events: Mutex<VecDeque<vr::VREvent_t>>,
     input: Injected<Input<crate::compositor::Compositor>>,
     overlay: Injected<OverlayMan>,
     vtables: Vtables,
@@ -166,6 +168,7 @@ impl System {
     pub fn new(openxr: Arc<RealOpenXrData>, injector: &Injector) -> Self {
         Self {
             openxr,
+            events: Mutex::default(),
             input: injector.inject(),
             overlay: injector.inject(),
             vtables: Default::default(),
@@ -191,6 +194,11 @@ impl System {
         let session = self.openxr.session_data.get();
         let mut views = self.views.lock().unwrap();
         views.get_views(&session, self.openxr.display_time.get(), ty)
+    }
+
+    pub fn push_event(&self, event: vr::VREvent_t) {
+        let mut events = self.events.lock().unwrap();
+        events.push_back(event);
     }
 }
 
@@ -301,9 +309,7 @@ impl vr::IVRSystem023_Interface for System {
     fn GetAppContainerFilePaths(&self, _: *mut std::os::raw::c_char, _: u32) -> u32 {
         todo!()
     }
-    fn AcknowledgeQuit_Exiting(&self) {
-        todo!()
-    }
+    fn AcknowledgeQuit_Exiting(&self) {}
     fn PerformFirmwareUpdate(&self, _: vr::TrackedDeviceIndex_t) -> vr::EVRFirmwareError {
         todo!()
     }
@@ -483,6 +489,31 @@ impl vr::IVRSystem023_Interface for System {
         size: u32,
         pose: *mut vr::TrackedDevicePose_t,
     ) -> bool {
+        if let Some(queued) = self.events.lock().unwrap().pop_front() {
+            unsafe {
+                (&raw mut (*event).eventType).write(queued.eventType);
+                (&raw mut (*event).eventAgeSeconds).write(queued.eventAgeSeconds);
+                match vr::EVREventType::try_from(queued.eventType).unwrap() {
+                    vr::EVREventType::Quit => {
+                        const CONNECTION_LOST_OFFSET: usize =
+                            std::mem::offset_of!(vr::VREvent_t, data)
+                                + std::mem::offset_of!(vr::VREvent_Process_t, bConnectionLost);
+
+                        (&raw mut (*event).data.process.pid).write(queued.data.process.pid);
+                        (&raw mut (*event).data.process.oldPid).write(queued.data.process.oldPid);
+                        (&raw mut (*event).data.process.bForced).write(queued.data.process.bForced);
+                        if size > CONNECTION_LOST_OFFSET as u32 {
+                            (&raw mut (*event).data.process.bConnectionLost)
+                                .write(queued.data.process.bConnectionLost);
+                        }
+
+                        return true;
+                    }
+                    _ => todo!(),
+                }
+            }
+        }
+
         let Some(input) = self.input.get() else {
             return false;
         };
