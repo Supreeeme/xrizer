@@ -448,7 +448,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 unsafe {
                     info.write(Default::default());
                 }
-                return vr::EVRInputError::None;
+                return vr::EVRInputError::InvalidDevice;
             }
         };
 
