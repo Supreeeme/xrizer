@@ -157,6 +157,17 @@ impl IVRClientCore003_Interface for ClientCore {
             })
             .flatten();
 
+        if let Some(data) = self.openxr.read().unwrap().as_ref() {
+            warn!("ClientCore::Init already called");
+            if let Some(path) = manifest_path {
+                data.input
+                    .force(|_| Input::new(data.clone()))
+                    .SetActionManifestPath(path.as_ptr());
+            }
+
+            return vr::EVRInitError::None;
+        }
+
         match OpenXrData::new(&Injector {
             store: self.interface_store.clone(),
         }) {
