@@ -1005,32 +1005,35 @@ impl vr::IVRSystem009On011 for System {
             self,
             origin,
             &mut e,
-            std::mem::size_of_val(&event) as u32,
+            std::mem::size_of_val(&e) as u32,
             pose,
         );
 
         if ret && !event.is_null() {
-            let event = unsafe { event.as_mut() }.unwrap();
-            event.eventType = if let Ok(t) = vr::EVREventType::try_from(e.eventType) {
-                t
-            } else {
+            let Ok(event_type) = vr::EVREventType::try_from(e.eventType) else {
                 error!("Unhandled event type for 0.9.12: {}", e.eventType);
                 return false;
             };
-            event.trackedDeviceIndex = e.trackedDeviceIndex;
-            event.data = match e.eventType {
-                x if x == vr::EVREventType::ButtonPress as u32
-                    || x == vr::EVREventType::ButtonUnpress as u32
-                    || x == vr::EVREventType::ButtonTouch as u32
-                    || x == vr::EVREventType::ButtonUntouch as u32 =>
-                {
-                    vr::vr_0_9_12::VREvent_Data_t {
-                        controller: unsafe { e.data.controller },
+
+            unsafe {
+                (&raw mut (*event).eventType).write(event_type);
+                (&raw mut (*event).trackedDeviceIndex).write(e.trackedDeviceIndex);
+                match event_type {
+                    vr::EVREventType::ButtonPress
+                    | vr::EVREventType::ButtonUnpress
+                    | vr::EVREventType::ButtonTouch
+                    | vr::EVREventType::ButtonUntouch => {
+                        (&raw mut (*event).data.controller).write(e.data.controller);
                     }
-                }
-                other => {
-                    error!("Unhandled event type data for 0.9.12: {other:?}");
-                    return false;
+                    vr::EVREventType::Quit => {
+                        (&raw mut (*event).data.process.pid).write(e.data.process.pid);
+                        (&raw mut (*event).data.process.oldPid).write(e.data.process.oldPid);
+                        (&raw mut (*event).data.process.bForced).write(e.data.process.bForced);
+                    }
+                    other => {
+                        error!("Unhandled event type data for 0.9.12: {other:?}");
+                        return false;
+                    }
                 }
             }
         }
