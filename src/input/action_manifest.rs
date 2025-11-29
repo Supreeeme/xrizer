@@ -926,7 +926,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             trace!("translated {path} to {translated}");
             if !legal_paths.contains(&translated) {
                 Err(InvalidActionPath(format!(
-                    "Action for invalid path {translated}, ignoring"
+                    "Action for invalid path {translated} for {}, ignoring",
+                    profile.profile_path()
                 )))
             } else {
                 Ok(translated)
