@@ -113,6 +113,33 @@ impl ClientCore {
         .unwrap();
         Some(get_interface(&item))
     }
+
+    // Example usage:
+    // XRIZER_BOOTSTRAPPER="wlx-overlay-s"
+    // XRIZER_BOOTSTRAPPER_ARGS="--openxr --replace"
+    fn trigger_bootstrapper(&self) {
+        let Ok(path) = std::env::var("XRIZER_BOOTSTRAPPER") else {
+            log::info!("\"Bootstrapper\" application type registered without XRIZER_BOOTSTRAPPER set, doing nothing");
+            return;
+        };
+
+        let mut args = Vec::<String>::new();
+        if let Ok(args_str) = std::env::var("XRIZER_BOOTSTRAPPER_ARGS") {
+            args = args_str.split(' ').map(String::from).collect();
+        }
+
+        log::info!("Spawning process with path \"{}\"", path);
+
+        let mut cmd = std::process::Command::new(path);
+        cmd.args(args);
+
+        match cmd.spawn() {
+            Ok(_child) => {}
+            Err(err) => {
+                log::error!("Failed to launch process: {:?}", err);
+            }
+        }
+    }
 }
 
 impl vr::IVRClientCore002On003 for ClientCore {
@@ -127,10 +154,15 @@ impl IVRClientCore003_Interface for ClientCore {
         application_type: vr::EVRApplicationType,
         startup_info: *const c_char,
     ) -> vr::EVRInitError {
+        if matches!(application_type, vr::EVRApplicationType::Bootstrapper) {
+            self.trigger_bootstrapper();
+        }
+
         if !matches!(
             application_type,
             vr::EVRApplicationType::Scene // Standard apps
             | vr::EVRApplicationType::Background // Proton
+            | vr::EVRApplicationType::Bootstrapper // SteamVR launcher
         ) {
             error!("Unsupported application type: {application_type:?}");
             return vr::EVRInitError::Init_InvalidApplicationType;
