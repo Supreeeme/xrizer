@@ -713,6 +713,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         }
         vr::EVRInputError::None
     }
+
     fn GetPoseActionDataForNextFrame(
         &self,
         action: vr::VRActionHandle_t,
@@ -721,153 +722,32 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         action_data_size: u32,
         restrict_to_device: vr::VRInputValueHandle_t,
     ) -> vr::EVRInputError {
-        assert_eq!(
-            action_data_size as usize,
-            std::mem::size_of::<vr::InputPoseActionData_t>()
-        );
-
-        if log::log_enabled!(log::Level::Trace) {
-            let action_map = self.action_map.read().unwrap();
-            let action_key = ActionKey::from(KeyData::from_ffi(action));
-            let input_map = self.input_source_map.read().unwrap();
-            let input_key = InputSourceKey::from(KeyData::from_ffi(restrict_to_device));
-            trace!(
-                "getting pose for {:?} (restrict: {:?})",
-                action_map.get(action_key).map(|a| &a.path),
-                input_map.get(input_key)
-            );
-        }
-
-        let data = self.openxr.session_data.get();
-        let Some(loaded) = data.input_data.get_loaded_actions() else {
-            return vr::EVRInputError::InvalidHandle;
-        };
-
-        macro_rules! no_data {
-            () => {{
-                unsafe {
-                    action_data.write(Default::default());
-                }
-                return vr::EVRInputError::None;
-            }};
-        }
-        let subaction_path = get_subaction_path!(self, restrict_to_device, action_data);
-        let devices = self.devices.read().unwrap();
-        let get_hand = |hand| {
-            devices
-                .get_controller(hand)
-                .map(|h| (hand, h.profile_path))
-                .unzip()
-        };
-        let (active_origin, hand) = match loaded.try_get_action(action) {
-            Ok(ActionData::Pose) => {
-                let (mut hand, interaction_profile) = match subaction_path {
-                    x if x == self.get_subaction_path(Hand::Left) => get_hand(Hand::Left),
-                    x if x == self.get_subaction_path(Hand::Right) => get_hand(Hand::Right),
-                    x if x == xr::Path::NULL => (None, None),
-                    _ => unreachable!(),
-                };
-
-                let get_hand_pose =
-                    |hand: &TrackedDevice| loaded.try_get_pose(action, hand.profile_path).ok();
-
-                let get_first_bound_hand_profile = || {
-                    devices
-                        .get_controller(Hand::Left)
-                        .and_then(get_hand_pose)
-                        .or_else(|| devices.get_controller(Hand::Right).and_then(get_hand_pose))
-                };
-
-                let Some(bound) = interaction_profile
-                    .and_then(|p| loaded.try_get_pose(action, p).ok())
-                    .or_else(get_first_bound_hand_profile)
-                else {
-                    match hand {
-                        Some(hand) => {
-                            trace!("action has no bindings for the {hand:?} hand's interaction profile");
-                        }
-                        None => {
-                            trace!("action has no bindings for either hand's interaction profile");
-                        }
-                    }
-
-                    no_data!()
-                };
-
-                let origin = hand.is_some().then_some(restrict_to_device);
-                let pose_type = match hand {
-                    Some(Hand::Left) => bound.left,
-                    Some(Hand::Right) => bound.right,
-                    None => {
-                        hand = Some(Hand::Left);
-                        bound.left.or_else(|| {
-                            hand = Some(Hand::Right);
-                            bound.right
-                        })
-                    }
-                };
-
-                let Some(ty) = pose_type else {
-                    trace!("action has no bindings for the hand {hand:?}");
-                    no_data!()
-                };
-
-                let hand = hand.unwrap();
-                let origin = origin.unwrap_or_else(|| match hand {
-                    Hand::Left => self.left_hand_key.data().as_ffi(),
-                    Hand::Right => self.right_hand_key.data().as_ffi(),
-                });
-
-                match ty {
-                    BoundPoseType::Raw | BoundPoseType::Gdc2015 => (origin, hand),
-                    BoundPoseType::Tip => {
-                        // ToDo: Check if render model has a tip pose otherwise use raw pose
-                        // For now, just use the raw pose
-                        (origin, hand)
-                    }
-                }
-            }
-            Ok(ActionData::Skeleton { hand, .. }) => {
-                if subaction_path != xr::Path::NULL {
-                    return vr::EVRInputError::InvalidDevice;
-                }
-                (0, *hand)
-            }
-            Ok(_) => return vr::EVRInputError::WrongType,
-            Err(e) => return e,
-        };
-
-        drop(data);
-
-        unsafe {
-            let pose = self
-                .get_controller_pose(hand, Some(origin))
-                .unwrap_or_default();
-            action_data.write(vr::InputPoseActionData_t {
-                bActive: true,
-                activeOrigin: active_origin,
-                pose,
-            });
-        }
-
-        vr::EVRInputError::None
+        self.get_pose_action_data(
+            action,
+            origin,
+            action_data,
+            action_data_size,
+            restrict_to_device,
+            self.openxr.display_time.get(),
+        )
     }
 
     fn GetPoseActionDataRelativeToNow(
         &self,
         action: vr::VRActionHandle_t,
         origin: vr::ETrackingUniverseOrigin,
-        _seconds_from_now: f32,
+        seconds_from_now: f32,
         action_data: *mut vr::InputPoseActionData_t,
         action_data_size: u32,
         restrict_to_device: vr::VRInputValueHandle_t,
     ) -> vr::EVRInputError {
-        self.GetPoseActionDataForNextFrame(
+        self.get_pose_action_data(
             action,
             origin,
             action_data,
             action_data_size,
             restrict_to_device,
+            self.openxr.time_from_now(seconds_from_now),
         )
     }
 
@@ -1208,6 +1088,149 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         self.loading_actions.store(false, Ordering::Relaxed);
         ret
+    }
+}
+
+impl<C: openxr_data::Compositor> Input<C> {
+    fn get_pose_action_data(
+        &self,
+        action: vr::VRActionHandle_t,
+        origin: vr::ETrackingUniverseOrigin,
+        action_data: *mut vr::InputPoseActionData_t,
+        action_data_size: u32,
+        restrict_to_device: vr::VRInputValueHandle_t,
+        xr_time: xr::Time,
+    ) -> vr::EVRInputError {
+        assert_eq!(
+            action_data_size as usize,
+            std::mem::size_of::<vr::InputPoseActionData_t>()
+        );
+
+        if log::log_enabled!(log::Level::Trace) {
+            let action_map = self.action_map.read().unwrap();
+            let action_key = ActionKey::from(KeyData::from_ffi(action));
+            let input_map = self.input_source_map.read().unwrap();
+            let input_key = InputSourceKey::from(KeyData::from_ffi(restrict_to_device));
+            trace!(
+                "getting pose for {:?} (restrict: {:?})",
+                action_map.get(action_key).map(|a| &a.path),
+                input_map.get(input_key)
+            );
+        }
+
+        let data = self.openxr.session_data.get();
+        let Some(loaded) = data.input_data.get_loaded_actions() else {
+            return vr::EVRInputError::InvalidHandle;
+        };
+
+        macro_rules! no_data {
+            () => {{
+                unsafe {
+                    action_data.write(Default::default());
+                }
+                return vr::EVRInputError::None;
+            }};
+        }
+        let subaction_path = get_subaction_path!(self, restrict_to_device, action_data);
+        let devices = self.devices.read().unwrap();
+        let get_hand = |hand| {
+            devices
+                .get_controller(hand)
+                .map(|h| (hand, h.profile_path))
+                .unzip()
+        };
+        let (active_origin, hand) = match loaded.try_get_action(action) {
+            Ok(ActionData::Pose) => {
+                let (mut hand, interaction_profile) = match subaction_path {
+                    x if x == self.get_subaction_path(Hand::Left) => get_hand(Hand::Left),
+                    x if x == self.get_subaction_path(Hand::Right) => get_hand(Hand::Right),
+                    x if x == xr::Path::NULL => (None, None),
+                    _ => unreachable!(),
+                };
+
+                let get_hand_pose =
+                    |hand: &TrackedDevice| loaded.try_get_pose(action, hand.profile_path).ok();
+
+                let get_first_bound_hand_profile = || {
+                    devices
+                        .get_controller(Hand::Left)
+                        .and_then(get_hand_pose)
+                        .or_else(|| devices.get_controller(Hand::Right).and_then(get_hand_pose))
+                };
+
+                let Some(bound) = interaction_profile
+                    .and_then(|p| loaded.try_get_pose(action, p).ok())
+                    .or_else(get_first_bound_hand_profile)
+                else {
+                    match hand {
+                        Some(hand) => {
+                            trace!("action has no bindings for the {hand:?} hand's interaction profile");
+                        }
+                        None => {
+                            trace!("action has no bindings for either hand's interaction profile");
+                        }
+                    }
+
+                    no_data!()
+                };
+
+                let origin = hand.is_some().then_some(restrict_to_device);
+                let pose_type = match hand {
+                    Some(Hand::Left) => bound.left,
+                    Some(Hand::Right) => bound.right,
+                    None => {
+                        hand = Some(Hand::Left);
+                        bound.left.or_else(|| {
+                            hand = Some(Hand::Right);
+                            bound.right
+                        })
+                    }
+                };
+
+                let Some(ty) = pose_type else {
+                    trace!("action has no bindings for the hand {hand:?}");
+                    no_data!()
+                };
+
+                let hand = hand.unwrap();
+                let origin = origin.unwrap_or_else(|| match hand {
+                    Hand::Left => self.left_hand_key.data().as_ffi(),
+                    Hand::Right => self.right_hand_key.data().as_ffi(),
+                });
+
+                match ty {
+                    BoundPoseType::Raw | BoundPoseType::Gdc2015 => (origin, hand),
+                    BoundPoseType::Tip => {
+                        // ToDo: Check if render model has a tip pose otherwise use raw pose
+                        // For now, just use the raw pose
+                        (origin, hand)
+                    }
+                }
+            }
+            Ok(ActionData::Skeleton { hand, .. }) => {
+                if subaction_path != xr::Path::NULL {
+                    return vr::EVRInputError::InvalidDevice;
+                }
+                (0, *hand)
+            }
+            Ok(_) => return vr::EVRInputError::WrongType,
+            Err(e) => return e,
+        };
+
+        drop(data);
+
+        unsafe {
+            let pose = self
+                .get_controller_pose(hand, Some(origin), xr_time)
+                .unwrap_or_default();
+            action_data.write(vr::InputPoseActionData_t {
+                bActive: true,
+                activeOrigin: active_origin,
+                pose,
+            });
+        }
+
+        vr::EVRInputError::None
     }
 }
 
