@@ -3,7 +3,9 @@ use std::sync::Mutex;
 
 use openvr as vr;
 use openxr as xr;
-use openxr_mndx_xdev_space::{InstanceXDevExtensionMNDX, SessionXDevExtensionMNDX, XDev};
+use openxr_mndx_xdev_space::{
+    InstanceXDevExtensionMNDX, SessionXDevExtensionMNDX, XDev, XR_MNDX_XDEV_SPACE_EXTENSION_NAME,
+};
 
 use crate::input::profiles::vive_tracker::ViveTracker;
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
@@ -354,9 +356,11 @@ impl TrackedDeviceList {
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
     ) -> xr::Result<()> {
-        let instance = &xr_data.instance;
-
-        if !instance.supports_mndx_xdev_spaces(xr_data.system_id)? {
+        if !xr_data
+            .enabled_extensions
+            .other
+            .contains(&XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string())
+        {
             return Ok(());
         }
 
