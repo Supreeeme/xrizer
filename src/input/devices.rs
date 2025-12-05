@@ -23,28 +23,6 @@ pub enum TrackedDeviceType {
     GenericTracker { space: xr::Space, serial: CString },
 }
 
-impl PartialEq for TrackedDeviceType {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (TrackedDeviceType::Hmd, TrackedDeviceType::Hmd) => true,
-            (
-                TrackedDeviceType::Controller { hand: hand_a },
-                TrackedDeviceType::Controller { hand: hand_b },
-            ) => hand_a == hand_b,
-            #[cfg(feature = "monado")]
-            (
-                TrackedDeviceType::GenericTracker {
-                    serial: serial1, ..
-                },
-                TrackedDeviceType::GenericTracker {
-                    serial: serial2, ..
-                },
-            ) => serial1.as_ref() == serial2.as_ref(),
-            _ => false,
-        }
-    }
-}
-
 impl Display for TrackedDeviceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -145,7 +123,7 @@ impl TrackedDevice {
         Self {
             interaction_profile,
             profile_path: profile_path.unwrap_or(xr::Path::NULL),
-            connected: device_type == TrackedDeviceType::Hmd,
+            connected: matches!(device_type, TrackedDeviceType::Hmd),
             device_type,
             previous_connected: false,
             pose_cache: Mutex::new(None),
@@ -207,7 +185,7 @@ impl TrackedDevice {
             _ => Hand::Left,
         };
 
-        let data = self.interaction_profile.as_ref()?.properties();
+        let data = self.interaction_profile?.properties();
 
         match property {
             // Audica likes to apply controller specific tweaks via this property
@@ -241,8 +219,7 @@ impl TrackedDevice {
     fn get_int_property(&self, property: vr::ETrackedDeviceProperty) -> Option<i32> {
         match self.device_type {
             TrackedDeviceType::Controller { .. } => {
-                let profile = self.interaction_profile?;
-                let data = profile.properties();
+                let data = self.interaction_profile?.properties();
 
                 match property {
                     vr::ETrackedDeviceProperty::Axis0Type_Int32 => match data.main_axis {
@@ -271,8 +248,7 @@ impl TrackedDevice {
     fn get_uint_property(&self, property: vr::ETrackedDeviceProperty) -> Option<u64> {
         match self.device_type {
             TrackedDeviceType::Controller { .. } => {
-                let profile = self.interaction_profile?;
-                let data = profile.properties();
+                let data = self.interaction_profile?.properties();
 
                 match property {
                     vr::ETrackedDeviceProperty::SupportedButtons_Uint64 => {

@@ -529,13 +529,6 @@ impl vr::IVRSystem023_Interface for System {
             return 0;
         }
 
-        let Some(input) = self.input.get() else {
-            if let Some(error) = unsafe { error.as_mut() } {
-                *error = vr::ETrackedPropertyError::InvalidDevice;
-            }
-            return 0;
-        };
-
         if let Some(error) = unsafe { error.as_mut() } {
             *error = vr::ETrackedPropertyError::Success;
         }
@@ -558,7 +551,10 @@ impl vr::IVRSystem023_Interface for System {
                 }
                 _ => None,
             },
-            _ => input.get_device_string_tracked_property(device_index, prop),
+            _ => self
+                .input
+                .get()
+                .and_then(|input| input.get_device_string_tracked_property(device_index, prop)),
         };
 
         let Some(data) = data else {
