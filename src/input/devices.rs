@@ -18,9 +18,14 @@ use super::{profiles::MainAxisType, Input, InteractionProfile};
 
 pub enum TrackedDeviceType {
     Hmd,
-    Controller { hand: Hand },
+    Controller {
+        hand: Hand,
+    },
     #[cfg(feature = "monado")]
-    GenericTracker { space: xr::Space, serial: CString },
+    GenericTracker {
+        space: xr::Space,
+        serial: CString,
+    },
 }
 
 impl Display for TrackedDeviceType {

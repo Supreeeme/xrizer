@@ -9,7 +9,7 @@ pub struct ViveTracker;
 
 impl InteractionProfile for ViveTracker {
     fn profile_path(&self) -> &'static str {
-        "/interaction_profiles/valve/index_controller"
+        "/interaction_profiles/htc/vive_tracker_htcx"
     }
     fn properties(&self) -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
