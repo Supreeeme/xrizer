@@ -271,17 +271,13 @@ pub struct TrackedDeviceList {
 
 impl Default for TrackedDeviceList {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TrackedDeviceList {
-    pub(super) fn new() -> Self {
         Self {
             devices: vec![TrackedDevice::new(TrackedDeviceType::Hmd, None, None)],
         }
     }
+}
 
+impl TrackedDeviceList {
     pub(super) fn get_device(
         &self,
         device_index: vr::TrackedDeviceIndex_t,
@@ -328,7 +324,7 @@ impl TrackedDeviceList {
             .map(|(i, _)| i as vr::TrackedDeviceIndex_t)
     }
 
-    pub(super) fn create_generic_trackers(
+    pub(super) fn create_monado_generic_trackers(
         &mut self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
@@ -358,18 +354,15 @@ impl TrackedDeviceList {
 
         xdevs.truncate(max_generic_trackers);
 
-        xdevs.into_iter().for_each(|xdev| {
+        let trackers = xdevs.into_iter().map(|xdev| {
             let mut tracker =
                 TrackedDevice::new(TrackedDeviceType::GenericTracker, None, Some(&ViveTracker));
-
             tracker.xdev_serial = Some(CString::new(xdev.serial()).unwrap());
             tracker.xdev_space = Some(xdev.create_space(xr::Posef::IDENTITY).unwrap());
             tracker.connected = true;
-
-            self.push_device(tracker).unwrap_or_else(|e| {
-                panic!("Failed to create new generic tracker: {:?}", e);
-            });
+            tracker
         });
+        self.devices.extend(trackers);
 
         Ok(())
     }
