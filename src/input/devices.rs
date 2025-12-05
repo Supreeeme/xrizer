@@ -164,57 +164,38 @@ impl TrackedDevice {
     }
 
     fn get_string_property(&self, property: vr::ETrackedDeviceProperty) -> Option<&CStr> {
-        match self.device_type {
-            TrackedDeviceType::Hmd => {
-                match property {
-                    // The Unity OpenVR sample appears to have a hard requirement on these first three properties returning
-                    // something to even get the game to recognize the HMD's location. However, the value
-                    // itself doesn't appear to be that important.
-                    vr::ETrackedDeviceProperty::SerialNumber_String
-                    | vr::ETrackedDeviceProperty::ManufacturerName_String
-                    | vr::ETrackedDeviceProperty::ControllerType_String => Some(c"<unknown>"),
-                    _ => None,
-                }
-            }
-            _ => {
-                let hand = match self.device_type {
-                    TrackedDeviceType::Controller { hand } => hand,
-                    _ => Hand::Left,
-                };
+        let hand = match self.device_type {
+            TrackedDeviceType::Controller { hand } => hand,
+            _ => Hand::Left,
+        };
 
-                let data = self.interaction_profile.as_ref()?.properties();
+        let data = self.interaction_profile.as_ref()?.properties();
 
-                match property {
-                    // Audica likes to apply controller specific tweaks via this property
-                    vr::ETrackedDeviceProperty::ControllerType_String => {
-                        Some(data.openvr_controller_type)
-                    }
-                    // I Expect You To Die 3 identifies controllers with this property -
-                    // why it couldn't just use ControllerType instead is beyond me...
-                    // Because some controllers have different model names for each hand......
-                    vr::ETrackedDeviceProperty::ModelNumber_String => Some(*data.model.get(hand)),
-                    // Resonite won't recognize controllers without this
-                    vr::ETrackedDeviceProperty::RenderModelName_String => {
-                        Some(*data.render_model_name.get(hand))
-                    }
-                    vr::ETrackedDeviceProperty::RegisteredDeviceType_String => {
-                        Some(*data.registered_device_type.get(hand))
-                    }
-                    vr::ETrackedDeviceProperty::TrackingSystemName_String => {
-                        Some(data.tracking_system_name)
-                    }
-                    // Required for controllers to be acknowledged in I Expect You To Die 3
-                    vr::ETrackedDeviceProperty::SerialNumber_String => match self.device_type {
-                        TrackedDeviceType::Controller { .. } => Some(*data.serial_number.get(hand)),
-                        TrackedDeviceType::GenericTracker => self.xdev_serial.as_deref(),
-                        _ => None,
-                    },
-                    vr::ETrackedDeviceProperty::ManufacturerName_String => {
-                        Some(data.manufacturer_name)
-                    }
-                    _ => None,
-                }
+        match property {
+            // Audica likes to apply controller specific tweaks via this property
+            vr::ETrackedDeviceProperty::ControllerType_String => Some(data.openvr_controller_type),
+            // I Expect You To Die 3 identifies controllers with this property -
+            // why it couldn't just use ControllerType instead is beyond me...
+            // Because some controllers have different model names for each hand......
+            vr::ETrackedDeviceProperty::ModelNumber_String => Some(*data.model.get(hand)),
+            // Resonite won't recognize controllers without this
+            vr::ETrackedDeviceProperty::RenderModelName_String => {
+                Some(*data.render_model_name.get(hand))
             }
+            vr::ETrackedDeviceProperty::RegisteredDeviceType_String => {
+                Some(*data.registered_device_type.get(hand))
+            }
+            vr::ETrackedDeviceProperty::TrackingSystemName_String => {
+                Some(data.tracking_system_name)
+            }
+            // Required for controllers to be acknowledged in I Expect You To Die 3
+            vr::ETrackedDeviceProperty::SerialNumber_String => match self.device_type {
+                TrackedDeviceType::Controller { .. } => Some(*data.serial_number.get(hand)),
+                TrackedDeviceType::GenericTracker => self.xdev_serial.as_deref(),
+                _ => None,
+            },
+            vr::ETrackedDeviceProperty::ManufacturerName_String => Some(data.manufacturer_name),
+            _ => None,
         }
     }
 

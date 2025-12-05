@@ -9,7 +9,7 @@ use glam::{Mat3, Quat, Vec3};
 use log::{debug, error, trace, warn};
 use openvr as vr;
 use openxr as xr;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::sync::{Arc, Mutex};
 
 #[derive(Copy, Clone)]
@@ -546,7 +546,20 @@ impl vr::IVRSystem023_Interface for System {
             &mut []
         };
 
-        let data = input.get_device_string_tracked_property(device_index, prop);
+        let data = match device_index {
+            vr::k_unTrackedDeviceIndex_Hmd => match prop {
+                // The Unity OpenVR sample appears to have a hard requirement on these first three properties returning
+                // something to even get the game to recognize the HMD's location. However, the value
+                // itself doesn't appear to be that important.
+                vr::ETrackedDeviceProperty::SerialNumber_String
+                | vr::ETrackedDeviceProperty::ManufacturerName_String
+                | vr::ETrackedDeviceProperty::ControllerType_String => {
+                    Some(CString::new("<unknown>").unwrap())
+                }
+                _ => None,
+            },
+            _ => input.get_device_string_tracked_property(device_index, prop),
+        };
 
         let Some(data) = data else {
             if let Some(error) = unsafe { error.as_mut() } {
