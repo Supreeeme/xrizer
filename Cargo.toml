@@ -21,10 +21,14 @@ members = ["openvr", "shaders", "xbuild"]
 [workspace.lints.clippy]
 all = "deny"
 
+[patch.crates-io]
+openxr = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3" }
+openxr-sys = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3" }
+
 [workspace.dependencies]
 ash = "0.38.0"
-openxr = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3", version = "0.19.0", features = ["static"] }
-openxr-sys = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3", version = "0.11.0" }
+openxr = { version = "0.19.0", features = ["static"] }
+openxr-sys = { version = "0.11.0" }
 slotmap = "1.0.7"
 glam = "0.30.4"
 log = "0.4.22"
@@ -40,6 +44,7 @@ env_logger = "0.11.5"
 glam = { workspace = true }
 log = { workspace = true }
 openxr = { workspace = true }
+openxr_mndx_xdev_space = "0.1.1"
 openvr = { path = "openvr" }
 paste = "1.0.15"
 seq-macro = "0.3.5"

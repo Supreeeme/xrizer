@@ -1268,6 +1268,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "openxr_mndx_xdev_space"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc03c3948dceb287224eaa9079a5d4f690e91b43a2385da6c686edf0f850408a"
+dependencies = [
+ "openxr",
+]
+
+[[package]]
 name = "owned_ttf_parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2690,6 +2699,7 @@ dependencies = [
  "miniquad",
  "openvr",
  "openxr",
+ "openxr_mndx_xdev_space",
  "paste",
  "seq-macro",
  "serde",

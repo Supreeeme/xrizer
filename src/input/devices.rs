@@ -1,8 +1,11 @@
-use std::{ffi::CStr, sync::Mutex};
+use std::ffi::{CStr, CString};
+use std::sync::Mutex;
 
 use openvr as vr;
 use openxr as xr;
+use openxr_mndx_xdev_space::{InstanceXDevExtensionMNDX, SessionXDevExtensionMNDX, XDev};
 
+use crate::input::profiles::vive_tracker::ViveTracker;
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use crate::tracy_span;
 use log::trace;
@@ -13,7 +16,9 @@ use super::{profiles::MainAxisType, Input, InteractionProfile};
 pub enum TrackedDeviceType {
     Hmd,
     Controller { hand: Hand },
+    GenericTracker,
 }
+
 pub struct TrackedDevice {
     device_type: TrackedDeviceType,
     pub interaction_profile: Option<&'static dyn InteractionProfile>,
@@ -21,6 +26,11 @@ pub struct TrackedDevice {
     pub connected: bool,
     pub previous_connected: bool,
     pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
+
+    // Things generic trackers need to hold on to that can't be Copied
+    xdev: Option<XDev>,
+    xdev_space: Option<xr::Space>,
+    xdev_serial: Option<CString>,
 }
 
 fn get_hmd_pose(
@@ -70,6 +80,24 @@ fn get_controller_pose(
     Some(vr::space_relation_to_openvr_pose(location, velocity))
 }
 
+fn get_generic_tracker_pose(
+    xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+    session_data: &SessionData,
+    tracker: &TrackedDevice,
+    origin: vr::ETrackingUniverseOrigin,
+) -> Option<vr::TrackedDevicePose_t> {
+    let (location, velocity) = tracker
+        .xdev_space
+        .as_ref()?
+        .relate(
+            session_data.get_space_for_origin(origin),
+            xr_data.display_time.get(),
+        )
+        .ok()?;
+
+    Some(vr::space_relation_to_openvr_pose(location, velocity))
+}
+
 impl TrackedDevice {
     pub(super) fn new(
         device_type: TrackedDeviceType,
@@ -83,6 +111,9 @@ impl TrackedDevice {
             connected: device_type == TrackedDeviceType::Hmd,
             previous_connected: false,
             pose_cache: Mutex::new(None),
+            xdev: None,
+            xdev_space: None,
+            xdev_serial: None,
         }
     }
 
@@ -101,6 +132,9 @@ impl TrackedDevice {
             TrackedDeviceType::Hmd => get_hmd_pose(xr_data, session_data, origin),
             TrackedDeviceType::Controller { .. } => {
                 get_controller_pose(xr_data, session_data, self, origin)
+            }
+            TrackedDeviceType::GenericTracker => {
+                get_generic_tracker_pose(xr_data, session_data, self, origin)
             }
         };
 
@@ -130,6 +164,108 @@ impl TrackedDevice {
             _ => None,
         }
     }
+
+    fn get_string_property(&self, property: vr::ETrackedDeviceProperty) -> Option<&CStr> {
+        match self.device_type {
+            TrackedDeviceType::Hmd => {
+                match property {
+                    // The Unity OpenVR sample appears to have a hard requirement on these first three properties returning
+                    // something to even get the game to recognize the HMD's location. However, the value
+                    // itself doesn't appear to be that important.
+                    vr::ETrackedDeviceProperty::SerialNumber_String
+                    | vr::ETrackedDeviceProperty::ManufacturerName_String
+                    | vr::ETrackedDeviceProperty::ControllerType_String => Some(c"<unknown>"),
+                    _ => None,
+                }
+            }
+            _ => {
+                let hand = match self.device_type {
+                    TrackedDeviceType::Controller { hand } => hand,
+                    _ => Hand::Left,
+                };
+
+                let data = self.interaction_profile.as_ref()?.properties();
+
+                match property {
+                    // Audica likes to apply controller specific tweaks via this property
+                    vr::ETrackedDeviceProperty::ControllerType_String => {
+                        Some(data.openvr_controller_type)
+                    }
+                    // I Expect You To Die 3 identifies controllers with this property -
+                    // why it couldn't just use ControllerType instead is beyond me...
+                    // Because some controllers have different model names for each hand......
+                    vr::ETrackedDeviceProperty::ModelNumber_String => Some(*data.model.get(hand)),
+                    // Resonite won't recognize controllers without this
+                    vr::ETrackedDeviceProperty::RenderModelName_String => {
+                        Some(*data.render_model_name.get(hand))
+                    }
+                    vr::ETrackedDeviceProperty::RegisteredDeviceType_String => {
+                        Some(*data.registered_device_type.get(hand))
+                    }
+                    vr::ETrackedDeviceProperty::TrackingSystemName_String => {
+                        Some(data.tracking_system_name)
+                    }
+                    // Required for controllers to be acknowledged in I Expect You To Die 3
+                    vr::ETrackedDeviceProperty::SerialNumber_String => match self.device_type {
+                        TrackedDeviceType::Controller { .. } => Some(*data.serial_number.get(hand)),
+                        TrackedDeviceType::GenericTracker => self.xdev_serial.as_deref(),
+                        _ => None,
+                    },
+                    vr::ETrackedDeviceProperty::ManufacturerName_String => {
+                        Some(data.manufacturer_name)
+                    }
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    fn get_int_property(&self, property: vr::ETrackedDeviceProperty) -> Option<i32> {
+        match self.device_type {
+            TrackedDeviceType::Controller { .. } => {
+                let profile = self.interaction_profile?;
+                let data = profile.properties();
+
+                match property {
+                    vr::ETrackedDeviceProperty::Axis0Type_Int32 => match data.main_axis {
+                        MainAxisType::Thumbstick => Some(vr::EVRControllerAxisType::Joystick as _),
+                        MainAxisType::Trackpad => Some(vr::EVRControllerAxisType::TrackPad as _),
+                    },
+                    vr::ETrackedDeviceProperty::Axis1Type_Int32 => {
+                        Some(vr::EVRControllerAxisType::Trigger as _)
+                    }
+                    vr::ETrackedDeviceProperty::Axis2Type_Int32 => {
+                        // This is actually the grip, and gets recognized as such
+                        Some(vr::EVRControllerAxisType::Trigger as _)
+                    }
+                    // TODO: report knuckles trackpad?
+                    vr::ETrackedDeviceProperty::Axis3Type_Int32
+                    | vr::ETrackedDeviceProperty::Axis4Type_Int32 => {
+                        Some(vr::EVRControllerAxisType::None as _)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn get_uint_property(&self, property: vr::ETrackedDeviceProperty) -> Option<u64> {
+        match self.device_type {
+            TrackedDeviceType::Controller { .. } => {
+                let profile = self.interaction_profile?;
+                let data = profile.properties();
+
+                match property {
+                    vr::ETrackedDeviceProperty::SupportedButtons_Uint64 => {
+                        Some(data.legacy_buttons_mask)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 pub struct SubactionPaths {
@@ -152,6 +288,12 @@ impl SubactionPaths {
 
 pub struct TrackedDeviceList {
     devices: Vec<TrackedDevice>,
+}
+
+impl Default for TrackedDeviceList {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TrackedDeviceList {
@@ -207,6 +349,50 @@ impl TrackedDeviceList {
             .map(|(i, _)| i as vr::TrackedDeviceIndex_t)
     }
 
+    pub(super) fn create_generic_trackers(
+        &mut self,
+        xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+    ) -> xr::Result<()> {
+        let instance = &xr_data.instance;
+        let session_data = xr_data.session_data.get();
+
+        if !instance.supports_mndx_xdev_spaces(xr_data.system_id)? {
+            return Ok(());
+        }
+
+        self.devices
+            .retain(|device| device.get_type() != TrackedDeviceType::GenericTracker);
+
+        let max_generic_trackers = vr::k_unMaxTrackedDeviceCount as usize - self.devices.len();
+
+        let mut xdevs: Vec<XDev> = session_data
+            .session
+            .get_xdev_list()?
+            .enumerate_xdevs()?
+            .into_iter()
+            .filter(|xdev| {
+                xdev.can_create_space() && xdev.name().to_lowercase().contains("tracker")
+            })
+            .collect();
+
+        xdevs.truncate(max_generic_trackers);
+
+        xdevs.into_iter().for_each(|xdev| {
+            let mut tracker =
+                TrackedDevice::new(TrackedDeviceType::GenericTracker, None, Some(&ViveTracker));
+
+            tracker.xdev_space = Some(xdev.create_space(xr::Posef::IDENTITY).unwrap());
+            tracker.xdev = Some(xdev);
+            tracker.connected = true;
+
+            self.push_device(tracker).unwrap_or_else(|e| {
+                panic!("Failed to create new generic tracker: {:?}", e);
+            });
+        });
+
+        Ok(())
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &TrackedDevice> {
         self.devices.iter()
     }
@@ -222,8 +408,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) {
         tracy_span!();
-        let devices = self.devices.read().unwrap();
         let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
 
         for (i, pose) in poses.iter_mut().enumerate() {
             let device = devices.get_device(i as u32);
@@ -245,7 +431,13 @@ impl<C: openxr_data::Compositor> Input<C> {
         hand: Hand,
         origin: Option<vr::ETrackingUniverseOrigin>,
     ) -> Option<vr::TrackedDevicePose_t> {
-        let controller_index = self.devices.read().unwrap().get_controller_index(hand)?;
+        let session_data = self.openxr.session_data.get();
+        let controller_index = session_data
+            .input_data
+            .devices
+            .read()
+            .unwrap()
+            .get_controller_index(hand)?;
 
         self.get_device_pose(controller_index, origin)
     }
@@ -258,8 +450,9 @@ impl<C: openxr_data::Compositor> Input<C> {
         tracy_span!();
 
         let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
 
-        self.devices.read().unwrap().get_device(index)?.get_pose(
+        devices.get_device(index)?.get_pose(
             &self.openxr,
             &session_data,
             origin.unwrap_or(session_data.current_origin),
@@ -267,7 +460,8 @@ impl<C: openxr_data::Compositor> Input<C> {
     }
 
     pub fn is_device_connected(&self, index: vr::TrackedDeviceIndex_t) -> bool {
-        let devices = self.devices.read().unwrap();
+        let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
 
         devices.get_device(index).is_some_and(|d| d.connected)
     }
@@ -276,101 +470,61 @@ impl<C: openxr_data::Compositor> Input<C> {
         &self,
         index: vr::TrackedDeviceIndex_t,
     ) -> Option<TrackedDeviceType> {
-        let devices = self.devices.read().unwrap();
+        let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
         let device = devices.get_device(index)?;
 
         Some(device.get_type())
     }
 
     pub fn device_index_to_hand(&self, index: vr::TrackedDeviceIndex_t) -> Option<Hand> {
-        let devices = self.devices.read().unwrap();
+        let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
         let device = devices.get_device(index)?;
 
         device.get_controller_hand()
     }
 
     pub fn get_controller_device_index(&self, hand: Hand) -> Option<vr::TrackedDeviceIndex_t> {
-        let devices = self.devices.read().unwrap();
+        let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
 
         devices.get_controller_index(hand)
     }
 
-    fn get_profile_data(&self, hand: Hand) -> Option<&super::profiles::ProfileProperties> {
-        let devices = self.devices.read().unwrap();
-        let controller = devices.get_controller(hand)?;
-
-        self.profile_map.get(&controller.profile_path).map(|v| &**v)
-    }
-
-    pub fn get_controller_string_tracked_property(
+    pub fn get_device_string_tracked_property(
         &self,
-        hand: Hand,
+        index: vr::TrackedDeviceIndex_t,
         property: vr::ETrackedDeviceProperty,
-    ) -> Option<&'static CStr> {
-        self.get_profile_data(hand).and_then(|data| {
-            match property {
-                // Audica likes to apply controller specific tweaks via this property
-                vr::ETrackedDeviceProperty::ControllerType_String => {
-                    Some(data.openvr_controller_type)
-                }
-                // I Expect You To Die 3 identifies controllers with this property -
-                // why it couldn't just use ControllerType instead is beyond me...
-                // Because some controllers have different model names for each hand......
-                vr::ETrackedDeviceProperty::ModelNumber_String => Some(*data.model.get(hand)),
-                // Resonite won't recognize controllers without this
-                vr::ETrackedDeviceProperty::RenderModelName_String => {
-                    Some(*data.render_model_name.get(hand))
-                }
-                vr::ETrackedDeviceProperty::RegisteredDeviceType_String => {
-                    Some(*data.registered_device_type.get(hand))
-                }
-                vr::ETrackedDeviceProperty::TrackingSystemName_String => {
-                    Some(data.tracking_system_name)
-                }
-                // Required for controllers to be acknowledged in I Expect You To Die 3
-                vr::ETrackedDeviceProperty::SerialNumber_String => {
-                    Some(*data.serial_number.get(hand))
-                }
-                vr::ETrackedDeviceProperty::ManufacturerName_String => Some(data.manufacturer_name),
-                _ => None,
-            }
-        })
+    ) -> Option<CString> {
+        let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
+        let device = devices.get_device(index)?;
+
+        device.get_string_property(property).map(|s| s.to_owned())
     }
 
-    pub fn get_controller_int_tracked_property(
+    pub fn get_device_int_tracked_property(
         &self,
-        hand: Hand,
+        index: vr::TrackedDeviceIndex_t,
         property: vr::ETrackedDeviceProperty,
     ) -> Option<i32> {
-        self.get_profile_data(hand).and_then(|data| match property {
-            vr::ETrackedDeviceProperty::Axis0Type_Int32 => match data.main_axis {
-                MainAxisType::Thumbstick => Some(vr::EVRControllerAxisType::Joystick as _),
-                MainAxisType::Trackpad => Some(vr::EVRControllerAxisType::TrackPad as _),
-            },
-            vr::ETrackedDeviceProperty::Axis1Type_Int32 => {
-                Some(vr::EVRControllerAxisType::Trigger as _)
-            }
-            vr::ETrackedDeviceProperty::Axis2Type_Int32 => {
-                // This is actually the grip, and gets recognized as such
-                Some(vr::EVRControllerAxisType::Trigger as _)
-            }
-            // TODO: report knuckles trackpad?
-            vr::ETrackedDeviceProperty::Axis3Type_Int32
-            | vr::ETrackedDeviceProperty::Axis4Type_Int32 => {
-                Some(vr::EVRControllerAxisType::None as _)
-            }
-            _ => None,
-        })
+        let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
+        let device = devices.get_device(index)?;
+
+        device.get_int_property(property)
     }
 
-    pub fn get_controller_uint_tracked_property(
+    pub fn get_device_uint_tracked_property(
         &self,
-        hand: Hand,
+        index: vr::TrackedDeviceIndex_t,
         property: vr::ETrackedDeviceProperty,
     ) -> Option<u64> {
-        self.get_profile_data(hand).and_then(|data| match property {
-            vr::ETrackedDeviceProperty::SupportedButtons_Uint64 => Some(data.legacy_buttons_mask),
-            _ => None,
-        })
+        let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
+        let device = devices.get_device(index)?;
+
+        device.get_uint_property(property)
     }
 }

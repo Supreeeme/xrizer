@@ -546,20 +546,7 @@ impl vr::IVRSystem023_Interface for System {
             &mut []
         };
 
-        let data = match device_index {
-            vr::k_unTrackedDeviceIndex_Hmd => match prop {
-                // The Unity OpenVR sample appears to have a hard requirement on these first three properties returning
-                // something to even get the game to recognize the HMD's location. However, the value
-                // itself doesn't appear to be that important.
-                vr::ETrackedDeviceProperty::SerialNumber_String
-                | vr::ETrackedDeviceProperty::ManufacturerName_String
-                | vr::ETrackedDeviceProperty::ControllerType_String => Some(c"<unknown>"),
-                _ => None,
-            },
-            x => input
-                .device_index_to_hand(x)
-                .and_then(|hand| input.get_controller_string_tracked_property(hand, prop)),
-        };
+        let data = input.get_device_string_tracked_property(device_index, prop);
 
         let Some(data) = data else {
             if let Some(error) = unsafe { error.as_mut() } {
@@ -630,14 +617,7 @@ impl vr::IVRSystem023_Interface for System {
 
         self.input
             .get()
-            .and_then(
-                |input| match input.device_index_to_device_type(device_index) {
-                    Some(TrackedDeviceType::Controller { hand }) => {
-                        input.get_controller_uint_tracked_property(hand, prop)
-                    }
-                    _ => None,
-                },
-            )
+            .and_then(|input| input.get_device_uint_tracked_property(device_index, prop))
             .unwrap_or_else(|| {
                 if let Some(err) = unsafe { err.as_mut() } {
                     *err = vr::ETrackedPropertyError::UnknownProperty;
@@ -664,12 +644,7 @@ impl vr::IVRSystem023_Interface for System {
         }
         self.input
             .get()
-            .and_then(|input| {
-                input.get_controller_int_tracked_property(
-                    input.device_index_to_hand(device_index)?,
-                    prop,
-                )
-            })
+            .and_then(|input| input.get_device_int_tracked_property(device_index, prop))
             .unwrap_or_else(|| {
                 if let Some(err) = unsafe { err.as_mut() } {
                     *err = vr::ETrackedPropertyError::UnknownProperty;
@@ -737,6 +712,9 @@ impl vr::IVRSystem023_Interface for System {
                 .and_then(|input| match input.device_index_to_device_type(index) {
                     Some(TrackedDeviceType::Controller { .. }) => {
                         Some(vr::ETrackedDeviceClass::Controller)
+                    }
+                    Some(TrackedDeviceType::GenericTracker) => {
+                        Some(vr::ETrackedDeviceClass::GenericTracker)
                     }
                     _ => None,
                 })
