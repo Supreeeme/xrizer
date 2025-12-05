@@ -1,6 +1,6 @@
 use crate::{
     clientcore::{Injected, Injector},
-    input::{Input, TrackedDeviceType},
+    input::Input,
     openxr_data::{Hand, RealOpenXrData, SessionData},
     overlay::OverlayMan,
     tracy_span,
@@ -722,15 +722,7 @@ impl vr::IVRSystem023_Interface for System {
             _ => self
                 .input
                 .get()
-                .and_then(|input| match input.device_index_to_device_type(index) {
-                    Some(TrackedDeviceType::Controller { .. }) => {
-                        Some(vr::ETrackedDeviceClass::Controller)
-                    }
-                    Some(TrackedDeviceType::GenericTracker) => {
-                        Some(vr::ETrackedDeviceClass::GenericTracker)
-                    }
-                    _ => None,
-                })
+                .and_then(|input| input.device_index_to_tracked_device_class(index))
                 .unwrap_or(vr::ETrackedDeviceClass::Invalid),
         }
     }

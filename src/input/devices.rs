@@ -1,4 +1,5 @@
 use std::ffi::{CStr, CString};
+use std::fmt::Display;
 use std::sync::Mutex;
 
 use openvr as vr;
@@ -12,11 +13,43 @@ use log::trace;
 
 use super::{profiles::MainAxisType, Input, InteractionProfile};
 
-#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TrackedDeviceType {
     Hmd,
     Controller { hand: Hand },
-    GenericTracker,
+    GenericTracker { space: xr::Space, serial: CString },
+}
+
+impl PartialEq for TrackedDeviceType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (TrackedDeviceType::Hmd, TrackedDeviceType::Hmd) => true,
+            (
+                TrackedDeviceType::Controller { hand: hand_a },
+                TrackedDeviceType::Controller { hand: hand_b },
+            ) => hand_a == hand_b,
+            (
+                TrackedDeviceType::GenericTracker {
+                    serial: serial1, ..
+                },
+                TrackedDeviceType::GenericTracker {
+                    serial: serial2, ..
+                },
+            ) => serial1.as_ref() == serial2.as_ref(),
+            _ => false,
+        }
+    }
+}
+
+impl Display for TrackedDeviceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TrackedDeviceType::Hmd => write!(f, "HMD"),
+            TrackedDeviceType::Controller { hand } => write!(f, "Controller ({:?})", hand),
+            TrackedDeviceType::GenericTracker { serial, .. } => {
+                write!(f, "Generic Tracker ({})", serial.to_string_lossy())
+            }
+        }
+    }
 }
 
 pub struct TrackedDevice {
@@ -26,10 +59,6 @@ pub struct TrackedDevice {
     pub connected: bool,
     pub previous_connected: bool,
     pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
-
-    // Things generic trackers need to hold on to that can't be Copied
-    xdev_space: Option<xr::Space>,
-    xdev_serial: Option<CString>,
 }
 
 fn get_hmd_pose(
@@ -85,9 +114,12 @@ fn get_generic_tracker_pose(
     tracker: &TrackedDevice,
     origin: vr::ETrackingUniverseOrigin,
 ) -> Option<vr::TrackedDevicePose_t> {
-    let (location, velocity) = tracker
-        .xdev_space
-        .as_ref()?
+    let space = match tracker.get_type() {
+        TrackedDeviceType::GenericTracker { space, .. } => Some(space),
+        _ => return None,
+    };
+
+    let (location, velocity) = space?
         .relate(
             session_data.get_space_for_origin(origin),
             xr_data.display_time.get(),
@@ -104,14 +136,12 @@ impl TrackedDevice {
         interaction_profile: Option<&'static dyn InteractionProfile>,
     ) -> Self {
         Self {
-            device_type,
             interaction_profile,
             profile_path: profile_path.unwrap_or(xr::Path::NULL),
             connected: device_type == TrackedDeviceType::Hmd,
+            device_type,
             previous_connected: false,
             pose_cache: Mutex::new(None),
-            xdev_space: None,
-            xdev_serial: None,
         }
     }
 
@@ -131,7 +161,7 @@ impl TrackedDevice {
             TrackedDeviceType::Controller { .. } => {
                 get_controller_pose(xr_data, session_data, self, origin)
             }
-            TrackedDeviceType::GenericTracker => {
+            TrackedDeviceType::GenericTracker { .. } => {
                 get_generic_tracker_pose(xr_data, session_data, self, origin)
             }
         };
@@ -152,12 +182,12 @@ impl TrackedDevice {
         }
     }
 
-    pub fn get_type(&self) -> TrackedDeviceType {
-        self.device_type
+    pub fn get_type(&self) -> &TrackedDeviceType {
+        &self.device_type
     }
 
     pub fn get_controller_hand(&self) -> Option<Hand> {
-        match self.get_type() {
+        match self.device_type {
             TrackedDeviceType::Controller { hand, .. } => Some(hand),
             _ => None,
         }
@@ -189,9 +219,9 @@ impl TrackedDevice {
                 Some(data.tracking_system_name)
             }
             // Required for controllers to be acknowledged in I Expect You To Die 3
-            vr::ETrackedDeviceProperty::SerialNumber_String => match self.device_type {
+            vr::ETrackedDeviceProperty::SerialNumber_String => match self.get_type() {
                 TrackedDeviceType::Controller { .. } => Some(*data.serial_number.get(hand)),
-                TrackedDeviceType::GenericTracker => self.xdev_serial.as_deref(),
+                TrackedDeviceType::GenericTracker { serial, .. } => Some(serial.as_c_str()),
                 _ => None,
             },
             vr::ETrackedDeviceProperty::ManufacturerName_String => Some(data.manufacturer_name),
@@ -337,8 +367,9 @@ impl TrackedDeviceList {
             return Ok(());
         }
 
-        self.devices
-            .retain(|device| device.get_type() != TrackedDeviceType::GenericTracker);
+        self.devices.retain(|device| {
+            !matches!(device.device_type, TrackedDeviceType::GenericTracker { .. })
+        });
 
         let max_generic_trackers = vr::k_unMaxTrackedDeviceCount as usize - self.devices.len();
 
@@ -355,10 +386,13 @@ impl TrackedDeviceList {
         xdevs.truncate(max_generic_trackers);
 
         let trackers = xdevs.into_iter().map(|xdev| {
-            let mut tracker =
-                TrackedDevice::new(TrackedDeviceType::GenericTracker, None, Some(&ViveTracker));
-            tracker.xdev_serial = Some(CString::new(xdev.serial()).unwrap());
-            tracker.xdev_space = Some(xdev.create_space(xr::Posef::IDENTITY).unwrap());
+            let serial = CString::new(xdev.serial()).unwrap();
+            let space = xdev.create_space(xr::Posef::IDENTITY).unwrap();
+            let mut tracker = TrackedDevice::new(
+                TrackedDeviceType::GenericTracker { serial, space },
+                None,
+                Some(&ViveTracker),
+            );
             tracker.connected = true;
             tracker
         });
@@ -440,15 +474,21 @@ impl<C: openxr_data::Compositor> Input<C> {
         devices.get_device(index).is_some_and(|d| d.connected)
     }
 
-    pub fn device_index_to_device_type(
+    pub fn device_index_to_tracked_device_class(
         &self,
         index: vr::TrackedDeviceIndex_t,
-    ) -> Option<TrackedDeviceType> {
+    ) -> Option<vr::ETrackedDeviceClass> {
         let session_data = self.openxr.session_data.get();
         let devices = session_data.input_data.devices.read().unwrap();
         let device = devices.get_device(index)?;
 
-        Some(device.get_type())
+        match device.get_type() {
+            TrackedDeviceType::Hmd => Some(vr::ETrackedDeviceClass::HMD),
+            TrackedDeviceType::Controller { .. } => Some(vr::ETrackedDeviceClass::Controller),
+            TrackedDeviceType::GenericTracker { .. } => {
+                Some(vr::ETrackedDeviceClass::GenericTracker)
+            }
+        }
     }
 
     pub fn device_index_to_hand(&self, index: vr::TrackedDeviceIndex_t) -> Option<Hand> {

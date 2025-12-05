@@ -1411,7 +1411,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             if device.has_connected_changed() {
                 debug!(
-                    "sending {:?} {}connected",
+                    "sending {} {}connected",
                     device.get_type(),
                     if current { "" } else { "not " }
                 );
