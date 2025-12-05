@@ -168,11 +168,13 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_cxx_namespaces()
         .allowlist_item("vr.*::k_.*") // constants
         .allowlist_item("vr.*::VR.*")
+        .allowlist_item("vr.*::EVRComponentProperty")
         .allowlist_item("Vk.*")
         .blocklist_function("vr.*::VR_.*")
         .derive_default(true)
         .no_default("vr.*::IVR.*")
         .bitfield_enum("vr.*::EVRSubmitFlags")
+        .bitfield_enum("vr.*::EVRComponentProperty")
         .rustified_enum(".*")
         .vtable_generation(true)
         .generate_cstr(true)
