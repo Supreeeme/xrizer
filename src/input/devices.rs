@@ -352,9 +352,9 @@ impl TrackedDeviceList {
     pub(super) fn create_generic_trackers(
         &mut self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+        session_data: &SessionData,
     ) -> xr::Result<()> {
         let instance = &xr_data.instance;
-        let session_data = xr_data.session_data.get();
 
         if !instance.supports_mndx_xdev_spaces(xr_data.system_id)? {
             return Ok(());

@@ -1306,7 +1306,9 @@ impl<C: openxr_data::Compositor> Input<C> {
             });
         }
 
-        devices.create_generic_trackers(&self.openxr).unwrap();
+        devices
+            .create_generic_trackers(&self.openxr, session_data)
+            .unwrap();
     }
 
     pub fn frame_start_update(&self) {
