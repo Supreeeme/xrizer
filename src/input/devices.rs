@@ -381,6 +381,7 @@ impl TrackedDeviceList {
             let mut tracker =
                 TrackedDevice::new(TrackedDeviceType::GenericTracker, None, Some(&ViveTracker));
 
+            tracker.xdev_serial = Some(CString::new(xdev.serial()).unwrap());
             tracker.xdev_space = Some(xdev.create_space(xr::Posef::IDENTITY).unwrap());
             tracker.xdev = Some(xdev);
             tracker.connected = true;
