@@ -588,6 +588,7 @@ fn versionify_interface(
             unreachable!();
         };
 
+        f.abi = parse_quote!(extern "C-unwind");
         let mut args = f.inputs.iter_mut();
 
         // versionify this
@@ -1079,7 +1080,7 @@ fn generate_vtable_trait(
             let params = fn_args.clone();
             let call_args = fn_args_names_only.clone();
             parse_quote! {
-                extern "C" fn #fn_name<T: super::#trait_ident>(#(#params),*) #fn_output {
+                extern "C-unwind" fn #fn_name<T: super::#trait_ident>(#(#params),*) #fn_output {
                     #[cfg(feature = "tracing")]
                     let _span = tracy_client::span!();
                     #fn_enter_log
@@ -1102,7 +1103,7 @@ fn generate_vtable_trait(
             let fntable_dead_err =
                 format!("FnTable instance for {interface_name} has been destroyed");
             parse_quote! {
-                extern "C" fn #fn_name_fntable(#(#params),*) #fn_output {
+                extern "C-unwind" fn #fn_name_fntable(#(#params),*) #fn_output {
                     #[cfg(feature = "tracing")]
                     let _span = tracy_client::span!();
                     #fn_enter_log
@@ -1126,7 +1127,7 @@ fn generate_vtable_trait(
         let fntable_field: syn::Field = {
             // The FnTable version of the vtables are the same, except they omit the `this: *mut <interface>` argument
             let args_no_this = fn_args.clone().skip(1);
-            parse_quote!(#field_ident: unsafe extern "C" fn(#(#args_no_this),*) #fn_output)
+            parse_quote!(#field_ident: unsafe extern "C-unwind" fn(#(#args_no_this),*) #fn_output)
         };
         fntable_fields.push(fntable_field);
         let init: TokenStream = parse_quote!(#field_ident: #fn_name_fntable);
