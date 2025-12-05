@@ -215,6 +215,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         &self,
         poses: &mut [vr::TrackedDevicePose_t],
         origin: Option<vr::ETrackingUniverseOrigin>,
+        xr_time: xr::Time,
     ) {
         tracy_span!();
         let devices = self.devices.read().unwrap();
@@ -226,7 +227,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             if let Some(device) = device {
                 *pose = device
                     .get_pose(
-                        self.openxr.display_time.get(),
+                        xr_time,
                         &session_data,
                         origin.unwrap_or(session_data.current_origin),
                     )

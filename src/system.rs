@@ -820,7 +820,7 @@ impl vr::IVRSystem023_Interface for System {
     fn GetDeviceToAbsoluteTrackingPose(
         &self,
         origin: vr::ETrackingUniverseOrigin,
-        _seconds_to_photon_from_now: f32,
+        seconds_to_photon_from_now: f32,
         pose_array: *mut vr::TrackedDevicePose_t,
         pose_count: u32,
     ) {
@@ -829,6 +829,7 @@ impl vr::IVRSystem023_Interface for System {
             .get_poses(
                 unsafe { std::slice::from_raw_parts_mut(pose_array, pose_count as usize) },
                 Some(origin),
+                self.openxr.time_from_now(seconds_to_photon_from_now),
             );
     }
     fn SetDisplayVisibility(&self, _: bool) -> bool {

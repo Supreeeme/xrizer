@@ -861,7 +861,7 @@ impl vr::IVRCompositor029_Interface for Compositor {
         };
         self.input
             .force(|_| Input::new(self.openxr.clone()))
-            .get_poses(render_poses, None);
+            .get_poses(render_poses, None, self.openxr.display_time.get());
 
         // Not entirely sure how the game poses are supposed to differ from the render poses,
         // but a lot of games use the game pose array for controller positions.
