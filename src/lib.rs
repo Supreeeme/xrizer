@@ -18,6 +18,9 @@ mod system;
 #[cfg(not(test))]
 mod error_dialog;
 
+#[cfg(feature = "monado")]
+mod monado;
+
 use clientcore::ClientCore;
 use openvr as vr;
 use std::ffi::{c_char, c_void, CStr};
