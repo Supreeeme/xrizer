@@ -3,9 +3,7 @@ use std::sync::Mutex;
 
 use openvr as vr;
 use openxr as xr;
-use openxr_mndx_xdev_space::{
-    InstanceXDevExtensionMNDX, SessionXDevExtensionMNDX, XDev, XR_MNDX_XDEV_SPACE_EXTENSION_NAME,
-};
+use openxr_mndx_xdev_space::{SessionXDevExtensionMNDX, XDev, XR_MNDX_XDEV_SPACE_EXTENSION_NAME};
 
 use crate::input::profiles::vive_tracker::ViveTracker;
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
@@ -30,7 +28,6 @@ pub struct TrackedDevice {
     pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
 
     // Things generic trackers need to hold on to that can't be Copied
-    xdev: Option<XDev>,
     xdev_space: Option<xr::Space>,
     xdev_serial: Option<CString>,
 }
@@ -113,7 +110,6 @@ impl TrackedDevice {
             connected: device_type == TrackedDeviceType::Hmd,
             previous_connected: false,
             pose_cache: Mutex::new(None),
-            xdev: None,
             xdev_space: None,
             xdev_serial: None,
         }
@@ -387,7 +383,6 @@ impl TrackedDeviceList {
 
             tracker.xdev_serial = Some(CString::new(xdev.serial()).unwrap());
             tracker.xdev_space = Some(xdev.create_space(xr::Posef::IDENTITY).unwrap());
-            tracker.xdev = Some(xdev);
             tracker.connected = true;
 
             self.push_device(tracker).unwrap_or_else(|e| {
