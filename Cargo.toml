@@ -13,7 +13,9 @@ readme = "README.md"
 crate-type = ["cdylib"]
 
 [features]
+default = ["monado"]
 tracing = ["dep:tracy-client", "openvr/tracing"]
+monado = ["dep:openxr_mndx_xdev_space"]
 
 [workspace]
 members = ["openvr", "shaders", "xbuild"]
@@ -44,7 +46,7 @@ env_logger = "0.11.5"
 glam = { workspace = true }
 log = { workspace = true }
 openxr = { workspace = true }
-openxr_mndx_xdev_space = "0.1.1"
+openxr_mndx_xdev_space = { version = "0.1.1", optional = true }
 openvr = { path = "openvr" }
 paste = "1.0.15"
 seq-macro = "0.3.5"

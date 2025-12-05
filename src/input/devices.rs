@@ -4,9 +4,12 @@ use std::sync::Mutex;
 
 use openvr as vr;
 use openxr as xr;
+
+#[cfg(feature = "monado")]
+use crate::input::profiles::vive_tracker::ViveTracker;
+#[cfg(feature = "monado")]
 use openxr_mndx_xdev_space::{SessionXDevExtensionMNDX, XDev, XR_MNDX_XDEV_SPACE_EXTENSION_NAME};
 
-use crate::input::profiles::vive_tracker::ViveTracker;
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use crate::tracy_span;
 use log::trace;
@@ -16,6 +19,7 @@ use super::{profiles::MainAxisType, Input, InteractionProfile};
 pub enum TrackedDeviceType {
     Hmd,
     Controller { hand: Hand },
+    #[cfg(feature = "monado")]
     GenericTracker { space: xr::Space, serial: CString },
 }
 
@@ -27,6 +31,7 @@ impl PartialEq for TrackedDeviceType {
                 TrackedDeviceType::Controller { hand: hand_a },
                 TrackedDeviceType::Controller { hand: hand_b },
             ) => hand_a == hand_b,
+            #[cfg(feature = "monado")]
             (
                 TrackedDeviceType::GenericTracker {
                     serial: serial1, ..
@@ -45,6 +50,7 @@ impl Display for TrackedDeviceType {
         match self {
             TrackedDeviceType::Hmd => write!(f, "HMD"),
             TrackedDeviceType::Controller { hand } => write!(f, "Controller ({:?})", hand),
+            #[cfg(feature = "monado")]
             TrackedDeviceType::GenericTracker { serial, .. } => {
                 write!(f, "Generic Tracker ({})", serial.to_string_lossy())
             }
@@ -108,6 +114,7 @@ fn get_controller_pose(
     Some(vr::space_relation_to_openvr_pose(location, velocity))
 }
 
+#[cfg(feature = "monado")]
 fn get_generic_tracker_pose(
     xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
     session_data: &SessionData,
@@ -161,6 +168,7 @@ impl TrackedDevice {
             TrackedDeviceType::Controller { .. } => {
                 get_controller_pose(xr_data, session_data, self, origin)
             }
+            #[cfg(feature = "monado")]
             TrackedDeviceType::GenericTracker { .. } => {
                 get_generic_tracker_pose(xr_data, session_data, self, origin)
             }
@@ -221,6 +229,7 @@ impl TrackedDevice {
             // Required for controllers to be acknowledged in I Expect You To Die 3
             vr::ETrackedDeviceProperty::SerialNumber_String => match self.get_type() {
                 TrackedDeviceType::Controller { .. } => Some(*data.serial_number.get(hand)),
+                #[cfg(feature = "monado")]
                 TrackedDeviceType::GenericTracker { serial, .. } => Some(serial.as_c_str()),
                 _ => None,
             },
@@ -354,6 +363,7 @@ impl TrackedDeviceList {
             .map(|(i, _)| i as vr::TrackedDeviceIndex_t)
     }
 
+    #[cfg(feature = "monado")]
     pub(super) fn create_monado_generic_trackers(
         &mut self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
@@ -485,6 +495,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         match device.get_type() {
             TrackedDeviceType::Hmd => Some(vr::ETrackedDeviceClass::HMD),
             TrackedDeviceType::Controller { .. } => Some(vr::ETrackedDeviceClass::Controller),
+            #[cfg(feature = "monado")]
             TrackedDeviceType::GenericTracker { .. } => {
                 Some(vr::ETrackedDeviceClass::GenericTracker)
             }

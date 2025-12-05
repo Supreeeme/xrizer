@@ -2,6 +2,7 @@ pub mod knuckles;
 pub mod oculus_touch;
 pub mod simple_controller;
 pub mod vive_controller;
+#[cfg(feature = "monado")]
 pub mod vive_tracker;
 use super::{
     action_manifest::ControllerType, legacy::LegacyBindings, skeletal::SkeletalInputBindings,

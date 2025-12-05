@@ -1306,6 +1306,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             });
         }
 
+        #[cfg(feature = "monado")]
         devices
             .create_monado_generic_trackers(&self.openxr, session_data)
             .unwrap();

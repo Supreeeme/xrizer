@@ -7,12 +7,14 @@ use glam::f32::{Quat, Vec3};
 use log::{info, warn};
 use openvr as vr;
 use openxr as xr;
-use openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
 use std::mem::ManuallyDrop;
 use std::sync::{
     atomic::{AtomicI64, Ordering},
     RwLock,
 };
+
+#[cfg(feature = "monado")]
+use openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
 
 pub trait Compositor: vr::InterfaceImpl {
     fn post_session_restart(
@@ -126,6 +128,7 @@ impl<C: Compositor> OpenXrData<C> {
 
         // Extension that enables simple full body tracking support via generic tracked devices.
         // Available only in the Monado OpenXR runtime.
+        #[cfg(feature = "monado")]
         if supported_exts
             .other
             .contains(&XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string())
