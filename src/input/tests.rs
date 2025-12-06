@@ -543,11 +543,12 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     };
     fakexr::set_grip(f.raw_session(), LeftHand, pose);
     fakexr::set_aim(f.raw_session(), LeftHand, pose);
+    let xr_time = xr::Time::from_nanos(1234);
 
     let seated_origin = vr::ETrackingUniverseOrigin::Seated;
-    let waitgetposes_pose = f
-        .input
-        .get_controller_pose(super::Hand::Left, Some(seated_origin));
+    let waitgetposes_pose =
+        f.input
+            .get_controller_pose(super::Hand::Left, Some(seated_origin), xr_time);
 
     let mut raw_pose = vr::InputPoseActionData_t {
         pose: vr::TrackedDevicePose_t {

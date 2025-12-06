@@ -362,7 +362,7 @@ impl vr::IVRSystem023_Interface for System {
                     .input
                     .get()
                     .unwrap()
-                    .get_controller_pose(hand, Some(origin))
+                    .get_controller_pose(hand, Some(origin), self.openxr.display_time.get())
                     .unwrap_or_default();
             }
             true
@@ -491,7 +491,11 @@ impl vr::IVRSystem023_Interface for System {
         if got_event && !pose.is_null() {
             unsafe {
                 let index = (&raw const (*event).trackedDeviceIndex).read();
-                pose.write(input.get_device_pose(index, Some(origin)).unwrap());
+                pose.write(
+                    input
+                        .get_device_pose(index, Some(origin), self.openxr.display_time.get())
+                        .unwrap(),
+                );
             }
         }
         got_event
@@ -816,7 +820,7 @@ impl vr::IVRSystem023_Interface for System {
     fn GetDeviceToAbsoluteTrackingPose(
         &self,
         origin: vr::ETrackingUniverseOrigin,
-        _seconds_to_photon_from_now: f32,
+        seconds_to_photon_from_now: f32,
         pose_array: *mut vr::TrackedDevicePose_t,
         pose_count: u32,
     ) {
@@ -825,6 +829,7 @@ impl vr::IVRSystem023_Interface for System {
             .get_poses(
                 unsafe { std::slice::from_raw_parts_mut(pose_array, pose_count as usize) },
                 Some(origin),
+                self.openxr.time_from_now(seconds_to_photon_from_now),
             );
     }
     fn SetDisplayVisibility(&self, _: bool) -> bool {
