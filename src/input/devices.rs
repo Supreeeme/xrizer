@@ -28,7 +28,7 @@ pub enum TrackedDeviceType {
     },
 }
 
-impl Display for TrackedDeviceType {
+impl std::fmt::Debug for TrackedDeviceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TrackedDeviceType::Hmd => write!(f, "HMD"),
