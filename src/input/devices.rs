@@ -1,5 +1,4 @@
 use std::ffi::{CStr, CString};
-use std::fmt::Display;
 use std::sync::Mutex;
 
 use openvr as vr;
@@ -104,12 +103,11 @@ fn get_generic_tracker_pose(
     tracker: &TrackedDevice,
     origin: vr::ETrackingUniverseOrigin,
 ) -> Option<vr::TrackedDevicePose_t> {
-    let space = match tracker.get_type() {
-        TrackedDeviceType::GenericTracker { space, .. } => Some(space),
-        _ => return None,
+    let TrackedDeviceType::GenericTracker { space, .. } = tracker.get_type() else {
+        return None;
     };
 
-    let (location, velocity) = space?
+    let (location, velocity) = space
         .relate(
             session_data.get_space_for_origin(origin),
             xr_data.display_time.get(),
@@ -214,7 +212,7 @@ impl TrackedDevice {
                 TrackedDeviceType::Controller { .. } => Some(*data.serial_number.get(hand)),
                 #[cfg(feature = "monado")]
                 TrackedDeviceType::GenericTracker { serial, .. } => Some(serial.as_c_str()),
-                _ => None,
+                TrackedDeviceType::Hmd => unreachable!(),
             },
             vr::ETrackedDeviceProperty::ManufacturerName_String => Some(data.manufacturer_name),
             _ => None,
