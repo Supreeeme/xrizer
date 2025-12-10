@@ -108,6 +108,15 @@ pub trait WithAnyGraphicsOwned<G>: WithAnyGraphicsParams {
 }
 
 impl SupportedBackend {
+    pub fn is_texture_type_supported(texture_type: vr::ETextureType) -> bool {
+        match texture_type {
+            vr::ETextureType::Vulkan | vr::ETextureType::OpenGL => true,
+            #[cfg(test)]
+            vr::ETextureType::Reserved => true,
+            _ => false,
+        }
+    }
+
     pub fn new(texture: &vr::Texture_t, _bounds: vr::VRTextureBounds_t) -> Option<Self> {
         match texture.eType {
             vr::ETextureType::Vulkan => {
