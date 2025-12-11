@@ -1367,28 +1367,55 @@ impl vr::IVROverlay025On027 for OverlayMan {
 impl vr::IVROverlay021On024 for OverlayMan {
     fn ShowKeyboardForOverlay(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: vr::EGamepadTextInputMode,
-        _: vr::EGamepadTextInputLineMode,
-        _: *const c_char,
-        _: u32,
-        _: *const c_char,
-        _: bool,
-        _: u64,
+        handle: vr::VROverlayHandle_t,
+        input_mode: vr::EGamepadTextInputMode,
+        line_input_mode: vr::EGamepadTextInputLineMode,
+        description: *const c_char,
+        char_max: u32,
+        existing_text: *const c_char,
+        use_minimal_mode: bool,
+        user_value: u64,
     ) -> vr::EVROverlayError {
-        todo!()
+        <Self as vr::IVROverlay024_Interface>::ShowKeyboardForOverlay(
+            self,
+            handle,
+            input_mode,
+            line_input_mode,
+            if use_minimal_mode {
+                vr::EKeyboardFlags::Minimal.0
+            } else {
+                0
+            },
+            description,
+            char_max,
+            existing_text,
+            user_value,
+        )
     }
     fn ShowKeyboard(
         &self,
-        _: vr::EGamepadTextInputMode,
-        _: vr::EGamepadTextInputLineMode,
-        _: *const c_char,
-        _: u32,
-        _: *const c_char,
-        _: bool,
-        _: u64,
+        input_mode: vr::EGamepadTextInputMode,
+        input_line_mode: vr::EGamepadTextInputLineMode,
+        description: *const c_char,
+        char_max: u32,
+        existing_text: *const c_char,
+        use_minimal_mode: bool,
+        user_value: u64,
     ) -> vr::EVROverlayError {
-        todo!()
+        <Self as vr::IVROverlay024_Interface>::ShowKeyboard(
+            self,
+            input_mode,
+            input_line_mode,
+            if use_minimal_mode {
+                vr::EKeyboardFlags::Minimal.0
+            } else {
+                0
+            },
+            description,
+            char_max,
+            existing_text,
+            user_value,
+        )
     }
     fn GetOverlayDualAnalogTransform(
         &self,
