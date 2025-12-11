@@ -122,6 +122,7 @@ impl<C: Compositor> OpenXrData<C> {
         exts.khr_composition_layer_equirect2 = supported_exts.khr_composition_layer_equirect2;
         exts.khr_composition_layer_color_scale_bias =
             supported_exts.khr_composition_layer_color_scale_bias;
+        exts.khr_convert_timespec_time = supported_exts.khr_convert_timespec_time;
 
         let instance = entry
             .create_instance(
@@ -309,6 +310,15 @@ impl<C: Compositor> OpenXrData<C> {
             if let Some(s) = self.poll_events_impl(session_data) {
                 state = s;
             }
+        }
+    }
+
+    pub fn time_from_now(&self, seconds: f32) -> xr::Time {
+        match self.instance.now() {
+            Ok(time) => xr::Time::from_nanos(
+                time.as_nanos() + std::time::Duration::from_secs_f32(seconds).as_nanos() as i64,
+            ),
+            _ => self.display_time.get(),
         }
     }
 }

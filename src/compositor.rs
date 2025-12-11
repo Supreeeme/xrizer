@@ -813,15 +813,21 @@ impl vr::IVRCompositor029_Interface for Compositor {
         let input = self.input.force(|_| Input::new(self.openxr.clone()));
 
         let Some(pose) = (match device_index {
-            vr::k_unTrackedDeviceIndex_Hmd => {
-                input.get_device_pose(vr::k_unTrackedDeviceIndex_Hmd, None)
-            }
-            x if x == openxr_data::Hand::Left as u32 => {
-                input.get_controller_pose(openxr_data::Hand::Left, None)
-            }
-            x if x == openxr_data::Hand::Right as u32 => {
-                input.get_controller_pose(openxr_data::Hand::Right, None)
-            }
+            vr::k_unTrackedDeviceIndex_Hmd => input.get_device_pose(
+                vr::k_unTrackedDeviceIndex_Hmd,
+                None,
+                self.openxr.display_time.get(),
+            ),
+            x if x == openxr_data::Hand::Left as u32 => input.get_controller_pose(
+                openxr_data::Hand::Left,
+                None,
+                self.openxr.display_time.get(),
+            ),
+            x if x == openxr_data::Hand::Right as u32 => input.get_controller_pose(
+                openxr_data::Hand::Right,
+                None,
+                self.openxr.display_time.get(),
+            ),
             _ => {
                 return vr::EVRCompositorError::RequestFailed;
             }
@@ -855,7 +861,7 @@ impl vr::IVRCompositor029_Interface for Compositor {
         };
         self.input
             .force(|_| Input::new(self.openxr.clone()))
-            .get_poses(render_poses, None);
+            .get_poses(render_poses, None, self.openxr.display_time.get());
 
         // Not entirely sure how the game poses are supposed to differ from the render poses,
         // but a lot of games use the game pose array for controller positions.
