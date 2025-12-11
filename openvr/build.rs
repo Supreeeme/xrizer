@@ -100,6 +100,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version!(1, 4, 18),
         version!(1, 3, 22),
         version!(1, 0, 17),
+        version!(1, 0, 11),
         version!(1, 0, 10),
         version!(1, 0, 9),
         version!(1, 0, 7),

@@ -19,7 +19,7 @@ pub const SKYBOX_Z_ORDER: i64 = -1;
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVROverlay"]
-#[versions(028, 027, 025, 024, 021, 020, 019, 018, 016, 014, 013, 007)]
+#[versions(028, 027, 025, 024, 021, 020, 019, 018, 017, 016, 014, 013, 007)]
 pub struct OverlayMan {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Compositor>>,
@@ -1480,7 +1480,7 @@ impl vr::IVROverlay019On020 for OverlayMan {
     }
 }
 
-impl vr::IVROverlay016On018 for OverlayMan {
+impl vr::IVROverlay017On018 for OverlayMan {
     fn HandleControllerOverlayInteractionAsMouse(
         &self,
         _: vr::VROverlayHandle_t,
