@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v[0-9]+.[0-9]+**
+
+permissions:
+  actions: read
+  contents: write
+  packages: read
+
+jobs:
+  vendor-dependencies:
+    runs-on: ubuntu-latest
+    container:
+      image: 'ghcr.io/supreeeme/xrizer-ubuntu:latest'
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Vendor dependencies
+      id: vendor
+      run: |
+        cargo vendor --versioned-dirs > config.toml
+        mv config.toml vendor
+        echo "vendor=$(realpath vendor)" >> "$GITHUB_OUTPUT"
+    - name: Upload artifact
+      id: upload
+      uses: actions/upload-artifact@v4
+      with:
+        path: ${{ steps.vendor.outputs.vendor }}
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+  get-latest-build:
+    runs-on: ubuntu-latest
+    needs: vendor-dependencies
+    steps:
+      - name: Get latest build
+        id: latest-build
+        uses: actions/github-script@v8
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        with:
+          script: |
+            const repo_split = process.env.REPO.split("/");
+            const owner = repo_split[0];
+            const repo = repo_split[1];
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner: owner,
+              repo: repo,
+              workflow_id: 'ci.yml',
+              head_sha: process.env.SHA,
+              status: "success"
+            });
+
+            if (runs.total_count === 0) {
+              console.error(runs);
+              throw new Error("No workflow runs?");
+            }
+
+            return runs.workflow_runs[0].id
+      - name: Download build
+        id: download-build
+        uses: actions/download-artifact@v5
+        with:
+          name: xrizer-nightly-release
+          run-id: ${{ steps.latest-build.outputs.result }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download vendored dependencies
+        uses: actions/download-artifact@v5
+        with:
+          path: vendor
+          artifact-ids: ${{ needs.vendor-dependencies.outputs.artifact_id }}
+      # download-artifact unzips artifacts so we need to zip them back up
+      - name: Zip build
+        id: zip
+        env:
+            VERSION: ${{ github.ref_name }}
+        run: |
+          mv xrizer xrizer-$VERSION
+          zip -r xrizer-$VERSION.zip xrizer-$VERSION
+          zip -r dependencies.zip vendor
+      - name: Draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ format('xrizer-{0}.zip', github.ref_name) }}
+            dependencies.zip
+          fail_on_unmatched_files: true

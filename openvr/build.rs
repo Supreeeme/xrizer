@@ -100,6 +100,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version!(1, 4, 18),
         version!(1, 3, 22),
         version!(1, 0, 17),
+        version!(1, 0, 11),
         version!(1, 0, 10),
         version!(1, 0, 9),
         version!(1, 0, 7),
@@ -169,12 +170,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allowlist_item("vr.*::k_.*") // constants
         .allowlist_item("vr.*::VR.*")
         .allowlist_item("vr.*::EVRComponentProperty")
+        .allowlist_item("vr.*::EKeyboardFlags")
         .allowlist_item("Vk.*")
         .blocklist_function("vr.*::VR_.*")
         .derive_default(true)
         .no_default("vr.*::IVR.*")
         .bitfield_enum("vr.*::EVRSubmitFlags")
         .bitfield_enum("vr.*::EVRComponentProperty")
+        .bitfield_enum("vr.*::EKeyboardFlags")
         .rustified_enum(".*")
         .vtable_generation(true)
         .generate_cstr(true)

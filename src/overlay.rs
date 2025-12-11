@@ -19,7 +19,7 @@ pub const SKYBOX_Z_ORDER: i64 = -1;
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVROverlay"]
-#[versions(028, 027, 025, 024, 021, 020, 019, 018, 016, 014, 013, 007)]
+#[versions(028, 027, 025, 024, 021, 020, 019, 018, 017, 016, 014, 013, 007)]
 pub struct OverlayMan {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Compositor>>,
@@ -1383,28 +1383,55 @@ impl vr::IVROverlay025On027 for OverlayMan {
 impl vr::IVROverlay021On024 for OverlayMan {
     fn ShowKeyboardForOverlay(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: vr::EGamepadTextInputMode,
-        _: vr::EGamepadTextInputLineMode,
-        _: *const c_char,
-        _: u32,
-        _: *const c_char,
-        _: bool,
-        _: u64,
+        handle: vr::VROverlayHandle_t,
+        input_mode: vr::EGamepadTextInputMode,
+        line_input_mode: vr::EGamepadTextInputLineMode,
+        description: *const c_char,
+        char_max: u32,
+        existing_text: *const c_char,
+        use_minimal_mode: bool,
+        user_value: u64,
     ) -> vr::EVROverlayError {
-        todo!()
+        <Self as vr::IVROverlay024_Interface>::ShowKeyboardForOverlay(
+            self,
+            handle,
+            input_mode,
+            line_input_mode,
+            if use_minimal_mode {
+                vr::EKeyboardFlags::Minimal.0
+            } else {
+                0
+            },
+            description,
+            char_max,
+            existing_text,
+            user_value,
+        )
     }
     fn ShowKeyboard(
         &self,
-        _: vr::EGamepadTextInputMode,
-        _: vr::EGamepadTextInputLineMode,
-        _: *const c_char,
-        _: u32,
-        _: *const c_char,
-        _: bool,
-        _: u64,
+        input_mode: vr::EGamepadTextInputMode,
+        input_line_mode: vr::EGamepadTextInputLineMode,
+        description: *const c_char,
+        char_max: u32,
+        existing_text: *const c_char,
+        use_minimal_mode: bool,
+        user_value: u64,
     ) -> vr::EVROverlayError {
-        todo!()
+        <Self as vr::IVROverlay024_Interface>::ShowKeyboard(
+            self,
+            input_mode,
+            input_line_mode,
+            if use_minimal_mode {
+                vr::EKeyboardFlags::Minimal.0
+            } else {
+                0
+            },
+            description,
+            char_max,
+            existing_text,
+            user_value,
+        )
     }
     fn GetOverlayDualAnalogTransform(
         &self,
@@ -1496,7 +1523,7 @@ impl vr::IVROverlay019On020 for OverlayMan {
     }
 }
 
-impl vr::IVROverlay016On018 for OverlayMan {
+impl vr::IVROverlay017On018 for OverlayMan {
     fn HandleControllerOverlayInteractionAsMouse(
         &self,
         _: vr::VROverlayHandle_t,
