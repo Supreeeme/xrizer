@@ -1,6 +1,6 @@
 use crate::{
     clientcore::{Injected, Injector},
-    input::{Input, TrackedDeviceType},
+    input::Input,
     openxr_data::{Hand, RealOpenXrData, SessionData},
     overlay::OverlayMan,
     tracy_span,
@@ -9,7 +9,7 @@ use glam::{Mat3, Quat, Vec3};
 use log::{debug, error, trace, warn};
 use openvr as vr;
 use openxr as xr;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::sync::{Arc, Mutex};
 
 #[derive(Copy, Clone)]
@@ -529,13 +529,6 @@ impl vr::IVRSystem023_Interface for System {
             return 0;
         }
 
-        let Some(input) = self.input.get() else {
-            if let Some(error) = unsafe { error.as_mut() } {
-                *error = vr::ETrackedPropertyError::InvalidDevice;
-            }
-            return 0;
-        };
-
         if let Some(error) = unsafe { error.as_mut() } {
             *error = vr::ETrackedPropertyError::Success;
         }
@@ -553,12 +546,15 @@ impl vr::IVRSystem023_Interface for System {
                 // itself doesn't appear to be that important.
                 vr::ETrackedDeviceProperty::SerialNumber_String
                 | vr::ETrackedDeviceProperty::ManufacturerName_String
-                | vr::ETrackedDeviceProperty::ControllerType_String => Some(c"<unknown>"),
+                | vr::ETrackedDeviceProperty::ControllerType_String => {
+                    Some(CString::new("<unknown>").unwrap())
+                }
                 _ => None,
             },
-            x => input
-                .device_index_to_hand(x)
-                .and_then(|hand| input.get_controller_string_tracked_property(hand, prop)),
+            _ => self
+                .input
+                .get()
+                .and_then(|input| input.get_device_string_tracked_property(device_index, prop)),
         };
 
         let Some(data) = data else {
@@ -630,14 +626,7 @@ impl vr::IVRSystem023_Interface for System {
 
         self.input
             .get()
-            .and_then(
-                |input| match input.device_index_to_device_type(device_index) {
-                    Some(TrackedDeviceType::Controller { hand }) => {
-                        input.get_controller_uint_tracked_property(hand, prop)
-                    }
-                    _ => None,
-                },
-            )
+            .and_then(|input| input.get_device_uint_tracked_property(device_index, prop))
             .unwrap_or_else(|| {
                 if let Some(err) = unsafe { err.as_mut() } {
                     *err = vr::ETrackedPropertyError::UnknownProperty;
@@ -664,12 +653,7 @@ impl vr::IVRSystem023_Interface for System {
         }
         self.input
             .get()
-            .and_then(|input| {
-                input.get_controller_int_tracked_property(
-                    input.device_index_to_hand(device_index)?,
-                    prop,
-                )
-            })
+            .and_then(|input| input.get_device_int_tracked_property(device_index, prop))
             .unwrap_or_else(|| {
                 if let Some(err) = unsafe { err.as_mut() } {
                     *err = vr::ETrackedPropertyError::UnknownProperty;
@@ -734,12 +718,7 @@ impl vr::IVRSystem023_Interface for System {
             _ => self
                 .input
                 .get()
-                .and_then(|input| match input.device_index_to_device_type(index) {
-                    Some(TrackedDeviceType::Controller { .. }) => {
-                        Some(vr::ETrackedDeviceClass::Controller)
-                    }
-                    _ => None,
-                })
+                .and_then(|input| input.device_index_to_tracked_device_class(index))
                 .unwrap_or(vr::ETrackedDeviceClass::Invalid),
         }
     }
