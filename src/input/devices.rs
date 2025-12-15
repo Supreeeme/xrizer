@@ -374,6 +374,11 @@ impl TrackedDeviceList {
 
         xdevs.truncate(max_generic_trackers);
 
+        log::info!(
+            "Creating {} generic trackers via Monado XDev extension",
+            xdevs.len()
+        );
+
         let trackers = xdevs.into_iter().map(|xdev| {
             let serial = CString::new(xdev.serial()).unwrap();
             let space = xdev.create_space(xr::Posef::IDENTITY).unwrap();
@@ -530,5 +535,64 @@ impl<C: openxr_data::Compositor> Input<C> {
         let device = devices.get_device(index)?;
 
         device.get_uint_property(property)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::input::{profiles::knuckles::Knuckles, tests::Fixture};
+    use openvr as vr;
+
+    #[test]
+    fn get_tracker_pose() {
+        let mut f = Fixture::new();
+        f.load_actions(c"actions.json");
+        f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
+
+        let frame = || {
+            f.input.openxr.poll_events();
+            f.input.frame_start_update();
+        };
+
+        // we need to wait two frames for the tracker to be connected.
+        frame();
+        assert!(f.input.device_index_to_tracked_device_class(2).is_none());
+        frame();
+        assert!(
+            f.input.device_index_to_tracked_device_class(2)
+                == Some(vr::ETrackedDeviceClass::GenericTracker)
+        );
+
+        let pose2 = f
+            .input
+            .get_device_pose(2, Some(vr::ETrackingUniverseOrigin::Seated));
+        assert!(pose2.is_some());
+    }
+
+    #[test]
+    fn get_tracker_serial() {
+        let mut f = Fixture::new();
+        f.load_actions(c"actions.json");
+        f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
+
+        let frame = || {
+            f.input.openxr.poll_events();
+            f.input.frame_start_update();
+        };
+
+        // we need to wait two frames for the tracker to be connected.
+        frame();
+        assert!(f.input.device_index_to_tracked_device_class(2).is_none());
+        frame();
+        assert!(
+            f.input.device_index_to_tracked_device_class(2)
+                == Some(vr::ETrackedDeviceClass::GenericTracker)
+        );
+
+        let serial = f
+            .input
+            .get_device_string_tracked_property(2, vr::ETrackedDeviceProperty::SerialNumber_String)
+            .unwrap();
+        assert_eq!(serial.to_str().unwrap(), "FAKEXR-SERIAL");
     }
 }

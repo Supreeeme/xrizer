@@ -6,8 +6,13 @@ edition = "2021"
 [lints]
 workspace = true
 
+[features]
+default = ["monado"]
+monado = ["dep:openxr_mndx_xdev_space"]
+
 [dependencies]
 openxr-sys = { workspace = true }
+openxr_mndx_xdev_space = { version = "0.1.1", optional = true }
 paste = "1.0.15"
 ash = { workspace = true }
 crossbeam-utils = "0.8.20"
