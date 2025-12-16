@@ -1495,19 +1495,21 @@ impl vr::IVROverlay020On021 for OverlayMan {
     }
     fn GetOverlayAutoCurveDistanceRangeInMeters(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: *mut f32,
-        _: *mut f32,
+        _handle: vr::VROverlayHandle_t,
+        _min_distance: *mut f32,
+        _max_distance: *mut f32,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("GetOverlayAutoCurveDistanceRangeInMeters");
+        vr::EVROverlayError::None
     }
     fn SetOverlayAutoCurveDistanceRangeInMeters(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: f32,
-        _: f32,
+        _handle: vr::VROverlayHandle_t,
+        _min_distance: f32,
+        _max_distance: f32,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("SetOverlayAutoCurveDistanceRangeInMeters");
+        vr::EVROverlayError::None
     }
 }
 
@@ -1515,7 +1517,8 @@ impl vr::IVROverlay020On021 for OverlayMan {
 // rendering path now.
 impl vr::IVROverlay019On020 for OverlayMan {
     fn GetHighQualityOverlay(&self) -> vr::VROverlayHandle_t {
-        unimplemented!()
+        crate::warn_unimplemented!("GetHighQualityOverlay");
+        vr::k_ulOverlayHandleInvalid
     }
     fn SetHighQualityOverlay(&self, _: vr::VROverlayHandle_t) -> vr::EVROverlayError {
         crate::warn_unimplemented!("SetHighQualityOverlay");
