@@ -1517,7 +1517,8 @@ impl vr::IVROverlay020On021 for OverlayMan {
 // rendering path now.
 impl vr::IVROverlay019On020 for OverlayMan {
     fn GetHighQualityOverlay(&self) -> vr::VROverlayHandle_t {
-        unimplemented!()
+        crate::warn_unimplemented!("GetHighQualityOverlay");
+        vr::k_ulOverlayHandleInvalid
     }
     fn SetHighQualityOverlay(&self, _: vr::VROverlayHandle_t) -> vr::EVROverlayError {
         crate::warn_unimplemented!("SetHighQualityOverlay");
