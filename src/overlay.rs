@@ -50,6 +50,11 @@ impl OverlayMan {
         texture: &vr::Texture_t,
         bounds: vr::VRTextureBounds_t,
     ) -> Result<RealSessionData<'_>, vr::EVROverlayError> {
+        if !SupportedBackend::is_texture_type_supported(texture.eType) {
+            log::warn!("Unsupported texture type: {:?}", texture.eType);
+            return Err(vr::EVROverlayError::InvalidTexture);
+        }
+
         if !self.openxr.session_data.get().is_real_session()
             && self
                 .compositor
@@ -78,11 +83,6 @@ impl OverlayMan {
             1..=2 => {
                 // only single equirect supported for now, ignore any 2nd one
                 let texture = textures.first().unwrap();
-                if !SupportedBackend::is_texture_type_supported(texture.eType) {
-                    log::warn!("Unsupported texture type: {:?}", texture.eType);
-                    return Err(vr::EVRCompositorError::InvalidTexture);
-                }
-
                 let name = CString::new("__xrizer_skybox").unwrap();
                 let key = overlays.insert(Overlay::new(name.clone(), name));
                 let overlay = overlays.get_mut(key).unwrap();
@@ -98,11 +98,6 @@ impl OverlayMan {
             }
             6 => {
                 for (idx, texture) in textures.iter().enumerate() {
-                    if !SupportedBackend::is_texture_type_supported(texture.eType) {
-                        log::warn!("Unsupported texture type: {:?}", texture.eType);
-                        return Err(vr::EVRCompositorError::InvalidTexture);
-                    }
-
                     // 6 quads forming a cursed box
                     let name = CString::new(format!("__xrizer_skybox_{idx}")).unwrap();
                     let key = overlays.insert(Overlay::new(name.clone(), name));
@@ -501,17 +496,12 @@ impl Overlay {
         }
     }
 
-    pub fn set_texture(
+    fn set_texture(
         &mut self,
         key: OverlayKey,
         session_data: RealSessionData<'_>,
         texture: vr::Texture_t,
     ) -> Result<(), vr::EVROverlayError> {
-        if !SupportedBackend::is_texture_type_supported(texture.eType) {
-            log::warn!("Unsupported texture type: {:?}", texture.eType);
-            return Err(vr::EVROverlayError::InvalidTexture);
-        }
-
         let backend = match &self.compositor {
             Some(b) => b,
             None => self.compositor.insert(
