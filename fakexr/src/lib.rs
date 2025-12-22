@@ -1,4 +1,8 @@
 pub mod vulkan;
+
+mod monado_xdev;
+pub use monado_xdev::add_trackers;
+
 use crossbeam_utils::atomic::AtomicCell;
 use glam::{Affine3A, Quat, Vec3};
 use openxr_sys as xr;
@@ -186,6 +190,21 @@ pub unsafe extern "system" fn get_instance_proc_addr(
         ([$($func:tt),+] $pat:pat => $expr:expr) => {
             get_fn!(@arm [$($func),+] -> [] {$pat => $expr})
         };
+        (@arm [ {mndx::$name:ident} $(,$rest:tt)* ] -> [$($arms:tt),*] {$pat:pat => $expr:expr}) => {
+            get_fn!(
+                @arm
+                [$($rest),*] ->
+                [
+                    $($arms,)*
+                    [
+                        x if x == const {
+                            CStr::from_bytes_with_nul_unchecked(concat!("xr", stringify!($name), "\0").as_bytes())
+                        } => Some(std::mem::transmute( paste! { monado_xdev::[<$name:snake>] as openxr_mndx_xdev_space::bindings::$name }))
+                    ]
+                ]
+                {$pat => $expr}
+            )
+        };
         (@arm [$name:ident $(,$rest:tt)*] -> [$($arms:tt),*] {$pat:pat => $expr:expr}) => {
             get_fn!(
                 @arm
@@ -196,21 +215,6 @@ pub unsafe extern "system" fn get_instance_proc_addr(
                         x if x == const {
                             CStr::from_bytes_with_nul_unchecked(concat!("xr", stringify!($name), "\0").as_bytes())
                         } => Some(std::mem::transmute( paste! { [<$name:snake>] as xr::pfn::$name }))
-                    ]
-                ]
-                {$pat => $expr}
-            )
-        };
-        (@arm [ ( mndx :: $name:ident ) $(,$rest:tt)* ] -> [$($arms:tt),*] {$pat:pat => $expr:expr}) => {
-            get_fn!(
-                @arm
-                [$($rest),*] ->
-                [
-                    $($arms,)*
-                    [
-                        x if x == const {
-                            CStr::from_bytes_with_nul_unchecked(concat!("xr", stringify!($name), "\0").as_bytes())
-                        } => Some(std::mem::transmute( paste! { [<$name:snake>] as openxr_mndx_xdev_space::bindings::$name }))
                     ]
                 ]
                 {$pat => $expr}
@@ -252,79 +256,6 @@ pub unsafe extern "system" fn get_instance_proc_addr(
         use vulkan::xr::*;
 
         unsafe {
-            #[cfg(not(feature = "monado"))]
-            {
-                *function = get_fn![[
-                    GetInstanceProcAddr,
-                    CreateInstance,
-                    DestroyInstance,
-                    (EnumerateInstanceExtensionProperties),
-                    (EnumerateApiLayerProperties),
-                    GetVulkanInstanceExtensionsKHR,
-                    GetVulkanDeviceExtensionsKHR,
-                    GetVulkanGraphicsDeviceKHR,
-                    GetVulkanGraphicsRequirementsKHR,
-                    GetSystem,
-                    CreateSession,
-                    DestroySession,
-                    BeginSession,
-                    EndSession,
-                    CreateReferenceSpace,
-                    PollEvent,
-                    DestroySpace,
-                    LocateViews,
-                    RequestExitSession,
-                    (ResultToString),
-                    (StructureTypeToString),
-                    (GetInstanceProperties),
-                    (GetSystemProperties),
-                    CreateSwapchain,
-                    DestroySwapchain,
-                    EnumerateSwapchainImages,
-                    AcquireSwapchainImage,
-                    WaitSwapchainImage,
-                    ReleaseSwapchainImage,
-                    EnumerateSwapchainFormats,
-                    (EnumerateReferenceSpaces),
-                    CreateActionSpace,
-                    LocateSpace,
-                    (EnumerateViewConfigurations),
-                    (EnumerateEnvironmentBlendModes),
-                    (GetViewConfigurationProperties),
-                    (EnumerateViewConfigurationViews),
-                    BeginFrame,
-                    EndFrame,
-                    WaitFrame,
-                    ApplyHapticFeedback,
-                    (StopHapticFeedback),
-                    (PollEvent),
-                    StringToPath,
-                    PathToString,
-                    (GetReferenceSpaceBoundsRect),
-                    GetActionStateBoolean,
-                    GetActionStateFloat,
-                    GetActionStateVector2f,
-                    (GetActionStatePose),
-                    CreateActionSet,
-                    DestroyActionSet,
-                    CreateAction,
-                    DestroyAction,
-                    SuggestInteractionProfileBindings,
-                    AttachSessionActionSets,
-                    GetCurrentInteractionProfile,
-                    SyncActions,
-                    (EnumerateBoundSourcesForAction),
-                    (GetInputSourceLocalizedName)
-                    ]
-
-                    other => {
-                        println!("unknown func: {other:?}");
-                        return xr::Result::ERROR_FUNCTION_UNSUPPORTED;
-                    }
-                ]
-            }
-
-            #[cfg(feature = "monado")]
             {
                 *function = get_fn![[
                     GetInstanceProcAddr,
@@ -387,12 +318,12 @@ pub unsafe extern "system" fn get_instance_proc_addr(
                     SyncActions,
                     (EnumerateBoundSourcesForAction),
                     (GetInputSourceLocalizedName),
-                    (mndx::CreateXDevListMNDX),
-                    (mndx::GetXDevListGenerationNumberMNDX),
-                    (mndx::EnumerateXDevsMNDX),
-                    (mndx::GetXDevPropertiesMNDX),
-                    (mndx::DestroyXDevListMNDX),
-                    (mndx::CreateXDevSpaceMNDX)
+                    {mndx::CreateXDevListMNDX},
+                    {mndx::GetXDevListGenerationNumberMNDX},
+                    {mndx::EnumerateXDevsMNDX},
+                    {mndx::GetXDevPropertiesMNDX},
+                    {mndx::DestroyXDevListMNDX},
+                    {mndx::CreateXDevSpaceMNDX}
                     ]
 
                     other => {
@@ -414,8 +345,8 @@ extern "system" fn enumerate_instance_extension_properties(
     properties: *mut xr::ExtensionProperties,
 ) -> xr::Result {
     assert!(layer_name.is_null());
-    unsafe { *property_count_output = if cfg!(feature = "monado") { 2 } else { 1 } };
-    if property_capacity_input > 1 {
+    unsafe { *property_count_output = 2 };
+    if property_capacity_input >= 2 {
         let props =
             unsafe { std::slice::from_raw_parts_mut(properties, property_capacity_input as usize) };
         props[0] = xr::ExtensionProperties {
@@ -436,13 +367,10 @@ extern "system" fn enumerate_instance_extension_properties(
             extension_version: 1,
         };
 
-        #[cfg(feature = "monado")]
-        {
-            let name = openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
-            let name =
-                unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
-            props[1].extension_name[..name.len()].copy_from_slice(name);
-        }
+        let name = openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
+        let name =
+            unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
+        props[1].extension_name[..name.len()].copy_from_slice(name);
     }
     xr::Result::SUCCESS
 }
@@ -461,7 +389,7 @@ trait XrType {
 
 macro_rules! get_handle {
     ($handle:expr) => {{
-        match <_ as XrType>::to_handle($handle) {
+        match <_ as crate::XrType>::to_handle($handle) {
             Some(handle) => handle,
             None => {
                 eprintln!("unknown handle for {} ({:?})", stringify!($handle), $handle);
@@ -470,32 +398,39 @@ macro_rules! get_handle {
         }
     }};
 }
+pub(crate) use get_handle;
 
 macro_rules! impl_handle {
     ($ty:ty, $xr_type:ty) => {
-        impl XrType for $xr_type {
+        impl crate::XrType for $xr_type {
             type Handle = $ty;
             const TO_RAW: fn(Self) -> u64 = <$xr_type>::into_raw;
             fn to_handle(self) -> Option<Arc<Self::Handle>> {
                 Self::Handle::instances()
-                    .get(DefaultKey::from(KeyData::from_ffi(self.into_raw())))
+                    .get(slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(
+                        self.into_raw(),
+                    )))
                     .map(|i| Arc::clone(i))
             }
         }
         impl Handle for $ty {
             type XrType = $xr_type;
-            fn instances() -> MutexGuard<'static, SlotMap<DefaultKey, Arc<Self>>> {
-                static I: LazyLock<Mutex<SlotMap<DefaultKey, Arc<$ty>>>> =
-                    LazyLock::new(|| Mutex::default());
+            fn instances(
+            ) -> std::sync::MutexGuard<'static, slotmap::SlotMap<slotmap::DefaultKey, Arc<Self>>>
+            {
+                static I: std::sync::LazyLock<
+                    std::sync::Mutex<slotmap::SlotMap<slotmap::DefaultKey, Arc<$ty>>>,
+                > = std::sync::LazyLock::new(|| std::sync::Mutex::default());
                 I.lock().unwrap()
             }
             fn to_xr(self: Arc<Self>) -> $xr_type {
                 let key = Self::instances().insert(self);
-                <$xr_type>::from_raw(key.data().as_ffi())
+                <$xr_type>::from_raw(<_ as slotmap::Key>::data(&key).as_ffi())
             }
         }
     };
 }
+pub(crate) use impl_handle;
 
 struct EventDataBuffer {
     buffer: Vec<u8>,
@@ -572,6 +507,7 @@ struct Session {
     state_synced: AtomicBool,
     should_render: AtomicBool,
     frame_state: AtomicCell<FrameState>,
+    with_trackers: AtomicBool,
 }
 
 impl Session {
@@ -915,6 +851,7 @@ extern "system" fn create_session(
         state_synced: true.into(),
         should_render: false.into(),
         frame_state: FrameState::Ended.into(),
+        with_trackers: false.into(),
     });
 
     let tx = sess.event_sender.clone();
@@ -1888,168 +1825,6 @@ extern "system" fn apply_haptic_feedback(
             action.state.right.store(hand_state);
         }
         _ => unreachable!(),
-    }
-
-    xr::Result::SUCCESS
-}
-
-#[cfg(feature = "monado")]
-#[derive(Default)]
-struct XDevListMNDX {
-    generation_number: u64,
-    xdevs: Vec<XDev>,
-}
-
-#[cfg(feature = "monado")]
-struct XDev {
-    id: openxr_mndx_xdev_space::bindings::XDevIdMNDX,
-    can_create_space: bool,
-    name: CString,
-    serial: CString,
-}
-
-#[cfg(feature = "monado")]
-impl_handle!(XDevListMNDX, openxr_mndx_xdev_space::bindings::XDevListMNDX);
-
-#[cfg(feature = "monado")]
-extern "system" fn create_x_dev_list_m_n_d_x(
-    _session: xr::Session,
-    _create_info: *const openxr_mndx_xdev_space::bindings::CreateXDevListInfoMNDX,
-    xdev_list: *mut openxr_mndx_xdev_space::bindings::XDevListMNDX,
-) -> xr::Result {
-    let list = Arc::new(XDevListMNDX {
-        generation_number: 1, //monado always sets this at 1
-        xdevs: vec![XDev {
-            id: unsafe {
-                std::mem::transmute::<u64, openxr_mndx_xdev_space::bindings::XDevIdMNDX>(43u64)
-            }, //monado starts counting xdevs at 43 (https://gitlab.freedesktop.org/monado/monado/-/blob/main/src/xrt/state_trackers/oxr/oxr_xdev.c#L170)
-            can_create_space: true,
-            name: c"FAKEXR-TRACKER".to_owned(),
-            serial: c"FAKEXR-SERIAL".to_owned(),
-        }],
-    });
-
-    unsafe {
-        *xdev_list = list.to_xr();
-    }
-
-    xr::Result::SUCCESS
-}
-
-#[cfg(feature = "monado")]
-extern "system" fn get_x_dev_list_generation_number_m_n_d_x(
-    xdev_list: openxr_mndx_xdev_space::bindings::XDevListMNDX,
-    generation: *mut u64,
-) -> xr::Result {
-    unsafe {
-        let list = get_handle!(xdev_list);
-        *generation = list.generation_number;
-    }
-
-    xr::Result::SUCCESS
-}
-
-#[cfg(feature = "monado")]
-extern "system" fn enumerate_x_devs_m_n_d_x(
-    xdev_list: openxr_mndx_xdev_space::bindings::XDevListMNDX,
-    xdev_capacity_input: u32,
-    xdev_count_output: *mut u32,
-    xdev_ids: *mut openxr_mndx_xdev_space::bindings::XDevIdMNDX,
-) -> xr::Result {
-    let xdev_list = get_handle!(xdev_list);
-
-    unsafe {
-        *xdev_count_output = xdev_list.xdevs.len() as u32;
-        let capacity = xdev_list.xdevs.len();
-        *xdev_count_output = capacity as u32;
-
-        if !xdev_ids.is_null() && xdev_capacity_input > 0 {
-            let ids = std::slice::from_raw_parts_mut(xdev_ids, xdev_capacity_input as usize);
-
-            for (i, xdev) in xdev_list.xdevs.iter().enumerate().take(capacity) {
-                if i < xdev_capacity_input as usize {
-                    ids[i] = xdev.id;
-                }
-            }
-        }
-    }
-
-    xr::Result::SUCCESS
-}
-
-#[cfg(feature = "monado")]
-extern "system" fn get_x_dev_properties_m_n_d_x(
-    xdev_list: openxr_mndx_xdev_space::bindings::XDevListMNDX,
-    get_xdev_info: *const openxr_mndx_xdev_space::bindings::GetXDevInfoMNDX,
-    properties: *mut openxr_mndx_xdev_space::bindings::XDevPropertiesMNDX,
-) -> xr::Result {
-    let xdev_list = get_handle!(xdev_list);
-    let get_xdev_info = unsafe { get_xdev_info.as_ref() }.unwrap();
-
-    let Some(xdev) = xdev_list
-        .xdevs
-        .iter()
-        .find(|x| x.id == get_xdev_info.dev_id)
-    else {
-        return xr::Result::ERROR_INDEX_OUT_OF_RANGE;
-    };
-
-    unsafe {
-        let mut name_buf = [0i8; 256];
-        let mut serial_buf = [0i8; 256];
-
-        let name_bytes = xdev.name.as_bytes_with_nul();
-        let serial_bytes = xdev.serial.as_bytes_with_nul();
-
-        name_buf[..name_bytes.len()]
-            .copy_from_slice(&name_bytes.iter().map(|i| *i as i8).collect::<Vec<_>>());
-        serial_buf[..serial_bytes.len()]
-            .copy_from_slice(&serial_bytes.iter().map(|i| *i as i8).collect::<Vec<_>>());
-
-        *properties = openxr_mndx_xdev_space::bindings::XDevPropertiesMNDX {
-            ty: openxr_mndx_xdev_space::bindings::XDevPropertiesMNDX::TYPE,
-            next: std::ptr::null_mut(),
-            can_create_space: xdev.can_create_space.into(),
-            name: name_buf,
-            serial: serial_buf,
-        };
-    }
-
-    xr::Result::SUCCESS
-}
-
-#[cfg(feature = "monado")]
-extern "system" fn destroy_x_dev_list_m_n_d_x(
-    xdev_list: openxr_mndx_xdev_space::bindings::XDevListMNDX,
-) -> xr::Result {
-    destroy_handle(xdev_list);
-    xr::Result::SUCCESS
-}
-
-#[cfg(feature = "monado")]
-extern "system" fn create_x_dev_space_m_n_d_x(
-    session: xr::Session,
-    create_info: *const openxr_mndx_xdev_space::bindings::CreateXDevSpaceInfoMNDX,
-    space: *mut xr::Space,
-) -> xr::Result {
-    let s = get_handle!(session);
-    unsafe {
-        if (*create_info).xdev_id
-            != std::mem::transmute::<u64, openxr_mndx_xdev_space::bindings::XDevIdMNDX>(43u64)
-        {
-            return xr::Result::ERROR_INDEX_OUT_OF_RANGE;
-        }
-    }
-
-    let create_info = unsafe { create_info.as_ref().unwrap() };
-    let xdev_space = Arc::new(Space {
-        ty: SpaceType::Reference(xr::ReferenceSpaceType::VIEW),
-        offset: create_info.offset,
-        session: Arc::downgrade(&s),
-    });
-
-    unsafe {
-        *space = s.add_space(xdev_space);
     }
 
     xr::Result::SUCCESS

@@ -544,10 +544,12 @@ mod tests {
     use openvr as vr;
 
     #[test]
+    #[cfg_attr(not(feature = "monado"), ignore)]
     fn get_tracker_pose() {
         let mut f = Fixture::new();
         f.load_actions(c"actions.json");
         f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
+        fakexr::add_trackers(f.input.openxr.session_data.get().session.as_raw());
 
         let frame = || {
             f.input.openxr.poll_events();
@@ -570,10 +572,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "monado"), ignore)]
     fn get_tracker_serial() {
         let mut f = Fixture::new();
         f.load_actions(c"actions.json");
         f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
+        fakexr::add_trackers(f.input.openxr.session_data.get().session.as_raw());
 
         let frame = || {
             f.input.openxr.poll_events();
