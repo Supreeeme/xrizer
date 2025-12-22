@@ -324,10 +324,6 @@ impl TrackedDeviceList {
         Ok(index)
     }
 
-    pub(super) fn get_hmd(&self) -> &TrackedDevice {
-        self.devices.first().unwrap()
-    }
-
     pub(super) fn get_controller(&self, hand: Hand) -> Option<&TrackedDevice> {
         self.get_device(self.get_controller_index(hand)?)
     }
