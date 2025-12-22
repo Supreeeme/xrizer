@@ -13,6 +13,9 @@ use std::sync::{
     RwLock,
 };
 
+#[cfg(feature = "monado")]
+use openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
+
 pub trait Compositor: vr::InterfaceImpl {
     fn post_session_restart(
         &self,
@@ -122,6 +125,17 @@ impl<C: Compositor> OpenXrData<C> {
         exts.khr_composition_layer_equirect2 = supported_exts.khr_composition_layer_equirect2;
         exts.khr_composition_layer_color_scale_bias =
             supported_exts.khr_composition_layer_color_scale_bias;
+
+        // Extension that enables simple full body tracking support via generic tracked devices.
+        // Available only in the Monado OpenXR runtime.
+        #[cfg(feature = "monado")]
+        if supported_exts
+            .other
+            .contains(&XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string())
+        {
+            exts.other
+                .push(XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string());
+        }
 
         let instance = entry
             .create_instance(

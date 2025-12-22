@@ -1,4 +1,8 @@
 pub mod vulkan;
+
+mod monado_xdev;
+pub use monado_xdev::add_trackers;
+
 use crossbeam_utils::atomic::AtomicCell;
 use glam::{Affine3A, Quat, Vec3};
 use openxr_sys as xr;
@@ -186,6 +190,21 @@ pub unsafe extern "system" fn get_instance_proc_addr(
         ([$($func:tt),+] $pat:pat => $expr:expr) => {
             get_fn!(@arm [$($func),+] -> [] {$pat => $expr})
         };
+        (@arm [ {mndx::$name:ident} $(,$rest:tt)* ] -> [$($arms:tt),*] {$pat:pat => $expr:expr}) => {
+            get_fn!(
+                @arm
+                [$($rest),*] ->
+                [
+                    $($arms,)*
+                    [
+                        x if x == const {
+                            CStr::from_bytes_with_nul_unchecked(concat!("xr", stringify!($name), "\0").as_bytes())
+                        } => Some(std::mem::transmute( paste! { monado_xdev::[<$name:snake>] as openxr_mndx_xdev_space::bindings::$name }))
+                    ]
+                ]
+                {$pat => $expr}
+            )
+        };
         (@arm [$name:ident $(,$rest:tt)*] -> [$($arms:tt),*] {$pat:pat => $expr:expr}) => {
             get_fn!(
                 @arm
@@ -237,74 +256,82 @@ pub unsafe extern "system" fn get_instance_proc_addr(
         use vulkan::xr::*;
 
         unsafe {
-            *function = get_fn![[
-                GetInstanceProcAddr,
-                CreateInstance,
-                DestroyInstance,
-                (EnumerateInstanceExtensionProperties),
-                (EnumerateApiLayerProperties),
-                GetVulkanInstanceExtensionsKHR,
-                GetVulkanDeviceExtensionsKHR,
-                GetVulkanGraphicsDeviceKHR,
-                GetVulkanGraphicsRequirementsKHR,
-                GetSystem,
-                CreateSession,
-                DestroySession,
-                BeginSession,
-                EndSession,
-                CreateReferenceSpace,
-                PollEvent,
-                DestroySpace,
-                LocateViews,
-                RequestExitSession,
-                (ResultToString),
-                (StructureTypeToString),
-                (GetInstanceProperties),
-                (GetSystemProperties),
-                CreateSwapchain,
-                DestroySwapchain,
-                EnumerateSwapchainImages,
-                AcquireSwapchainImage,
-                WaitSwapchainImage,
-                ReleaseSwapchainImage,
-                EnumerateSwapchainFormats,
-                (EnumerateReferenceSpaces),
-                CreateActionSpace,
-                LocateSpace,
-                (EnumerateViewConfigurations),
-                (EnumerateEnvironmentBlendModes),
-                (GetViewConfigurationProperties),
-                (EnumerateViewConfigurationViews),
-                BeginFrame,
-                EndFrame,
-                WaitFrame,
-                ApplyHapticFeedback,
-                (StopHapticFeedback),
-                (PollEvent),
-                StringToPath,
-                PathToString,
-                (GetReferenceSpaceBoundsRect),
-                GetActionStateBoolean,
-                GetActionStateFloat,
-                GetActionStateVector2f,
-                (GetActionStatePose),
-                CreateActionSet,
-                DestroyActionSet,
-                CreateAction,
-                DestroyAction,
-                SuggestInteractionProfileBindings,
-                AttachSessionActionSets,
-                GetCurrentInteractionProfile,
-                SyncActions,
-                (EnumerateBoundSourcesForAction),
-                (GetInputSourceLocalizedName)
-                ]
+            {
+                *function = get_fn![[
+                    GetInstanceProcAddr,
+                    CreateInstance,
+                    DestroyInstance,
+                    (EnumerateInstanceExtensionProperties),
+                    (EnumerateApiLayerProperties),
+                    GetVulkanInstanceExtensionsKHR,
+                    GetVulkanDeviceExtensionsKHR,
+                    GetVulkanGraphicsDeviceKHR,
+                    GetVulkanGraphicsRequirementsKHR,
+                    GetSystem,
+                    CreateSession,
+                    DestroySession,
+                    BeginSession,
+                    EndSession,
+                    CreateReferenceSpace,
+                    PollEvent,
+                    DestroySpace,
+                    LocateViews,
+                    RequestExitSession,
+                    (ResultToString),
+                    (StructureTypeToString),
+                    (GetInstanceProperties),
+                    (GetSystemProperties),
+                    CreateSwapchain,
+                    DestroySwapchain,
+                    EnumerateSwapchainImages,
+                    AcquireSwapchainImage,
+                    WaitSwapchainImage,
+                    ReleaseSwapchainImage,
+                    EnumerateSwapchainFormats,
+                    (EnumerateReferenceSpaces),
+                    CreateActionSpace,
+                    LocateSpace,
+                    (EnumerateViewConfigurations),
+                    (EnumerateEnvironmentBlendModes),
+                    (GetViewConfigurationProperties),
+                    (EnumerateViewConfigurationViews),
+                    BeginFrame,
+                    EndFrame,
+                    WaitFrame,
+                    ApplyHapticFeedback,
+                    (StopHapticFeedback),
+                    (PollEvent),
+                    StringToPath,
+                    PathToString,
+                    (GetReferenceSpaceBoundsRect),
+                    GetActionStateBoolean,
+                    GetActionStateFloat,
+                    GetActionStateVector2f,
+                    (GetActionStatePose),
+                    CreateActionSet,
+                    DestroyActionSet,
+                    CreateAction,
+                    DestroyAction,
+                    SuggestInteractionProfileBindings,
+                    AttachSessionActionSets,
+                    GetCurrentInteractionProfile,
+                    SyncActions,
+                    (EnumerateBoundSourcesForAction),
+                    (GetInputSourceLocalizedName),
+                    {mndx::CreateXDevListMNDX},
+                    {mndx::GetXDevListGenerationNumberMNDX},
+                    {mndx::EnumerateXDevsMNDX},
+                    {mndx::GetXDevPropertiesMNDX},
+                    {mndx::DestroyXDevListMNDX},
+                    {mndx::CreateXDevSpaceMNDX}
+                    ]
 
-                other => {
-                    println!("unknown func: {other:?}");
-                    return xr::Result::ERROR_FUNCTION_UNSUPPORTED;
-                }
-            ]
+                    other => {
+                        println!("unknown func: {other:?}");
+                        return xr::Result::ERROR_FUNCTION_UNSUPPORTED;
+                    }
+                ]
+            }
         }
     }
 
@@ -318,8 +345,8 @@ extern "system" fn enumerate_instance_extension_properties(
     properties: *mut xr::ExtensionProperties,
 ) -> xr::Result {
     assert!(layer_name.is_null());
-    unsafe { *property_count_output = 1 };
-    if property_capacity_input > 0 {
+    unsafe { *property_count_output = 2 };
+    if property_capacity_input >= 2 {
         let props =
             unsafe { std::slice::from_raw_parts_mut(properties, property_capacity_input as usize) };
         props[0] = xr::ExtensionProperties {
@@ -332,6 +359,18 @@ extern "system" fn enumerate_instance_extension_properties(
         let name =
             unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
         props[0].extension_name[..name.len()].copy_from_slice(name);
+
+        props[1] = xr::ExtensionProperties {
+            ty: xr::ExtensionProperties::TYPE,
+            next: std::ptr::null_mut(),
+            extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
+            extension_version: 1,
+        };
+
+        let name = openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
+        let name =
+            unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
+        props[1].extension_name[..name.len()].copy_from_slice(name);
     }
     xr::Result::SUCCESS
 }
@@ -350,7 +389,7 @@ trait XrType {
 
 macro_rules! get_handle {
     ($handle:expr) => {{
-        match <_ as XrType>::to_handle($handle) {
+        match <_ as crate::XrType>::to_handle($handle) {
             Some(handle) => handle,
             None => {
                 eprintln!("unknown handle for {} ({:?})", stringify!($handle), $handle);
@@ -359,32 +398,39 @@ macro_rules! get_handle {
         }
     }};
 }
+pub(crate) use get_handle;
 
 macro_rules! impl_handle {
     ($ty:ty, $xr_type:ty) => {
-        impl XrType for $xr_type {
+        impl crate::XrType for $xr_type {
             type Handle = $ty;
             const TO_RAW: fn(Self) -> u64 = <$xr_type>::into_raw;
             fn to_handle(self) -> Option<Arc<Self::Handle>> {
                 Self::Handle::instances()
-                    .get(DefaultKey::from(KeyData::from_ffi(self.into_raw())))
+                    .get(slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(
+                        self.into_raw(),
+                    )))
                     .map(|i| Arc::clone(i))
             }
         }
         impl Handle for $ty {
             type XrType = $xr_type;
-            fn instances() -> MutexGuard<'static, SlotMap<DefaultKey, Arc<Self>>> {
-                static I: LazyLock<Mutex<SlotMap<DefaultKey, Arc<$ty>>>> =
-                    LazyLock::new(|| Mutex::default());
+            fn instances(
+            ) -> std::sync::MutexGuard<'static, slotmap::SlotMap<slotmap::DefaultKey, Arc<Self>>>
+            {
+                static I: std::sync::LazyLock<
+                    std::sync::Mutex<slotmap::SlotMap<slotmap::DefaultKey, Arc<$ty>>>,
+                > = std::sync::LazyLock::new(|| std::sync::Mutex::default());
                 I.lock().unwrap()
             }
             fn to_xr(self: Arc<Self>) -> $xr_type {
                 let key = Self::instances().insert(self);
-                <$xr_type>::from_raw(key.data().as_ffi())
+                <$xr_type>::from_raw(<_ as slotmap::Key>::data(&key).as_ffi())
             }
         }
     };
 }
+pub(crate) use impl_handle;
 
 struct EventDataBuffer {
     buffer: Vec<u8>,
@@ -461,6 +507,7 @@ struct Session {
     state_synced: AtomicBool,
     should_render: AtomicBool,
     frame_state: AtomicCell<FrameState>,
+    with_trackers: AtomicBool,
 }
 
 impl Session {
@@ -587,7 +634,18 @@ impl Space {
             .ok_or(xr::Result::ERROR_SESSION_LOST)?;
 
         let SpaceType::Action { hand, action } = &self.ty else {
-            todo!()
+            let pose = xr::Posef::IDENTITY;
+            let mat = pose_to_mat(pose);
+            let offset = pose_to_mat(self.offset);
+
+            let ret = mat_to_pose(mat * offset);
+
+            return Ok(xr::SpaceLocation {
+                ty: xr::SpaceLocation::TYPE,
+                next: std::ptr::null_mut(),
+                location_flags: *LOCATION_FLAGS_TRACKED,
+                pose: ret,
+            });
         };
 
         // Check if this hand has an interaction profile
@@ -793,6 +851,7 @@ extern "system" fn create_session(
         state_synced: true.into(),
         should_render: false.into(),
         frame_state: FrameState::Ended.into(),
+        with_trackers: false.into(),
     });
 
     let tx = sess.event_sender.clone();
