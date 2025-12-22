@@ -710,11 +710,12 @@ mod tests {
         fakexr::set_grip(f.raw_session(), LeftHand, xr::Posef::IDENTITY);
         fakexr::set_grip(f.raw_session(), RightHand, xr::Posef::IDENTITY);
         f.input.frame_start_update();
+        let xr_time = xr::Time::from_nanos(1234);
 
         let seated_origin = vr::ETrackingUniverseOrigin::Seated;
-        let left_pose = f
-            .input
-            .get_controller_pose(super::Hand::Left, Some(seated_origin));
+        let left_pose =
+            f.input
+                .get_controller_pose(super::Hand::Left, Some(seated_origin), xr_time);
         compare_pose(
             xr::Posef::IDENTITY,
             left_pose.unwrap().mDeviceToAbsoluteTracking.into(),
@@ -722,7 +723,7 @@ mod tests {
         compare_pose(
             xr::Posef::IDENTITY,
             f.input
-                .get_controller_pose(super::Hand::Right, Some(seated_origin))
+                .get_controller_pose(super::Hand::Right, Some(seated_origin), xr_time)
                 .unwrap()
                 .mDeviceToAbsoluteTracking
                 .into(),
@@ -743,7 +744,7 @@ mod tests {
         compare_pose(
             new_pose,
             f.input
-                .get_controller_pose(super::Hand::Left, Some(seated_origin))
+                .get_controller_pose(super::Hand::Left, Some(seated_origin), xr_time)
                 .unwrap()
                 .mDeviceToAbsoluteTracking
                 .into(),
@@ -751,7 +752,7 @@ mod tests {
         compare_pose(
             new_pose,
             f.input
-                .get_controller_pose(super::Hand::Right, Some(seated_origin))
+                .get_controller_pose(super::Hand::Right, Some(seated_origin), xr_time)
                 .unwrap()
                 .mDeviceToAbsoluteTracking
                 .into(),
