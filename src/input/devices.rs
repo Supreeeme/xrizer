@@ -357,6 +357,10 @@ impl TrackedDeviceList {
         });
 
         let max_generic_trackers = vr::k_unMaxTrackedDeviceCount as usize - self.devices.len();
+        let extra_tracker_serials = std::env::var("XRIZER_TRACKER_SERIALS")
+            .map_or(vec![], |trackers| {
+                trackers.split(";").map(|t| t.to_string()).collect()
+            });
 
         let mut xdevs: Vec<XDev> = session_data
             .session
@@ -364,7 +368,9 @@ impl TrackedDeviceList {
             .enumerate_xdevs()?
             .into_iter()
             .filter(|xdev| {
-                xdev.can_create_space() && xdev.name().to_lowercase().contains("tracker")
+                xdev.can_create_space()
+                    && (xdev.name().to_lowercase().contains("tracker")
+                        || extra_tracker_serials.contains(&xdev.serial().to_string()))
             })
             .collect();
 

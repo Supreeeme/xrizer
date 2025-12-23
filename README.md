@@ -82,6 +82,8 @@ _RUST_LOG_ - This is used for adjusting the logging of xrizer. See the [env_logg
 
 _XRIZER_CUSTOM_BINDINGS_DIR_ - This can be used to supply a directory that xrizer will search for controller bindings files. Note that the format of these bindings aren't actually documented anywhere, but it's easy enough to modify an existing file, and xrizer parses them so you can read the source too.
 
+_XRIZER_TRACKER_SERIALS_ - This is a semi-colon (`;`) separated list of device serial numbers to use as generic trackers. Can be used to assign controllers as FBT trackers.
+
 # See also
 
 - [OpenComposite](https://gitlab.com/znixian/OpenOVR) - The original OpenVR/OpenXR implementation, much more mature than xrizer. Some of the code in this repo was rewritten based on OpenComposite.
