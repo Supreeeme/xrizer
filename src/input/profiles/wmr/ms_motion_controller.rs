@@ -1,45 +1,38 @@
-use super::{
+use super::super::{
     InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
     SkeletalInputBindings, StringToPath,
 };
-use crate::button_mask_from_ids;
 use crate::input::legacy;
-use crate::input::legacy::button_mask_from_id;
 use crate::input::legacy::LegacyBindings;
+use crate::input::profiles::wmr;
 use crate::openxr_data::Hand;
 use glam::Mat4;
 use glam::Vec3;
-use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Axis2, Grip, System, A};
 
 pub struct HolographicController;
 
 impl InteractionProfile for HolographicController {
     fn properties(&self) -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
-            model: Property::BothHands(c"WindowsMR"), // "VAC-151B" controllers
-            openvr_controller_type: c"holographic_controller",
-            render_model_name: Property::BothHands(c"holographic_controller"),
+            model: Property::PerHand {
+                left:c"WindowsMR: 0x045E/0x065B/0/1",
+                right: c"WindowsMR: 0x045E/0x065B/0/2",
+            },
+            openvr_controller_type: wmr::OG_OPENVR_CONTROLLER_TYPE,
+            render_model_name: Property::PerHand {
+                left: c"C:\\Users\\steamuser\\AppData\\Local\\Microsoft/Windows/OpenVR\\controller_1627_1118_1\\controller.obj",
+                right: c"C:\\Users\\steamuser\\AppData\\Local\\Microsoft/Windows/OpenVR\\controller_1627_1118_2\\controller.obj"
+            },
             main_axis: MainAxisType::Thumbstick,
-            // TODO: I'm not certain whether that's correct here, THIS IS A GUESS
+            // The official driver doesn't seem return any thing for this?
             registered_device_type: Property::PerHand {
-                left: c"WindowsMR/holographic_controllerLHR-00000001",
-                right: c"WindowsMR/holographic_controllerLHR-00000002",
+                left: c"WindowsMR: 0x045E/0x065B/0/1",
+                right: c"WindowsMR: 0x045E/0x065B/0/2",
             },
-            serial_number: Property::PerHand {
-                left: c"holographic_controllerLHR-00000001",
-                right: c"holographic_controllerLHR-00000002",
-            },
-            tracking_system_name: c"WindowsMR", // TODO: Not sure if this is right, THIS IS A GUESS
-            manufacturer_name: c"WindowsMR",
-            legacy_buttons_mask: button_mask_from_ids!(
-                System,
-                ApplicationMenu,
-                Grip,
-                Axis0,
-                Axis1,
-                Axis2,
-                A
-            ),
+            serial_number: wmr::SERIAL_NUMBER,
+            tracking_system_name: wmr::TRACKING_SYSTEM_NAME,
+            manufacturer_name: c"WindowsMR: 0x045E",
+            legacy_buttons_mask: wmr::OG_LEGACY_BUTTONS_MASK,
         };
         &DEVICE_PROPERTIES
     }

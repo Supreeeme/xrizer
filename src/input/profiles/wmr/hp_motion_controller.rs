@@ -1,11 +1,13 @@
-use super::{
+use super::super::{
     InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
     SkeletalInputBindings, StringToPath,
 };
+
 use crate::button_mask_from_ids;
 use crate::input::legacy;
 use crate::input::legacy::button_mask_from_id;
 use crate::input::legacy::LegacyBindings;
+use crate::input::profiles::wmr;
 use crate::openxr_data::Hand;
 use glam::Mat4;
 use glam::Quat;
@@ -17,21 +19,24 @@ pub struct ReverbG2Controller;
 impl InteractionProfile for ReverbG2Controller {
     fn properties(&self) -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
-            model: Property::BothHands(c"WindowsMR"), // "VAC-151B" controllers
+            model: Property::PerHand {
+                left:c"WindowsMR: 0x045E/0x066A/0/1",
+                right: c"WindowsMR: 0x045E/0x066A/0/2",
+            },
             openvr_controller_type: c"hpmotioncontroller",
-            render_model_name: Property::BothHands(c"hpmotioncontroller"),
+            render_model_name: Property::PerHand {
+                left: c"C:\\Users\\steamuser\\AppData\\Local\\Microsoft/Windows/OpenVR\\controller_1642_1118_1\\controller.obj",
+                right: c"C:\\Users\\steamuser\\AppData\\Local\\Microsoft/Windows/OpenVR\\controller_1642_1118_2\\controller.obj"
+            },
             main_axis: MainAxisType::Thumbstick,
-            // TODO: I'm not certain whether that's correct here, THIS IS A GUESS
+            // The official drivers don't seem to return anything for this:
             registered_device_type: Property::PerHand {
-                left: c"WindowsMR/hpmotioncontrollerLHR-00000001",
-                right: c"WindowsMR/hpmotioncontrollerLHR-00000002",
+                left: c"WindowsMR/MRSOURCE0",
+                right: c"WindowsMR/MRSOURCE1",
             },
-            serial_number: Property::PerHand {
-                left: c"hpmotioncontrollerLHR-00000001",
-                right: c"hpmotioncontrollerLHR-00000002",
-            },
-            tracking_system_name: c"WindowsMR", // TODO: Not sure if this is right, THIS IS A GUESS
-            manufacturer_name: c"WindowsMR",
+            serial_number: wmr::SERIAL_NUMBER,
+            tracking_system_name: wmr::TRACKING_SYSTEM_NAME,
+            manufacturer_name: c"WindowsMR: 0x045E",
             legacy_buttons_mask: button_mask_from_ids!(
                 System,
                 ApplicationMenu,

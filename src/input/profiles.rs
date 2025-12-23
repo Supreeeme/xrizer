@@ -1,26 +1,29 @@
-pub mod hp_motion_controller;
 pub mod knuckles;
-pub mod ms_motion_controller;
+
 pub mod oculus_touch;
-pub mod samsung_odyssey_controller;
+
 pub mod simple_controller;
 pub mod vive_controller;
+pub mod wmr;
+
 #[cfg(feature = "monado")]
 pub mod vive_tracker;
+
 use super::{
     action_manifest::ControllerType, legacy::LegacyBindings, skeletal::SkeletalInputBindings,
 };
 use crate::openxr_data::Hand;
-use samsung_odyssey_controller::SamsungOdysseyController;
 use glam::Mat4;
-use hp_motion_controller::ReverbG2Controller;
 use knuckles::Knuckles;
-use ms_motion_controller::HolographicController;
 use oculus_touch::Touch;
 use openxr as xr;
 use simple_controller::SimpleController;
 use std::ffi::CStr;
 use vive_controller::ViveWands;
+use wmr::{
+    hp_motion_controller::ReverbG2Controller, ms_motion_controller::HolographicController,
+    samsung_odyssey_controller::SamsungOdysseyController,
+};
 
 #[allow(private_interfaces)]
 pub trait InteractionProfile: Sync + Send {
