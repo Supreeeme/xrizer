@@ -13,6 +13,7 @@ pub use profiles::{InteractionProfile, Profiles};
 
 use devices::{SubactionPaths, TrackedDevice, TrackedDeviceList};
 use skeletal::FingerState;
+use skeletal::HandSkeletonBone;
 use skeletal::SkeletalInputActionData;
 
 use crate::{
@@ -56,6 +57,8 @@ pub struct Input<C: openxr_data::Compositor> {
     loaded_actions_path: OnceLock<PathBuf>,
     legacy_state: legacy::LegacyState,
     skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
+    skeletal_bone_cache:
+        [Mutex<Option<[vr::VRBoneTransform_t; HandSkeletonBone::Count as usize]>>; 2],
     estimated_finger_state: [Mutex<FingerState>; 2],
     subaction_paths: SubactionPaths,
     events: Mutex<VecDeque<InputEvent>>,
@@ -126,6 +129,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             right_hand_key,
             legacy_state: Default::default(),
             skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
+            skeletal_bone_cache: Default::default(),
             estimated_finger_state: [
                 Mutex::new(FingerState::new()),
                 Mutex::new(FingerState::new()),
@@ -551,7 +555,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         if transform_array_count < skeletal::HandSkeletonBone::Count as u32 {
             return vr::EVRInputError::BufferTooSmall;
         }
-        let transforms = unsafe {
+        let out_transforms = unsafe {
             std::slice::from_raw_parts_mut(transform_array, transform_array_count as usize)
         };
 
@@ -560,7 +564,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             return vr::EVRInputError::WrongType;
         };
 
-        self.get_bones_from_hand_tracking(&session_data, transform_space, *hand, transforms);
+        let transforms = self.get_bones_from_hand_tracking(&session_data, transform_space, *hand);
+        out_transforms.copy_from_slice(&transforms[0..out_transforms.len()]);
         vr::EVRInputError::None
     }
     fn GetSkeletalTrackingLevel(
@@ -1414,6 +1419,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         tracy_span!();
         let data = self.openxr.session_data.get();
         let devices = data.input_data.devices.read().unwrap();
+
+        for cache in self.skeletal_bone_cache.as_ref() {
+            std::mem::take(&mut *cache.lock().unwrap());
+        }
 
         for device in devices.iter() {
             device.clear_pose_cache();
