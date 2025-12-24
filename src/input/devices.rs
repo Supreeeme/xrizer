@@ -20,6 +20,7 @@ pub enum TrackedDeviceType {
     Controller {
         hand: Hand,
         hand_tracker: Option<xr::HandTracker>,
+        skeleton_cache: Mutex<Box<Option<xr::HandJointLocations>>>,
     },
     #[cfg(feature = "monado")]
     GenericTracker {
@@ -164,16 +165,32 @@ impl TrackedDevice {
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         base: &xr::Space,
     ) -> Option<xr::HandJointLocations> {
-        let TrackedDeviceType::Controller { hand_tracker, .. } = self.get_type() else {
+        let TrackedDeviceType::Controller {
+            hand_tracker,
+            skeleton_cache,
+            ..
+        } = self.get_type()
+        else {
             return None;
         };
+        let mut skeleton_cache = skeleton_cache.lock().unwrap();
 
-        base.locate_hand_joints(hand_tracker.as_ref()?, xr_data.display_time.get())
-            .unwrap_or_default()
+        if let Some(skeleton) = **skeleton_cache {
+            return Some(skeleton);
+        }
+
+        **skeleton_cache = base
+            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.display_time.get())
+            .unwrap_or_default();
+
+        **skeleton_cache
     }
 
     pub fn clear_pose_cache(&self) {
         std::mem::take(&mut *self.pose_cache.lock().unwrap());
+        if let TrackedDeviceType::Controller { skeleton_cache, .. } = self.get_type() {
+            std::mem::take(&mut **skeleton_cache.lock().unwrap());
+        }
     }
 
     pub fn has_connected_changed(&mut self) -> bool {
