@@ -279,10 +279,7 @@ enum ActionData {
         last_value: (AtomicF32, AtomicF32),
     },
     Pose,
-    Skeleton {
-        hand: Hand,
-        hand_tracker: Option<xr::HandTracker>,
-    },
+    Skeleton(Hand),
     Haptic(xr::Action<xr::Haptic>),
 }
 
@@ -563,20 +560,11 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         };
 
         get_action_from_handle!(self, handle, session_data, action);
-        let ActionData::Skeleton { hand, hand_tracker } = action else {
+        let ActionData::Skeleton(hand) = action else {
             return vr::EVRInputError::WrongType;
         };
 
-        let transforms = match hand_tracker.as_ref() {
-            Some(hand_tracker) => self.get_bones_from_hand_tracking(
-                &session_data,
-                transform_space,
-                hand_tracker,
-                *hand,
-            ),
-            None => self.get_estimated_bones(&session_data, transform_space, *hand),
-        };
-
+        let transforms = self.get_bones_from_hand_tracking(&session_data, transform_space, *hand);
         out_transforms.copy_from_slice(&transforms[0..out_transforms.len()]);
 
         vr::EVRInputError::None
@@ -587,7 +575,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         level: *mut vr::EVRSkeletalTrackingLevel,
     ) -> vr::EVRInputError {
         get_action_from_handle!(self, action, data, action);
-        let ActionData::Skeleton { hand, .. } = action else {
+        let ActionData::Skeleton(hand) = action else {
             return vr::EVRInputError::WrongType;
         };
 
@@ -631,7 +619,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         };
 
         get_action_from_handle!(self, handle, session_data, action);
-        let ActionData::Skeleton { hand, .. } = action else {
+        let ActionData::Skeleton(hand) = action else {
             return vr::EVRInputError::WrongType;
         };
 
@@ -692,7 +680,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             return vr::EVRInputError::InvalidHandle;
         };
         let origin = match loaded.try_get_action(action) {
-            Ok(ActionData::Skeleton { hand, .. }) => match hand {
+            Ok(ActionData::Skeleton(hand)) => match hand {
                 Hand::Left => self.left_hand_key.data().as_ffi(),
                 Hand::Right => self.right_hand_key.data().as_ffi(),
             },
@@ -827,7 +815,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                     }
                 }
             }
-            Ok(ActionData::Skeleton { hand, .. }) => {
+            Ok(ActionData::Skeleton(hand)) => {
                 if subaction_path != xr::Path::NULL {
                     return vr::EVRInputError::InvalidDevice;
                 }
@@ -1375,8 +1363,21 @@ impl<C: openxr_data::Compositor> Input<C> {
                 if let Some(controller) = controller.as_mut() {
                     controller.interaction_profile = Some(p);
                 } else {
+                    let hand_tracker = session_data
+                        .session
+                        .create_hand_tracker(hand.into())
+                        .inspect_err(|e| {
+                            if !matches!(
+                                *e,
+                                xr::sys::Result::ERROR_EXTENSION_NOT_PRESENT
+                                    | xr::sys::Result::ERROR_FEATURE_UNSUPPORTED
+                            ) {
+                                log::warn!("Failed to create hand tracker for hand {hand:?}: {e}");
+                            }
+                        })
+                        .ok();
                     devices_to_create.push((
-                        TrackedDeviceType::Controller { hand },
+                        TrackedDeviceType::Controller { hand, hand_tracker },
                         Some(profile_path),
                         Some(p),
                     ));

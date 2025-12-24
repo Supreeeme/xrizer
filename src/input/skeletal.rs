@@ -14,12 +14,10 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use std::time::Instant;
 
 impl<C: openxr_data::Compositor> Input<C> {
-    /// Returns false if hand tracking data couldn't be generated for some reason.
     pub(super) fn get_bones_from_hand_tracking(
         &self,
         session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
-        hand_tracker: &xr::HandTracker,
         hand: Hand,
     ) -> [vr::VRBoneTransform_t; Count as usize] {
         use HandSkeletonBone::*;
@@ -33,7 +31,6 @@ impl<C: openxr_data::Compositor> Input<C> {
         let mut transforms: [vr::VRBoneTransform_t; Count as usize] = Default::default();
 
         let pose_data = session_data.input_data.pose_data.get().unwrap();
-        let display_time = self.openxr.display_time.get();
         let devices = session_data.input_data.devices.read().unwrap();
 
         let Some(controller) = devices.get_controller(hand) else {
@@ -50,7 +47,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             return self.get_estimated_bones(session_data, space, hand);
         };
 
-        let Some(joints) = raw.locate_hand_joints(hand_tracker, display_time).unwrap() else {
+        let Some(joints) = controller.get_hand_skeleton(&self.openxr, &raw) else {
             drop(bone_cache);
             return self.get_estimated_bones(session_data, space, hand);
         };
