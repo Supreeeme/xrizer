@@ -184,34 +184,17 @@ impl<C: openxr_data::Compositor> Input<C> {
             ),
         };
 
-        const fn constrain<'a, F, G>(f: F) -> F
-        where
-            F: Fn(&'a [vr::VRBoneTransform_t], f32) -> G,
-            G: Fn(usize) -> (Vec3, Quat) + 'a,
-        {
-            f
-        }
-        let bone_transform_map = constrain(|start_data: &[vr::VRBoneTransform_t], state| {
-            move |idx| {
-                let (start_pos, start_rot) = bone_transform_to_glam(start_data[idx]);
-                let (closed_pos, closed_rot) = bone_transform_to_glam(fist[idx]);
+        // lerp to target pose
+        for idx in HandSkeletonBone::Root as usize..HandSkeletonBone::Count as usize {
+            let curl_state = finger_state
+                .get_bone_state(unsafe { std::mem::transmute::<usize, HandSkeletonBone>(idx) });
 
-                let pos = start_pos.lerp(closed_pos, state);
-                let rot = start_rot.slerp(closed_rot, state);
+            let (start_pos, start_rot) = bone_transform_to_glam(open[idx]);
+            let (closed_pos, closed_rot) = bone_transform_to_glam(fist[idx]);
 
-                (pos, rot)
-            }
-        });
-
-        for idx in 0..HandSkeletonBone::Count as usize {
-            let bone = unsafe { std::mem::transmute::<usize, HandSkeletonBone>(idx) };
-            let curl_state = finger_state.get_bone_state(bone);
-
-            let map_fn = bone_transform_map(open, curl_state);
-            let (pos, rot) = map_fn(idx);
             transforms[idx] = vr::VRBoneTransform_t {
-                position: pos.into(),
-                orientation: rot.into(),
+                position: start_pos.lerp(closed_pos, curl_state).into(),
+                orientation: start_rot.slerp(closed_rot, curl_state).into(),
             };
         }
 
