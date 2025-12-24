@@ -655,6 +655,15 @@ impl From<Hand> for vr::ETrackedControllerRole {
     }
 }
 
+impl From<Hand> for xr::HandEXT {
+    fn from(hand: Hand) -> Self {
+        match hand {
+            Hand::Left => xr::HandEXT::LEFT,
+            Hand::Right => xr::HandEXT::RIGHT,
+        }
+    }
+}
+
 /// Taken from: https://github.com/bitshifter/glam-rs/issues/536
 /// Decompose the rotation on to 2 parts.
 ///
