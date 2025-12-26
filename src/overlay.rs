@@ -1358,7 +1358,8 @@ impl vr::IVROverlay025On027 for OverlayMan {
         _: vr::VROverlayHandle_t,
         _: *const vr::HmdMatrix34_t,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("SetOverlayTransformOverlayRelative");
+        vr::EVROverlayError::None
     }
     fn GetOverlayTransformOverlayRelative(
         &self,
@@ -1366,7 +1367,8 @@ impl vr::IVROverlay025On027 for OverlayMan {
         _: *mut vr::VROverlayHandle_t,
         _: *mut vr::HmdMatrix34_t,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("GetOverlayTransformOverlayRelative");
+        vr::EVROverlayError::None
     }
 }
 
