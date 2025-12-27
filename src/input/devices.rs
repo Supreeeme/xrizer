@@ -428,10 +428,47 @@ pub struct TrackedDeviceList {
     devices: Vec<TrackedDevice>,
 }
 
-impl Default for TrackedDeviceList {
-    fn default() -> Self {
+impl TrackedDeviceList {
+    pub fn new(session: &xr::Session<xr::AnyGraphics>) -> Self {
+        let create_hand_tracker = |hand: Hand| {
+            session
+                .create_hand_tracker(hand.into())
+                .inspect_err(|e| {
+                    if !matches!(
+                        *e,
+                        xr::sys::Result::ERROR_EXTENSION_NOT_PRESENT
+                            | xr::sys::Result::ERROR_FEATURE_UNSUPPORTED
+                    ) {
+                        log::debug!("Failed to create hand tracker for hand {hand:?}: {e}");
+                    }
+                })
+                .ok()
+        };
+
         Self {
-            devices: vec![TrackedDevice::new(TrackedDeviceType::Hmd, None, None)],
+            devices: vec![
+                TrackedDevice::new(TrackedDeviceType::Hmd, None, None),
+                TrackedDevice::new(
+                    TrackedDeviceType::Controller(ControllerData {
+                        hand: Hand::Left,
+                        hand_tracker: create_hand_tracker(Hand::Left),
+                        skeleton_cache: Mutex::new(Default::default()),
+                        pose_is_synthesised: false.into(),
+                    }),
+                    None,
+                    None,
+                ),
+                TrackedDevice::new(
+                    TrackedDeviceType::Controller(ControllerData {
+                        hand: Hand::Right,
+                        hand_tracker: create_hand_tracker(Hand::Right),
+                        skeleton_cache: Mutex::new(Default::default()),
+                        pose_is_synthesised: false.into(),
+                    }),
+                    None,
+                    None,
+                ),
+            ],
         }
     }
 }
@@ -703,16 +740,16 @@ mod tests {
 
         // we need to wait two frames for the tracker to be connected.
         frame();
-        assert!(f.input.device_index_to_tracked_device_class(2).is_none());
+        assert!(f.input.device_index_to_tracked_device_class(3).is_none());
         frame();
         assert!(
-            f.input.device_index_to_tracked_device_class(2)
+            f.input.device_index_to_tracked_device_class(3)
                 == Some(vr::ETrackedDeviceClass::GenericTracker)
         );
 
         let pose2 = f
             .input
-            .get_device_pose(2, Some(vr::ETrackingUniverseOrigin::Seated));
+            .get_device_pose(3, Some(vr::ETrackingUniverseOrigin::Seated));
         assert!(pose2.is_some());
     }
 
@@ -731,16 +768,16 @@ mod tests {
 
         // we need to wait two frames for the tracker to be connected.
         frame();
-        assert!(f.input.device_index_to_tracked_device_class(2).is_none());
+        assert!(f.input.device_index_to_tracked_device_class(3).is_none());
         frame();
         assert!(
-            f.input.device_index_to_tracked_device_class(2)
+            f.input.device_index_to_tracked_device_class(3)
                 == Some(vr::ETrackedDeviceClass::GenericTracker)
         );
 
         let serial = f
             .input
-            .get_device_string_tracked_property(2, vr::ETrackedDeviceProperty::SerialNumber_String)
+            .get_device_string_tracked_property(3, vr::ETrackedDeviceProperty::SerialNumber_String)
             .unwrap();
         assert_eq!(serial.to_str().unwrap(), "FAKEXR-SERIAL");
     }
