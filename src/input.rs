@@ -544,10 +544,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         transform_array: *mut vr::VRBoneTransform_t,
         transform_array_count: u32,
     ) -> vr::EVRInputError {
-        assert_eq!(
-            transform_array_count,
-            skeletal::HandSkeletonBone::Count as u32
-        );
+        if transform_array_count < skeletal::HandSkeletonBone::Count as u32 {
+            return vr::EVRInputError::BufferTooSmall;
+        }
         let transforms = unsafe {
             std::slice::from_raw_parts_mut(transform_array, transform_array_count as usize)
         };
