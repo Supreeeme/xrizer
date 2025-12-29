@@ -3,7 +3,7 @@ use crate::XrType;
 use super::{destroy_handle, get_handle, impl_handle, Handle, Space, SpaceType};
 use openxr_mndx_xdev_space::bindings::XDevIdMNDX;
 use openxr_sys as xr;
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -111,8 +111,8 @@ pub(super) extern "system" fn get_x_dev_properties_m_n_d_x(
         return xr::Result::ERROR_INDEX_OUT_OF_RANGE;
     };
 
-    let mut name_buf = [0i8; 256];
-    let mut serial_buf = [0i8; 256];
+    let mut name_buf = [0 as c_char; 256];
+    let mut serial_buf = [0 as c_char; 256];
 
     let name_bytes = xdev.name.as_bytes_with_nul();
     let serial_bytes = xdev.serial.as_bytes_with_nul();
