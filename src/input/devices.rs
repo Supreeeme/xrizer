@@ -19,7 +19,10 @@ use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use crate::tracy_span;
 use log::trace;
 
-use super::{Input, InteractionProfile, profiles::MainAxisType};
+use super::{
+    Input, InteractionProfile,
+    profiles::{MainAxisType, vrlink_hand::VRLinkHand},
+};
 
 pub struct ControllerData {
     pub hand: Hand,
@@ -289,7 +292,7 @@ impl TrackedDevice {
 
     pub fn is_connected(
         &self,
-        xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+        xr_data: &OpenXrData<impl openxr_data::Compositor>,
         session_data: &SessionData,
     ) -> bool {
         match self.get_type() {
@@ -316,6 +319,24 @@ impl TrackedDevice {
         &self.device_type
     }
 
+    pub fn get_interaction_profile(
+        &self,
+        xr_data: &OpenXrData<impl openxr_data::Compositor>,
+        session_data: &SessionData,
+    ) -> Option<&'static dyn InteractionProfile> {
+        self.interaction_profile.or_else(|| {
+            if matches!(self.device_type, TrackedDeviceType::Controller { .. })
+                && self
+                    .get_hand_skeleton(xr_data, session_data.tracking_space())
+                    .is_some()
+            {
+                Some(&VRLinkHand)
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn get_controller_hand(&self) -> Option<Hand> {
         match &self.device_type {
             TrackedDeviceType::Controller(data) => Some(data.hand),
@@ -323,13 +344,20 @@ impl TrackedDevice {
         }
     }
 
-    fn get_string_property(&self, property: vr::ETrackedDeviceProperty) -> Option<&CStr> {
+    fn get_string_property(
+        &self,
+        xr_data: &OpenXrData<impl openxr_data::Compositor>,
+        session_data: &SessionData,
+        property: vr::ETrackedDeviceProperty,
+    ) -> Option<&CStr> {
         let hand = match &self.device_type {
             TrackedDeviceType::Controller(data) => data.hand,
             _ => Hand::Left,
         };
 
-        let data = self.interaction_profile?.properties();
+        let data = self
+            .get_interaction_profile(xr_data, session_data)?
+            .properties();
 
         match property {
             // Audica likes to apply controller specific tweaks via this property
@@ -360,10 +388,17 @@ impl TrackedDevice {
         }
     }
 
-    fn get_int_property(&self, property: vr::ETrackedDeviceProperty) -> Option<i32> {
+    fn get_int_property(
+        &self,
+        xr_data: &OpenXrData<impl openxr_data::Compositor>,
+        session_data: &SessionData,
+        property: vr::ETrackedDeviceProperty,
+    ) -> Option<i32> {
         match self.device_type {
             TrackedDeviceType::Controller { .. } => {
-                let data = self.interaction_profile?.properties();
+                let data = self
+                    .get_interaction_profile(xr_data, session_data)?
+                    .properties();
 
                 match property {
                     vr::ETrackedDeviceProperty::Axis0Type_Int32 => match data.main_axis {
@@ -389,10 +424,17 @@ impl TrackedDevice {
         }
     }
 
-    fn get_uint_property(&self, property: vr::ETrackedDeviceProperty) -> Option<u64> {
+    fn get_uint_property(
+        &self,
+        xr_data: &OpenXrData<impl openxr_data::Compositor>,
+        session_data: &SessionData,
+        property: vr::ETrackedDeviceProperty,
+    ) -> Option<u64> {
         match self.device_type {
             TrackedDeviceType::Controller { .. } => {
-                let data = self.interaction_profile?.properties();
+                let data = self
+                    .get_interaction_profile(xr_data, session_data)?
+                    .properties();
 
                 match property {
                     vr::ETrackedDeviceProperty::SupportedButtons_Uint64 => {
@@ -519,7 +561,7 @@ impl TrackedDeviceList {
     #[cfg(feature = "monado")]
     pub(super) fn create_monado_generic_trackers(
         &mut self,
-        xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+        xr_data: &OpenXrData<impl openxr_data::Compositor>,
         session_data: &SessionData,
     ) -> xr::Result<()> {
         if !xr_data
@@ -692,7 +734,9 @@ impl<C: openxr_data::Compositor> Input<C> {
         let devices = session_data.input_data.devices.read().unwrap();
         let device = devices.get_device(index)?;
 
-        device.get_string_property(property).map(|s| s.to_owned())
+        device
+            .get_string_property(&self.openxr, &session_data, property)
+            .map(|s| s.to_owned())
     }
 
     pub fn get_device_int_tracked_property(
@@ -704,7 +748,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let devices = session_data.input_data.devices.read().unwrap();
         let device = devices.get_device(index)?;
 
-        device.get_int_property(property)
+        device.get_int_property(&self.openxr, &session_data, property)
     }
 
     pub fn get_device_uint_tracked_property(
@@ -716,7 +760,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         let devices = session_data.input_data.devices.read().unwrap();
         let device = devices.get_device(index)?;
 
-        device.get_uint_property(property)
+        device.get_uint_property(&self.openxr, &session_data, property)
     }
 }
 
