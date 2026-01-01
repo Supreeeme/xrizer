@@ -5,6 +5,7 @@ pub mod vive_controller;
 pub mod vive_focus3;
 #[cfg(feature = "monado")]
 pub mod vive_tracker;
+pub mod vrlink_hand;
 use super::{
     action_manifest::ControllerType, legacy::LegacyBindings, skeletal::SkeletalInputBindings,
 };
