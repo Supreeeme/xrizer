@@ -385,64 +385,88 @@ impl vr::IVRSystem023_Interface for System {
         eye: vr::EVREye,
         ty: vr::EHiddenAreaMeshType,
     ) -> vr::HiddenAreaMesh_t {
-        if !self.openxr.enabled_extensions.khr_visibility_mask {
-            return Default::default();
+        #[derive(Default)]
+        //same as HiddenAreaMesh_t but with rust types
+        struct HiddenAreaMesh {
+            pub vertex_data: Option<Box<[openvr::HmdVector2_t]>>,
+            pub triangle_count: u32,
         }
-
-        debug!("GetHiddenAreaMesh: area mesh type: {ty:?}");
-        let mask_ty = match ty {
-            vr::EHiddenAreaMeshType::Standard => xr::VisibilityMaskTypeKHR::HIDDEN_TRIANGLE_MESH,
-            vr::EHiddenAreaMeshType::Inverse => xr::VisibilityMaskTypeKHR::VISIBLE_TRIANGLE_MESH,
-            vr::EHiddenAreaMeshType::LineLoop => xr::VisibilityMaskTypeKHR::LINE_LOOP,
-            vr::EHiddenAreaMeshType::Max => {
-                warn!("Unexpectedly got EHiddenAreaMeshType::Max - returning default area mesh");
+        //steamvr keeps the cache in the class field
+        //
+        //ClearHiddenAreaCache is exported under CVRSystemLatest but since it's not documented, i'm gonna assume it's not used by anything externally
+        static mut HIDDEN_AREA_CACHE: [HiddenAreaMesh; 2] = unsafe { core::mem::zeroed() };
+        if unsafe { HIDDEN_AREA_CACHE[0].vertex_data.is_none() } {
+            if !self.openxr.enabled_extensions.khr_visibility_mask {
                 return Default::default();
             }
-        };
-
-        let session_data = self.openxr.session_data.get();
-        let mask = session_data
-            .session
-            .get_visibility_mask_khr(
-                xr::ViewConfigurationType::PRIMARY_STEREO,
-                eye as u32,
-                mask_ty,
-            )
-            .unwrap();
-
-        trace!("openxr mask: {:#?} {:#?}", mask.indices, mask.vertices);
-
-        let [mut left, mut right, mut top, mut bottom] = [0.0; 4];
-        self.GetProjectionRaw(eye, &mut left, &mut right, &mut top, &mut bottom);
-
-        // convert from indices + vertices to just vertices
-        let vertices: Vec<_> = mask
-            .indices
-            .into_iter()
-            .map(|i| {
-                let v = mask.vertices[i as usize];
-
-                // It is unclear to me why this scaling is necessary, but OpenComposite does it and
-                // it seems to get games to use the mask correctly.
-                let x_scaled = (v.x - left) / (right - left);
-                let y_scaled = (v.y - top) / (bottom - top);
-                vr::HmdVector2_t {
-                    v: [x_scaled, y_scaled],
+            debug!("GetHiddenAreaMesh: area mesh type: {ty:?}");
+            let mask_ty = match ty {
+                vr::EHiddenAreaMeshType::Standard => {
+                    xr::VisibilityMaskTypeKHR::HIDDEN_TRIANGLE_MESH
                 }
-            })
-            .collect();
+                vr::EHiddenAreaMeshType::Inverse => {
+                    xr::VisibilityMaskTypeKHR::VISIBLE_TRIANGLE_MESH
+                }
+                vr::EHiddenAreaMeshType::LineLoop => xr::VisibilityMaskTypeKHR::LINE_LOOP,
+                vr::EHiddenAreaMeshType::Max => {
+                    warn!(
+                        "Unexpectedly got EHiddenAreaMeshType::Max - returning default area mesh"
+                    );
+                    return Default::default();
+                }
+            };
+            let session_data = self.openxr.session_data.get();
+            //steamvr does calculation for both eyes at once
+            for eye in [vr::EVREye::Left, vr::EVREye::Right] {
+                let mask = session_data
+                    .session
+                    .get_visibility_mask_khr(
+                        xr::ViewConfigurationType::PRIMARY_STEREO,
+                        eye as u32,
+                        mask_ty,
+                    )
+                    .unwrap();
 
-        trace!("vertices: {vertices:#?}");
-        let count = vertices.len() / 3;
-        // XXX: what are we supposed to do here? pVertexData is a random pointer and there's no
-        // clear way for the application to deallocate it
-        // fortunately it seems like applications don't call this often, so this leakage isn't a
-        // huge deal.
-        let vertices = Vec::leak(vertices).as_ptr();
+                trace!("openxr mask: {:#?} {:#?}", mask.indices, mask.vertices);
 
-        vr::HiddenAreaMesh_t {
-            pVertexData: vertices,
-            unTriangleCount: count as u32,
+                let [mut left, mut right, mut top, mut bottom] = [0.0; 4];
+                self.GetProjectionRaw(eye, &mut left, &mut right, &mut top, &mut bottom);
+
+                // convert from indices + vertices to just vertices
+                let vertices: Vec<_> = mask
+                    .indices
+                    .into_iter()
+                    .map(|i| {
+                        let v = mask.vertices[i as usize];
+
+                        // It is unclear to me why this scaling is necessary, but OpenComposite does it and
+                        // it seems to get games to use the mask correctly.
+                        let x_scaled = (v.x - left) / (right - left);
+                        let y_scaled = (v.y - top) / (bottom - top);
+                        vr::HmdVector2_t {
+                            v: [x_scaled, y_scaled],
+                        }
+                    })
+                    .collect();
+
+                trace!("vertices: {vertices:#?}");
+
+                let count = vertices.len() / 3;
+                unsafe {
+                    let eye_cache = &mut HIDDEN_AREA_CACHE[eye as usize];
+
+                    eye_cache.triangle_count = count as u32;
+                    eye_cache.vertex_data.replace(vertices.into_boxed_slice());
+                }
+            }
+        }
+        unsafe {
+            let cache = &HIDDEN_AREA_CACHE[eye as usize];
+
+            vr::HiddenAreaMesh_t {
+                pVertexData: cache.vertex_data.as_ref().unwrap().as_ptr(),
+                unTriangleCount: cache.triangle_count,
+            }
         }
     }
     fn GetEventTypeNameFromEnum(&self, _: vr::EVREventType) -> *const std::os::raw::c_char {
