@@ -27,7 +27,7 @@ use openvr as vr;
 use openxr as xr;
 use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, c_void, CStr, CString};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -43,7 +43,7 @@ new_key_type! {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRInput"]
-#[versions(010, 007, 006, 005)]
+#[versions(010, 007, 006, 005, 004)]
 pub struct Input<C: openxr_data::Compositor> {
     openxr: Arc<OpenXrData<C>>,
     vtables: Vtables<C>,
@@ -502,7 +502,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
     }
     fn DecompressSkeletalBoneData(
         &self,
-        _: *const std::os::raw::c_void,
+        _: *const c_void,
         _: u32,
         _: vr::EVRSkeletalTransformSpace,
         _: *mut vr::VRBoneTransform_t,
@@ -514,7 +514,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         &self,
         _: vr::VRActionHandle_t,
         _: vr::EVRSkeletalMotionRange,
-        _: *mut std::os::raw::c_void,
+        _: *mut c_void,
         _: u32,
         _: *mut u32,
     ) -> vr::EVRInputError {
@@ -1234,6 +1234,96 @@ impl<C: openxr_data::Compositor> vr::IVRInput005On006 for Input<C> {
             action_data_size,
             restrict_to_device,
         )
+    }
+}
+
+impl<C: openxr_data::Compositor> vr::IVRInput004On005 for Input<C> {
+    #[inline]
+    fn DecompressSkeletalBoneData(
+        &self,
+        _compressed_buffer: *mut c_void,
+        _compressed_buffer_size: u32,
+        _transform_space: *mut vr::EVRSkeletalTransformSpace,
+        _transform_array: *mut vr::VRBoneTransform_t,
+        _transform_array_count: u32,
+    ) -> vr::EVRInputError {
+        todo!()
+    }
+
+    #[inline]
+    fn GetOriginLocalizedName(
+        &self,
+        origin: vr::VRInputValueHandle_t,
+        name_array: *mut c_char,
+        name_array_size: u32,
+    ) -> vr::EVRInputError {
+        <Self as vr::IVRInput010_Interface>::GetOriginLocalizedName(
+            self,
+            origin,
+            name_array,
+            name_array_size,
+            0,
+        )
+    }
+
+    #[inline]
+    fn GetSkeletalActionData(
+        &self,
+        action: vr::VRActionHandle_t,
+        action_data: *mut vr::InputSkeletalActionData_t,
+        action_data_size: u32,
+        restrict_to_device: vr::VRInputValueHandle_t,
+    ) -> vr::EVRInputError {
+        // restrict_to_device not supported for skeletal actions
+        if restrict_to_device != vr::k_ulInvalidInputValueHandle {
+            return vr::EVRInputError::NoData;
+        }
+
+        <Self as vr::IVRInput010_Interface>::GetSkeletalActionData(
+            self,
+            action,
+            action_data,
+            action_data_size,
+        )
+    }
+
+    #[inline]
+    fn GetSkeletalBoneData(
+        &self,
+        action: vr::VRActionHandle_t,
+        transform_space: vr::EVRSkeletalTransformSpace,
+        motion_range: vr::EVRSkeletalMotionRange,
+        transform_array: *mut vr::VRBoneTransform_t,
+        transform_array_count: u32,
+        restrict_to_device: vr::VRInputValueHandle_t,
+    ) -> vr::EVRInputError {
+        // restrict_to_device not supported for skeletal actions
+        if restrict_to_device != vr::k_ulInvalidInputValueHandle {
+            return vr::EVRInputError::NoData;
+        }
+
+        <Self as vr::IVRInput010_Interface>::GetSkeletalBoneData(
+            self,
+            action,
+            transform_space,
+            motion_range,
+            transform_array,
+            transform_array_count,
+        )
+    }
+
+    #[inline]
+    fn GetSkeletalBoneDataCompressed(
+        &self,
+        _action: vr::VRActionHandle_t,
+        _transform_space: vr::EVRSkeletalTransformSpace,
+        _motion_range: vr::EVRSkeletalMotionRange,
+        _compressed_data: *mut c_void,
+        _compressed_size: u32,
+        _required_compressed_size: *mut u32,
+        _restrict_to_device: vr::VRInputValueHandle_t,
+    ) -> vr::EVRInputError {
+        todo!()
     }
 }
 
