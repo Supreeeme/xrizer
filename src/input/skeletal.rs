@@ -159,7 +159,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
         }
 
-        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Full;
+        self.skeletal_tracking_level.write().unwrap()[hand as usize - 1] =
+            vr::EVRSkeletalTrackingLevel::Full;
     }
 
     pub(super) fn get_bone_summary_from_hand_tracking(
@@ -327,7 +328,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         });
 
         finalize_transforms(bone_it, space, transforms);
-        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
+        self.skeletal_tracking_level.write().unwrap()[hand as usize - 1] =
+            vr::EVRSkeletalTrackingLevel::Estimated;
     }
 
     pub(super) fn get_estimated_bone_summary(
