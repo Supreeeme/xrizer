@@ -57,7 +57,7 @@ pub struct Input<C: openxr_data::Compositor> {
     set_map: RwLock<SlotMap<ActionSetKey, String>>,
     loaded_actions_path: OnceLock<PathBuf>,
     legacy_state: legacy::LegacyState,
-    skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
+    skeletal_tracking_level: RwLock<[vr::EVRSkeletalTrackingLevel; 2]>,
     estimated_finger_state: [Mutex<FingerState>; 2],
     subaction_paths: SubactionPaths,
     events: Mutex<VecDeque<InputEvent>>,
@@ -127,7 +127,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             left_hand_key,
             right_hand_key,
             legacy_state: Default::default(),
-            skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
+            skeletal_tracking_level: RwLock::new([vr::EVRSkeletalTrackingLevel::Estimated; 2]),
             estimated_finger_state: [
                 Mutex::new(FingerState::new()),
                 Mutex::new(FingerState::new()),
@@ -594,7 +594,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             if controller_type.as_deref() == Some(c"knuckles") {
                 *level = vr::EVRSkeletalTrackingLevel::Partial;
             } else {
-                *level = *self.skeletal_tracking_level.read().unwrap();
+                *level = self.skeletal_tracking_level.read().unwrap()[*hand as usize - 1];
             }
         }
         vr::EVRInputError::None
