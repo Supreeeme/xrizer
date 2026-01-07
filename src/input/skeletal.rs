@@ -182,8 +182,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         *bone_cache = Some(transforms);
 
         finalize_transforms(&mut transforms, space);
-
-        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Full;
+        self.skeletal_tracking_level.write().unwrap()[hand as usize - 1] =
+            vr::EVRSkeletalTrackingLevel::Full;
 
         Some(transforms)
     }
@@ -228,7 +228,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         *bone_cache = Some(transforms);
 
         finalize_transforms(&mut transforms, space);
-        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
+        self.skeletal_tracking_level.write().unwrap()[hand as usize - 1] =
+            vr::EVRSkeletalTrackingLevel::Estimated;
 
         transforms
     }
