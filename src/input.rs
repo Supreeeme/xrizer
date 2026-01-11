@@ -364,7 +364,13 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         vr::EVRInputError::None
     }
     fn IsUsingLegacyInput(&self) -> bool {
-        todo!()
+        return self
+            .openxr
+            .session_data
+            .get()
+            .input_data
+            .get_legacy_actions()
+            .is_some();
     }
     fn GetComponentStateForBinding(
         &self,
