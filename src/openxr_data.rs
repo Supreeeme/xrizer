@@ -125,6 +125,7 @@ impl<C: Compositor> OpenXrData<C> {
         exts.khr_composition_layer_equirect2 = supported_exts.khr_composition_layer_equirect2;
         exts.khr_composition_layer_color_scale_bias =
             supported_exts.khr_composition_layer_color_scale_bias;
+        exts.ext_active_action_set_priority = supported_exts.ext_active_action_set_priority;
 
         // Extension that enables simple full body tracking support via generic tracked devices.
         // Available only in the Monado OpenXR runtime.
