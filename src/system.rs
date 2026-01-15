@@ -1090,4 +1090,24 @@ mod tests {
         test_prop(vr::ETrackedDeviceProperty::ManufacturerName_String);
         test_prop(vr::ETrackedDeviceProperty::ControllerType_String);
     }
+
+    #[test]
+    fn test_session_stop() {
+        let xr = Arc::new(OpenXrData::new(&Injector::default()).unwrap());
+        let injector = Injector::default();
+        let system = Arc::new(System::new(xr.clone(), &injector));
+
+        xr.system.set(Arc::downgrade(&system));
+
+        xr.session_data.get().session.request_exit().unwrap();
+        xr.poll_events();
+        let mut event = vr::VREvent_t::default();
+        assert!(system.PollNextEventWithPose(
+            vr::ETrackingUniverseOrigin::Standing,
+            &mut event,
+            std::mem::size_of_val(&event) as u32,
+            std::ptr::null_mut()
+        ));
+        assert_eq!(event.eventType, vr::EVREventType::Quit as u32);
+    }
 }

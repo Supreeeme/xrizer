@@ -46,8 +46,7 @@ pub struct OpenXrData<C: Compositor> {
     /// should only be externally accessed for testing
     pub(crate) input: Injected<crate::input::Input<C>>,
     pub(crate) compositor: Injected<C>,
-
-    system: Injected<System>,
+    pub(crate) system: Injected<System>,
 }
 
 impl<C: Compositor> Drop for OpenXrData<C> {
@@ -198,7 +197,7 @@ impl<C: Compositor> OpenXrData<C> {
                     state = Some(event.state());
                     info!("OpenXR session state changed: {:?}", event.state());
                     if let Some(system) = self.system.get().filter(|_| {
-                        session_data.temp_vulkan.is_none()
+                        (cfg!(test) || session_data.temp_vulkan.is_none())
                             && state == Some(xr::SessionState::STOPPING)
                     }) {
                         debug!("pushing Quit event");
