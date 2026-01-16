@@ -118,9 +118,13 @@ pub(super) extern "system" fn get_x_dev_properties_m_n_d_x(
     let serial_bytes = xdev.serial.as_bytes_with_nul();
 
     name_buf[..name_bytes.len()]
-        .copy_from_slice(&name_bytes.iter().map(|i| *i as i8).collect::<Vec<_>>());
-    serial_buf[..serial_bytes.len()]
-        .copy_from_slice(&serial_bytes.iter().map(|i| *i as i8).collect::<Vec<_>>());
+        .copy_from_slice(&name_bytes.iter().map(|i| *i as c_char).collect::<Vec<_>>());
+    serial_buf[..serial_bytes.len()].copy_from_slice(
+        &serial_bytes
+            .iter()
+            .map(|i| *i as c_char)
+            .collect::<Vec<_>>(),
+    );
 
     unsafe {
         *properties = openxr_mndx_xdev_space::bindings::XDevPropertiesMNDX {
