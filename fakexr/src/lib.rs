@@ -1317,11 +1317,12 @@ extern "system" fn sync_actions(
                     let mut d = state.load();
                     d.changed = false;
                     if let Some((new_state, change_time)) = new
-                        && d.state != new_state {
-                            d.changed = true;
-                            d.state = new_state;
-                            d.last_change_time = change_time;
-                        }
+                        && d.state != new_state
+                    {
+                        d.changed = true;
+                        d.state = new_state;
+                        d.last_change_time = change_time;
+                    }
                     state.store(d);
                 }
             }

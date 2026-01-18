@@ -515,9 +515,9 @@ mod tests {
             // The braces around state.ulButtonPressed are to force create a copy, because
             // VRControllerState_t is a packed struct and references to unaligned fields are undefined.
             let mask = if touch {
-                state.ulButtonTouched 
+                state.ulButtonTouched
             } else {
-                state.ulButtonPressed 
+                state.ulButtonPressed
             };
 
             match expect {

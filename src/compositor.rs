@@ -1389,9 +1389,9 @@ mod tests {
             instance: &openxr::Instance,
             system: openxr::SystemId,
             info: &Self::SessionCreateInfo,
-        ) -> openxr::Result<openxr::sys::Session> { unsafe {
-            xr::Vulkan::create_session(instance, system, info)
-        }}
+        ) -> openxr::Result<openxr::sys::Session> {
+            unsafe { xr::Vulkan::create_session(instance, system, info) }
+        }
 
         fn enumerate_swapchain_images(
             _: &openxr::Swapchain<Self>,

@@ -562,18 +562,19 @@ fn versionify_interface(
     // check if we already pulled this version
     let version_num: u32 = version_str.parse().unwrap();
     if let Some(versions) = versioned.get_mut(interface)
-        && let Some(old_item) = versions.iter_mut().find(|item| item.version == version_num) {
-            let old_version: HeaderVersion = old_item.parent_mod.to_string().parse().unwrap();
-            let new_version: HeaderVersion = item_mod.to_string().parse().unwrap();
+        && let Some(old_item) = versions.iter_mut().find(|item| item.version == version_num)
+    {
+        let old_version: HeaderVersion = old_item.parent_mod.to_string().parse().unwrap();
+        let new_version: HeaderVersion = item_mod.to_string().parse().unwrap();
 
-            // only replace it if we have the same version from a newer header -
-            // the headers like to add new things without updating versions
-            if old_version >= new_version {
-                return;
-            }
-
-            replace = Some(old_item);
+        // only replace it if we have the same version from a newer header -
+        // the headers like to add new things without updating versions
+        if old_version >= new_version {
+            return;
         }
+
+        replace = Some(old_item);
+    }
 
     // change names
     let versioned_name = format!("{interface}{version_str}");
@@ -931,9 +932,10 @@ fn process_and_versionify_types(tokens: TokenStream) -> String {
             // TODO: use the add_attributes method on ParseCallbacks instead
             // after updating bindgen?
             if let syn::Item::Enum(e) = &mut item
-                && e.ident == "EVREventType" {
-                    e.attrs.push(parse_quote!(#[try_from(repr)]));
-                }
+                && e.ident == "EVREventType"
+            {
+                e.attrs.push(parse_quote!(#[try_from(repr)]));
+            }
 
             let mut items = vec![item];
 

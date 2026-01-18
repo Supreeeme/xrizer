@@ -40,11 +40,12 @@ pub fn compile(out_dir: &str) -> Vec<PathBuf> {
         };
 
         if let Some(cached) = old_cache.remove(&source)
-            && Path::new(&cached.spirv) == output && !modified_since(&source, cached.last_modified)
-            {
-                add_to_cache(cached.last_modified);
-                continue;
-            }
+            && Path::new(&cached.spirv) == output
+            && !modified_since(&source, cached.last_modified)
+        {
+            add_to_cache(cached.last_modified);
+            continue;
+        }
 
         compile_shader(&source, &output);
         add_to_cache(SystemTime::now());
