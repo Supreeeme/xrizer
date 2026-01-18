@@ -1,16 +1,16 @@
 use super::{
+    ActionData, ActionKey, BoundPoseType, Input,
     custom_bindings::DpadDirection,
     profiles::{PathTranslation, Profiles},
     skeletal::SkeletalInputActionData,
-    ActionData, ActionKey, BoundPoseType, Input,
 };
 use crate::{
     input::{
+        GrabActions,
         custom_bindings::{
             DoubleTapData, DpadActions, DpadBindingParams, DpadData, GrabBindingData,
             ThresholdBindingFloat, ThresholdBindingVector2, ToggleData,
         },
-        GrabActions,
     },
     openxr_data::{self, Hand, SessionData},
 };
@@ -19,8 +19,8 @@ use log::{debug, error, info, trace, warn};
 use openvr as vr;
 use openxr as xr;
 use serde::{
-    de::{Error, IgnoredAny, Unexpected},
     Deserialize,
+    de::{Error, IgnoredAny, Unexpected},
 };
 use slotmap::{SecondaryMap, SlotMap};
 use std::collections::{HashMap, HashSet};
@@ -569,7 +569,7 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
             return Err(D::Error::unknown_variant(
                 hand,
                 &["/user/hand/left/pose", "/user/hand/right/pose"],
-            ))
+            ));
         }
     };
 
@@ -869,12 +869,11 @@ impl<C: openxr_data::Compositor> Input<C> {
                         .filter_map(|(ty, p)| (*ty == *other).then_some(*p));
                     let bindings = LazyCell::new(load_bindings);
                     for profile in profiles {
-                        if let Some(bindings) = bindings.as_ref() {
-                            if let Some(mut context) =
+                        if let Some(bindings) = bindings.as_ref()
+                            && let Some(mut context) =
                                 context.for_profile(self, &self.openxr, profile, other)
-                            {
-                                self.load_bindings_for_profile(bindings, &mut context);
-                            }
+                        {
+                            self.load_bindings_for_profile(bindings, &mut context);
                         }
                     }
                 }
@@ -1238,23 +1237,20 @@ fn handle_sources(
                     }
                 }
 
-                if let Some(ActionBindingOutput { output }) = &inputs.double {
-                    if let Ok(translated) = path_translator(&format!("{path}/click"))
+                if let Some(ActionBindingOutput { output }) = &inputs.double
+                    && let Ok(translated) = path_translator(&format!("{path}/click"))
                         .inspect_err(translate_warn(&output.path))
-                    {
-                        let name = context.add_custom_binding::<DoubleTapData>(
-                            output,
-                            helpers::parse_hand_from_path(context.instance, &translated).unwrap(),
-                            action_set_name,
-                            action_set,
-                            None,
-                        );
+                {
+                    let name = context.add_custom_binding::<DoubleTapData>(
+                        output,
+                        helpers::parse_hand_from_path(context.instance, &translated).unwrap(),
+                        action_set_name,
+                        action_set,
+                        None,
+                    );
 
-                        context.push_binding(
-                            name,
-                            context.instance.string_to_path(&translated).unwrap(),
-                        );
-                    }
+                    context
+                        .push_binding(name, context.instance.string_to_path(&translated).unwrap());
                 }
             }
             ActionBinding::Dpad {
@@ -1321,7 +1317,10 @@ fn handle_sources(
                                     context.instance.string_to_path(&translated_pull).unwrap(),
                                 );
                             } else {
-                                warn!("Couldn't bind touch to {} as there's neither touch nor pull input available", &output.path);
+                                warn!(
+                                    "Couldn't bind touch to {} as there's neither touch nor pull input available",
+                                    &output.path
+                                );
                             }
                         }
                         Err(err) => {
@@ -1404,7 +1403,9 @@ fn handle_sources(
                     parameters.as_ref(),
                 );
 
-                trace!("suggesting {translated_force} and {translated_value} for {force_action} (grab binding)");
+                trace!(
+                    "suggesting {translated_force} and {translated_value} for {force_action} (grab binding)"
+                );
                 context.push_binding(
                     force_action,
                     context.instance.string_to_path(&translated_force).unwrap(),
@@ -1415,7 +1416,10 @@ fn handle_sources(
                 );
             }
             ActionBinding::Scroll { inputs, .. } => {
-                warn!("Got scroll binding for input {}, but these are currently unimplemented, skipping", inputs.scroll.output.path);
+                warn!(
+                    "Got scroll binding for input {}, but these are currently unimplemented, skipping",
+                    inputs.scroll.output.path
+                );
             }
             ActionBinding::Trackpad(data) | ActionBinding::Joystick(data) => {
                 let Vector2Mode { path, inputs } = data;
@@ -1484,7 +1488,10 @@ fn handle_skeleton_bindings(
                 };
 
                 if bound_hand != *hand {
-                    warn!("Action {} was created with hand {hand:?}, but is bound to hand {bound_hand:?}", output.path);
+                    warn!(
+                        "Action {} was created with hand {hand:?}, but is bound to hand {bound_hand:?}",
+                        output.path
+                    );
                 }
             }
             _ => panic!(
@@ -1550,8 +1557,7 @@ fn handle_pose_bindings(context: &mut BindingsProfileLoadContext, bindings: &[Po
         *b = Some(*pose_ty);
         trace!(
             "bound {:?} to pose {} for hand {hand:?}",
-            *pose_ty,
-            output.path
+            *pose_ty, output.path
         );
     }
 }

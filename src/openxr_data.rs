@@ -1,6 +1,6 @@
 use crate::{
     clientcore::{Injected, Injector},
-    graphics_backends::{supported_apis_enum, GraphicsBackend, VulkanData},
+    graphics_backends::{GraphicsBackend, VulkanData, supported_apis_enum},
 };
 use derive_more::Deref;
 use glam::f32::{Quat, Vec3};
@@ -9,8 +9,8 @@ use openvr as vr;
 use openxr as xr;
 use std::mem::ManuallyDrop;
 use std::sync::{
-    atomic::{AtomicI64, Ordering},
     RwLock,
+    atomic::{AtomicI64, Ordering},
 };
 
 #[cfg(feature = "monado")]
@@ -504,10 +504,9 @@ impl SessionData {
             if let Some(xr::Event::SessionStateChanged(state)) = instance
                 .poll_event(&mut buf)
                 .map_err(SessionCreationError::PollEventFailed)?
+                && state.state() == xr::SessionState::READY
             {
-                if state.state() == xr::SessionState::READY {
-                    break;
-                }
+                break;
             }
         }
 

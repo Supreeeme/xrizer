@@ -3,10 +3,10 @@ use super::{
     SkeletalInputBindings, StringToPath,
 };
 use crate::button_mask_from_ids;
-use crate::input::legacy::{self, button_mask_from_id, LegacyBindings};
+use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
-use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Axis2, Grip, System, A};
+use openvr::EVRButtonId::{A, ApplicationMenu, Axis0, Axis1, Axis2, Grip, System};
 
 pub struct Touch;
 

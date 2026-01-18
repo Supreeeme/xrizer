@@ -4,7 +4,7 @@ use log::warn;
 use openvr as vr;
 use openxr as xr;
 use std::collections::HashSet;
-use std::ffi::{c_char, CString};
+use std::ffi::{CString, c_char};
 use std::sync::{LazyLock, Mutex};
 
 struct RealSessionData {

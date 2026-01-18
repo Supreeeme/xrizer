@@ -3,6 +3,7 @@ mod generated;
 
 use super::Input;
 use crate::openxr_data::{self, Hand, SessionData};
+use HandSkeletonBone::*;
 use glam::{Affine3A, Quat, Vec3};
 use log::debug;
 use openvr as vr;
@@ -11,7 +12,6 @@ use paste::paste;
 use std::cell::RefCell;
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::time::Instant;
-use HandSkeletonBone::*;
 
 impl<C: openxr_data::Compositor> Input<C> {
     /// Returns false if hand tracking data couldn't be generated for some reason.
@@ -175,7 +175,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         let finger_state = self.get_finger_state(session_data, hand);
         let (open, fist) = match hand {
             Hand::Left => (&generated::left_hand::OPENHAND, &generated::left_hand::FIST),
-            Hand::Right => (&generated::right_hand::OPENHAND, &generated::right_hand::FIST),
+            Hand::Right => (
+                &generated::right_hand::OPENHAND,
+                &generated::right_hand::FIST,
+            ),
         };
 
         const fn constrain<'a, F, G>(f: F) -> F

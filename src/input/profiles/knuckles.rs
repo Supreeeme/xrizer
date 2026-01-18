@@ -3,7 +3,7 @@ use super::{
     SkeletalInputBindings, StringToPath,
 };
 use crate::button_mask_from_ids;
-use crate::input::legacy::{self, button_mask_from_id, LegacyBindings};
+use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
 use openvr::EVRButtonId;
@@ -177,7 +177,7 @@ impl InteractionProfile for Knuckles {
 #[cfg(test)]
 mod tests {
     use super::{InteractionProfile, Knuckles};
-    use crate::input::{tests::Fixture, ActionData};
+    use crate::input::{ActionData, tests::Fixture};
     use openxr as xr;
 
     #[test]

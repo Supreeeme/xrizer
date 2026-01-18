@@ -3,7 +3,7 @@ mod convert;
 pub use bindings::vr::*;
 pub use bindings::{VkInstance_T, VkPhysicalDevice_T};
 pub use convert::space_relation_to_openvr_pose;
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::sync::{Arc, Weak};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));

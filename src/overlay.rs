@@ -1,16 +1,16 @@
 use crate::{
     clientcore::{Injected, Injector},
-    compositor::{is_usable_swapchain, Compositor},
-    graphics_backends::{supported_apis_enum, GraphicsBackend, SupportedBackend},
+    compositor::{Compositor, is_usable_swapchain},
+    graphics_backends::{GraphicsBackend, SupportedBackend, supported_apis_enum},
     openxr_data::{GraphicalSession, OpenXrData, Session, SessionData},
 };
-use glam::{vec3, Quat, Vec3};
+use glam::{Quat, Vec3, vec3};
 use log::{debug, trace};
 use openvr as vr;
 use openxr as xr;
-use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
+use slotmap::{Key, KeyData, SecondaryMap, SlotMap, new_key_type};
 use std::f32::consts::{FRAC_1_SQRT_2, PI};
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{collections::HashMap, ops::Deref};
 
@@ -376,27 +376,29 @@ impl<G: xr::Graphics> OverlayLayer<'_, G> {
     ///
     /// SAFETY: For lifetime guarantees, store item in Box inside CompositorLayer.
     unsafe fn next_chain_insert(&mut self, item: *mut xr::sys::BaseInStructure) {
-        let new_elem = item.as_mut().unwrap();
-        self.layer = Some(match self.layer.take().unwrap() {
-            OverlayLayerInner::Quad(quad) => {
-                let mut raw = quad.into_raw();
-                new_elem.next = raw.next as _;
-                raw.next = item as *const _;
-                OverlayLayerInner::Quad(xr::CompositionLayerQuad::from_raw(raw))
-            }
-            OverlayLayerInner::Cylinder(cylinder) => {
-                let mut raw = cylinder.into_raw();
-                new_elem.next = raw.next as _;
-                raw.next = item as *const _;
-                OverlayLayerInner::Cylinder(xr::CompositionLayerCylinderKHR::from_raw(raw))
-            }
-            OverlayLayerInner::Equirect2(equirect2) => {
-                let mut raw = equirect2.into_raw();
-                new_elem.next = raw.next as _;
-                raw.next = item as *const _;
-                OverlayLayerInner::Equirect2(xr::CompositionLayerEquirect2KHR::from_raw(raw))
-            }
-        });
+        unsafe {
+            let new_elem = item.as_mut().unwrap();
+            self.layer = Some(match self.layer.take().unwrap() {
+                OverlayLayerInner::Quad(quad) => {
+                    let mut raw = quad.into_raw();
+                    new_elem.next = raw.next as _;
+                    raw.next = item as *const _;
+                    OverlayLayerInner::Quad(xr::CompositionLayerQuad::from_raw(raw))
+                }
+                OverlayLayerInner::Cylinder(cylinder) => {
+                    let mut raw = cylinder.into_raw();
+                    new_elem.next = raw.next as _;
+                    raw.next = item as *const _;
+                    OverlayLayerInner::Cylinder(xr::CompositionLayerCylinderKHR::from_raw(raw))
+                }
+                OverlayLayerInner::Equirect2(equirect2) => {
+                    let mut raw = equirect2.into_raw();
+                    new_elem.next = raw.next as _;
+                    raw.next = item as *const _;
+                    OverlayLayerInner::Equirect2(xr::CompositionLayerEquirect2KHR::from_raw(raw))
+                }
+            });
+        }
     }
 }
 
@@ -698,7 +700,10 @@ impl vr::IVROverlay028_Interface for OverlayMan {
             .enabled_extensions
             .khr_composition_layer_color_scale_bias
         {
-            crate::warn_once!("Cannot SetOverlayAlpha on {:?}: Runtime does not support KHR_composition_layer_color_scale_bias", overlay.name);
+            crate::warn_once!(
+                "Cannot SetOverlayAlpha on {:?}: Runtime does not support KHR_composition_layer_color_scale_bias",
+                overlay.name
+            );
             return vr::EVROverlayError::None;
         }
 

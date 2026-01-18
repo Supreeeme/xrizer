@@ -166,7 +166,9 @@ impl<C: openxr_data::Compositor> Input<C> {
         let actions = &legacy.actions;
 
         let Some(hand) = self.device_index_to_hand(device_index) else {
-            debug!("tried getting controller state, but device index {device_index} is invalid or not a controller!");
+            debug!(
+                "tried getting controller state, but device index {device_index} is invalid or not a controller!"
+            );
             return false;
         };
 
@@ -384,7 +386,7 @@ impl LegacyActionData {
 #[cfg(test)]
 mod tests {
     use crate::input::profiles::{knuckles::Knuckles, simple_controller::SimpleController};
-    use crate::input::tests::{compare_pose, Fixture};
+    use crate::input::tests::{Fixture, compare_pose};
     use openvr as vr;
     use openxr as xr;
 
@@ -513,13 +515,9 @@ mod tests {
             // The braces around state.ulButtonPressed are to force create a copy, because
             // VRControllerState_t is a packed struct and references to unaligned fields are undefined.
             let mask = if touch {
-                {
-                    state.ulButtonTouched
-                }
+                state.ulButtonTouched 
             } else {
-                {
-                    state.ulButtonPressed
-                }
+                state.ulButtonPressed 
             };
 
             match expect {

@@ -9,10 +9,11 @@ use openxr_sys as xr;
 use paste::paste;
 use slotmap::{DefaultKey, Key, KeyData, SlotMap};
 use std::collections::{HashMap, HashSet};
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{CStr, CString, c_char};
 use std::sync::{
+    Arc, LazyLock, Mutex, MutexGuard, OnceLock, RwLock, Weak,
     atomic::{AtomicBool, AtomicU64, Ordering},
-    mpsc, Arc, LazyLock, Mutex, MutexGuard, OnceLock, RwLock, Weak,
+    mpsc,
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -415,8 +416,8 @@ macro_rules! impl_handle {
         }
         impl Handle for $ty {
             type XrType = $xr_type;
-            fn instances(
-            ) -> std::sync::MutexGuard<'static, slotmap::SlotMap<slotmap::DefaultKey, Arc<Self>>>
+            fn instances()
+            -> std::sync::MutexGuard<'static, slotmap::SlotMap<slotmap::DefaultKey, Arc<Self>>>
             {
                 static I: std::sync::LazyLock<
                     std::sync::Mutex<slotmap::SlotMap<slotmap::DefaultKey, Arc<$ty>>>,
@@ -1315,13 +1316,12 @@ extern "system" fn sync_actions(
                 ] {
                     let mut d = state.load();
                     d.changed = false;
-                    if let Some((new_state, change_time)) = new {
-                        if d.state != new_state {
+                    if let Some((new_state, change_time)) = new
+                        && d.state != new_state {
                             d.changed = true;
                             d.state = new_state;
                             d.last_change_time = change_time;
                         }
-                    }
                     state.store(d);
                 }
             }

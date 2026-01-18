@@ -16,8 +16,9 @@ use skeletal::FingerState;
 use skeletal::SkeletalInputActionData;
 
 use crate::{
+    AtomicF32,
     openxr_data::{self, Hand, OpenXrData, SessionData},
-    tracy_span, AtomicF32,
+    tracy_span,
 };
 use custom_bindings::{BindingData, GrabActions};
 use glam::Quat;
@@ -25,9 +26,9 @@ use legacy::LegacyActionData;
 use log::{debug, info, trace, warn};
 use openvr as vr;
 use openxr as xr;
-use slotmap::{new_key_type, Key, KeyData, SecondaryMap, SlotMap};
+use slotmap::{Key, KeyData, SecondaryMap, SlotMap, new_key_type};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -777,7 +778,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 else {
                     match hand {
                         Some(hand) => {
-                            trace!("action has no bindings for the {hand:?} hand's interaction profile");
+                            trace!(
+                                "action has no bindings for the {hand:?} hand's interaction profile"
+                            );
                         }
                         None => {
                             trace!("action has no bindings for either hand's interaction profile");
@@ -890,23 +893,21 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 //   so emulate OpenXR, which takes maximum among active actions
                 if let Some((binding_state, binding_source)) =
                     self.state_from_bindings(handle, restrict_to_device)
+                    && binding_state.is_active
+                    && (binding_state.current_state && state.current_state != 1.0
+                        || !state.is_active)
                 {
-                    if binding_state.is_active
-                        && (binding_state.current_state && state.current_state != 1.0
-                            || !state.is_active)
-                    {
-                        state = xr::ActionState {
-                            current_state: if binding_state.current_state {
-                                1.0
-                            } else {
-                                0.0
-                            },
-                            is_active: binding_state.is_active,
-                            changed_since_last_sync: binding_state.changed_since_last_sync,
-                            last_change_time: binding_state.last_change_time,
-                        };
-                        active_hand = binding_source;
-                    }
+                    state = xr::ActionState {
+                        current_state: if binding_state.current_state {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        is_active: binding_state.is_active,
+                        changed_since_last_sync: binding_state.changed_since_last_sync,
+                        last_change_time: binding_state.last_change_time,
+                    };
+                    active_hand = binding_source;
                 }
 
                 let delta = xr::Vector2f {
@@ -975,13 +976,11 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let mut active_hand = restrict_to_device;
         if let Some((binding_state, binding_source)) =
             self.state_from_bindings(handle, restrict_to_device)
+            && binding_state.is_active
+            && (binding_state.current_state && !state.current_state || !state.is_active)
         {
-            if binding_state.is_active
-                && (binding_state.current_state && !state.current_state || !state.is_active)
-            {
-                state = binding_state;
-                active_hand = binding_source;
-            }
+            state = binding_state;
+            active_hand = binding_source;
         }
 
         *out.value = vr::InputDigitalActionData_t {
@@ -1528,7 +1527,9 @@ impl<C: openxr_data::Compositor> Input<C> {
             const MIN_CONTROLLER_EVENT_SIZE: usize = std::mem::offset_of!(vr::VREvent_t, data)
                 + std::mem::size_of::<vr::VREvent_Controller_t>();
             if size < MIN_CONTROLLER_EVENT_SIZE as u32 {
-                warn!("{FUNC}: Provided event struct size ({size}) is smaller than required ({MIN_CONTROLLER_EVENT_SIZE}).");
+                warn!(
+                    "{FUNC}: Provided event struct size ({size}) is smaller than required ({MIN_CONTROLLER_EVENT_SIZE})."
+                );
                 return false;
             }
             // VREvent_t can be different sizes depending on the OpenVR version,

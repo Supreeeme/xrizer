@@ -1,12 +1,12 @@
 use super::action_manifest::{ClickThresholdParams, GrabParameters};
+use crate::AtomicF32;
 use crate::input::{ActionData, ExtraActionData};
 use crate::openxr_data::SessionData;
-use crate::AtomicF32;
 use log::error;
 use openxr as xr;
 use std::f32::consts::{FRAC_PI_4, PI};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use xr::{Haptic, HapticVibration};
 
@@ -257,16 +257,14 @@ impl CustomBinding for DpadData {
             .is_ok()
         {
             ret_state.changed_since_last_sync = true;
-            if in_bounds {
-                if let Some(haptic) = &action.haptic {
-                    let haptic_event = HapticVibration::new()
-                        .amplitude(0.25)
-                        .duration(xr::Duration::MIN_HAPTIC)
-                        .frequency(xr::FREQUENCY_UNSPECIFIED);
-                    let _ = haptic
-                        .apply_feedback(session, subaction_path, &haptic_event)
-                        .inspect_err(|e| error!("Couldn't activate dpad haptic: {e}"));
-                }
+            if in_bounds && let Some(haptic) = &action.haptic {
+                let haptic_event = HapticVibration::new()
+                    .amplitude(0.25)
+                    .duration(xr::Duration::MIN_HAPTIC)
+                    .frequency(xr::FREQUENCY_UNSPECIFIED);
+                let _ = haptic
+                    .apply_feedback(session, subaction_path, &haptic_event)
+                    .inspect_err(|e| error!("Couldn't activate dpad haptic: {e}"));
             }
         }
 
@@ -867,11 +865,11 @@ impl BindingData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::InteractionProfile;
     use crate::input::profiles::knuckles::Knuckles;
     use crate::input::profiles::oculus_touch::Touch;
     use crate::input::profiles::vive_controller::ViveWands;
     use crate::input::tests::{ExtraActionType, Fixture};
-    use crate::input::InteractionProfile;
     use crate::openxr_data::Hand;
     use fakexr::ActionState;
     use fakexr::UserPath::*;

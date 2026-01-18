@@ -117,11 +117,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         let name = unsafe { CStr::from_ptr(render_model_name) };
         debug!("getting components for {name:?}");
 
-        if name.count_bytes() == 0 {
-            0
-        } else {
-            1
-        }
+        if name.count_bytes() == 0 { 0 } else { 1 }
     }
     fn GetRenderModelCount(&self) -> u32 {
         crate::warn_unimplemented!("GetRenderModelCount");

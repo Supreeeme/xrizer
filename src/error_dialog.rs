@@ -1,8 +1,8 @@
 use egui::{
-    collapsing_header::CollapsingState, text::LayoutJob, Align, Color32, FontSelection, RichText,
+    Align, Color32, FontSelection, RichText, collapsing_header::CollapsingState, text::LayoutJob,
 };
 use egui_miniquad::EguiMq;
-use miniquad::{conf::Conf, EventHandler, GlContext, PassAction, RenderingBackend};
+use miniquad::{EventHandler, GlContext, PassAction, RenderingBackend, conf::Conf};
 use std::backtrace::Backtrace;
 use std::process::Command;
 use std::time::Instant;

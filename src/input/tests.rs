@@ -1,9 +1,9 @@
 use super::{
+    ActionData, Input, InteractionProfile,
     profiles::{
         knuckles::Knuckles, oculus_touch::Touch, simple_controller::SimpleController,
         vive_controller::ViveWands,
     },
-    ActionData, Input, InteractionProfile,
 };
 use crate::{
     input::ActionKey,
@@ -407,14 +407,15 @@ fn input_state_flow() {
 
     f.load_actions(c"actions.json");
 
-    assert!(f
-        .input
-        .openxr
-        .session_data
-        .get()
-        .input_data
-        .get_legacy_actions()
-        .is_none());
+    assert!(
+        f.input
+            .openxr
+            .session_data
+            .get()
+            .input_data
+            .get_legacy_actions()
+            .is_none()
+    );
 
     f.sync(vr::VRActiveActionSet_t {
         ulActionSet: set1,
@@ -517,15 +518,17 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
 
     // we need to wait two frames for the controller to be connected.
     frame();
-    assert!(f
-        .input
-        .get_controller_device_index(super::Hand::Left)
-        .is_none());
+    assert!(
+        f.input
+            .get_controller_device_index(super::Hand::Left)
+            .is_none()
+    );
     frame();
-    assert!(f
-        .input
-        .get_controller_device_index(super::Hand::Left)
-        .is_some());
+    assert!(
+        f.input
+            .get_controller_device_index(super::Hand::Left)
+            .is_some()
+    );
 
     let rot = Quat::from_rotation_x(-FRAC_PI_4);
     let pose = xr::Posef {

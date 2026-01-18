@@ -1,11 +1,12 @@
 use crate::{
+    AtomicF64,
     clientcore::{Injected, Injector},
-    graphics_backends::{supported_backends_enum, GraphicsBackend, SupportedBackend},
+    graphics_backends::{GraphicsBackend, SupportedBackend, supported_backends_enum},
     input::Input,
     openxr_data::{self, FrameStream, OpenXrData, SessionCreateInfo, SessionData},
     overlay::OverlayMan,
     system::System,
-    tracy_span, AtomicF64,
+    tracy_span,
 };
 
 use log::{debug, info, trace, warn};
@@ -13,8 +14,8 @@ use openvr as vr;
 use openxr as xr;
 use std::mem::offset_of;
 use std::sync::{
-    atomic::{AtomicU32, Ordering},
     Arc, Mutex, Once,
+    atomic::{AtomicU32, Ordering},
 };
 use std::time::Instant;
 use std::{ffi::c_char, ops::Deref};
@@ -1388,9 +1389,9 @@ mod tests {
             instance: &openxr::Instance,
             system: openxr::SystemId,
             info: &Self::SessionCreateInfo,
-        ) -> openxr::Result<openxr::sys::Session> {
+        ) -> openxr::Result<openxr::sys::Session> { unsafe {
             xr::Vulkan::create_session(instance, system, info)
-        }
+        }}
 
         fn enumerate_swapchain_images(
             _: &openxr::Swapchain<Self>,

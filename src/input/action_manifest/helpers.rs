@@ -1,9 +1,9 @@
+use crate::input::ActionData::{Bool, Vector1, Vector2};
 use crate::input::action_manifest::{ActionPath, ControllerType, LoadedActionDataMap};
 use crate::input::custom_bindings::{
     AsActionData, AsIter, BindingData, CustomBindingHelper, Names,
 };
 use crate::input::skeletal::SkeletalInputActionData;
-use crate::input::ActionData::{Bool, Vector1, Vector2};
 use crate::input::{ActionData, BoundPose, ExtraActionData, Input, InteractionProfile};
 use crate::openxr_data::{self, Hand, OpenXrData};
 use log::{trace, warn};
@@ -218,16 +218,16 @@ impl BindingsProfileLoadContext<'_> {
             .map(|name| format!("{action_set_name}/{name}"))
             .collect();
 
-        if let Some(actions) = T::get_actions(extra_data) {
-            if actions.is_none() {
-                let extra_actions = T::create_actions(&names, action_set, &self.hands);
-                for (name, action) in full_names.iter().zip(extra_actions.as_action_data()) {
-                    trace!("creating custom binding: {name}");
-                    self.actions.insert(name.clone(), action);
-                }
-
-                *actions = Some(extra_actions);
+        if let Some(actions) = T::get_actions(extra_data)
+            && actions.is_none()
+        {
+            let extra_actions = T::create_actions(&names, action_set, &self.hands);
+            for (name, action) in full_names.iter().zip(extra_actions.as_action_data()) {
+                trace!("creating custom binding: {name}");
+                self.actions.insert(name.clone(), action);
             }
+
+            *actions = Some(extra_actions);
         }
 
         self.bindings_parsed

@@ -4,10 +4,10 @@
 use log::debug;
 use openvr::InterfaceImpl;
 use seq_macro::seq;
-use std::ffi::{c_char, c_int, c_void, CStr};
+use std::ffi::{CStr, c_char, c_int, c_void};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 #[derive(Default)]

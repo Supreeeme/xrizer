@@ -20,11 +20,11 @@ mod error_dialog;
 
 use clientcore::ClientCore;
 use openvr as vr;
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::{CStr, c_char, c_void};
 use std::sync::OnceLock;
 use std::sync::{
-    atomic::{AtomicU32, AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU32, AtomicU64, Ordering},
 };
 
 macro_rules! warn_unimplemented {

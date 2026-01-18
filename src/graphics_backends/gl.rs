@@ -1,14 +1,14 @@
 use super::GraphicsBackend;
 use derive_more::Deref;
 use glutin_glx_sys::{
-    glx::{self, Glx},
     Success,
+    glx::{self, Glx},
 };
 use libc::{dlerror, dlopen, dlsym};
 use log::warn;
 use openvr as vr;
 use openxr as xr;
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::{Arc, LazyLock, Once};
 
 static GLX: LazyLock<Library> = LazyLock::new(|| Library::new(c"libGLX.so.0"));
@@ -33,24 +33,26 @@ unsafe fn get_fbconfig(
     display: *mut glx::types::Display,
     glx_context: glx::types::GLXContext,
 ) -> Option<glx::types::GLXFBConfig> {
-    let mut config_id = 0;
-    let ret = glx.QueryContext(display, glx_context, glx::FBCONFIG_ID as _, &mut config_id);
-    if ret != Success as i32 {
-        warn!("Failed to get fbconfig id from context (error code {ret})");
-        return None;
-    }
+    unsafe {
+        let mut config_id = 0;
+        let ret = glx.QueryContext(display, glx_context, glx::FBCONFIG_ID as _, &mut config_id);
+        if ret != Success as i32 {
+            warn!("Failed to get fbconfig id from context (error code {ret})");
+            return None;
+        }
 
-    let mut screen = 0;
-    let ret = glx.QueryContext(display, glx_context, glx::SCREEN as _, &mut screen);
-    if ret != Success as i32 {
-        warn!("Failed to get GLX screen for context (error code {ret})");
-        return None;
-    }
+        let mut screen = 0;
+        let ret = glx.QueryContext(display, glx_context, glx::SCREEN as _, &mut screen);
+        if ret != Success as i32 {
+            warn!("Failed to get GLX screen for context (error code {ret})");
+            return None;
+        }
 
-    let attrs = [glx::FBCONFIG_ID, config_id as _, glx::NONE];
-    let mut items = 0;
-    let cfgs = glx.ChooseFBConfig(display, screen, attrs.as_ptr() as _, &mut items);
-    (!cfgs.is_null() && items >= 0).then(|| std::slice::from_raw_parts(cfgs, items as usize)[0])
+        let attrs = [glx::FBCONFIG_ID, config_id as _, glx::NONE];
+        let mut items = 0;
+        let cfgs = glx.ChooseFBConfig(display, screen, attrs.as_ptr() as _, &mut items);
+        (!cfgs.is_null() && items >= 0).then(|| std::slice::from_raw_parts(cfgs, items as usize)[0])
+    }
 }
 
 unsafe fn get_visualid(
@@ -58,15 +60,17 @@ unsafe fn get_visualid(
     display: *mut glx::types::Display,
     cfg: Option<glx::types::GLXFBConfig>,
 ) -> u32 {
-    let Some(cfg) = cfg else {
-        return 0;
-    };
-    let visual = glx.GetVisualFromFBConfig(display, cfg);
-    if visual.is_null() {
-        warn!("No visual available from fbconfig.");
-        0
-    } else {
-        (&raw const (*visual).visualid).read() as u32
+    unsafe {
+        let Some(cfg) = cfg else {
+            return 0;
+        };
+        let visual = glx.GetVisualFromFBConfig(display, cfg);
+        if visual.is_null() {
+            warn!("No visual available from fbconfig.");
+            0
+        } else {
+            (&raw const (*visual).visualid).read() as u32
+        }
     }
 }
 

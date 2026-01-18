@@ -1,6 +1,6 @@
 use proc_macro::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse::Parse, parse_quote, punctuated::Punctuated, ItemStruct, Token};
+use syn::{ItemStruct, Token, parse::Parse, parse_quote, punctuated::Punctuated};
 
 #[proc_macro_derive(InterfaceImpl, attributes(interface, versions))]
 pub fn derive_interface_impl(tokens: TokenStream) -> TokenStream {
@@ -368,9 +368,7 @@ pub fn any_graphics(attrs: TokenStream, tokens: TokenStream) -> TokenStream {
                             continue;
                         };
                         for arg in &mut args.args {
-                            if let syn::GenericArgument::Type(syn::Type::Reference(rty)) =
-                                arg
-                            {
+                            if let syn::GenericArgument::Type(syn::Type::Reference(rty)) = arg {
                                 set_lifetime(rty);
                             }
                         }

@@ -1,11 +1,11 @@
 use crate::XrType;
 
-use super::{destroy_handle, get_handle, impl_handle, Handle, Space, SpaceType};
+use super::{Handle, Space, SpaceType, destroy_handle, get_handle, impl_handle};
 use openxr_mndx_xdev_space::bindings::XDevIdMNDX;
 use openxr_sys as xr;
-use std::ffi::{c_char, CString};
-use std::sync::atomic::Ordering;
+use std::ffi::{CString, c_char};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 #[derive(Default)]
 pub(super) struct XDevListMNDX {

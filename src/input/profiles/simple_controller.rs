@@ -3,7 +3,7 @@ use super::{
     SkeletalInputBindings, StringToPath,
 };
 use crate::button_mask_from_ids;
-use crate::input::legacy::{button_mask_from_id, Bindings, LegacyBindings};
+use crate::input::legacy::{Bindings, LegacyBindings, button_mask_from_id};
 use crate::openxr_data::Hand;
 use glam::Mat4;
 use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};

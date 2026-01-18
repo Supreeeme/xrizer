@@ -1,7 +1,7 @@
 use ash::vk::{self, Handle};
 use openxr_sys as xr_sys;
 use paste::paste;
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 
 macro_rules! get_fn {
     ($name:expr => $($fn:ident),+) => {
@@ -152,7 +152,7 @@ extern "system" fn get_physical_device_queue_family_properties(
 
 pub(crate) mod xr {
     use openxr_sys as xr;
-    use std::ffi::{c_char, CStr};
+    use std::ffi::{CStr, c_char};
 
     pub extern "system" fn get_vulkan_instance_extensions_k_h_r(
         _: xr::Instance,

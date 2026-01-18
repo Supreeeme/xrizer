@@ -13,7 +13,7 @@ use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use crate::tracy_span;
 use log::trace;
 
-use super::{profiles::MainAxisType, Input, InteractionProfile};
+use super::{Input, InteractionProfile, profiles::MainAxisType};
 
 pub enum TrackedDeviceType {
     Hmd,
