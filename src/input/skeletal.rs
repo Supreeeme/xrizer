@@ -1,5 +1,5 @@
 #[path = "skeletal_generated.rs"]
-mod gen;
+mod generated;
 
 use super::Input;
 use crate::openxr_data::{self, Hand, SessionData};
@@ -174,8 +174,8 @@ impl<C: openxr_data::Compositor> Input<C> {
     ) {
         let finger_state = self.get_finger_state(session_data, hand);
         let (open, fist) = match hand {
-            Hand::Left => (&gen::left_hand::OPENHAND, &gen::left_hand::FIST),
-            Hand::Right => (&gen::right_hand::OPENHAND, &gen::right_hand::FIST),
+            Hand::Left => (&generated::left_hand::OPENHAND, &generated::left_hand::FIST),
+            Hand::Right => (&generated::right_hand::OPENHAND, &generated::right_hand::FIST),
         };
 
         const fn constrain<'a, F, G>(f: F) -> F
@@ -286,16 +286,16 @@ impl<C: openxr_data::Compositor> Input<C> {
     ) {
         let skeleton = match hand {
             Hand::Left => match pose {
-                vr::EVRSkeletalReferencePose::BindPose => &gen::left_hand::BINDPOSE,
-                vr::EVRSkeletalReferencePose::OpenHand => &gen::left_hand::OPENHAND,
-                vr::EVRSkeletalReferencePose::Fist => &gen::left_hand::FIST,
-                vr::EVRSkeletalReferencePose::GripLimit => &gen::left_hand::GRIPLIMIT,
+                vr::EVRSkeletalReferencePose::BindPose => &generated::left_hand::BINDPOSE,
+                vr::EVRSkeletalReferencePose::OpenHand => &generated::left_hand::OPENHAND,
+                vr::EVRSkeletalReferencePose::Fist => &generated::left_hand::FIST,
+                vr::EVRSkeletalReferencePose::GripLimit => &generated::left_hand::GRIPLIMIT,
             },
             Hand::Right => match pose {
-                vr::EVRSkeletalReferencePose::BindPose => &gen::right_hand::BINDPOSE,
-                vr::EVRSkeletalReferencePose::OpenHand => &gen::right_hand::OPENHAND,
-                vr::EVRSkeletalReferencePose::Fist => &gen::right_hand::FIST,
-                vr::EVRSkeletalReferencePose::GripLimit => &gen::right_hand::GRIPLIMIT,
+                vr::EVRSkeletalReferencePose::BindPose => &generated::right_hand::BINDPOSE,
+                vr::EVRSkeletalReferencePose::OpenHand => &generated::right_hand::OPENHAND,
+                vr::EVRSkeletalReferencePose::Fist => &generated::right_hand::FIST,
+                vr::EVRSkeletalReferencePose::GripLimit => &generated::right_hand::GRIPLIMIT,
             },
         };
 

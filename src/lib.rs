@@ -200,7 +200,7 @@ fn init_logging() {
 /// # Safety
 ///
 /// interface_name must be valid
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn VRClientCoreFactory(
     interface_name: *const c_char,
     return_code: *mut i32,
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn VRClientCoreFactory(
 }
 
 /// Needed for Proton, but seems unused.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn HmdSystemFactory(
     _interface_name: *const c_char,
     _return_code: *mut i32,

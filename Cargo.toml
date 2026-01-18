@@ -1,9 +1,8 @@
 [package]
 name = "xrizer"
 version = "0.4.0"
-edition = "2021"
+edition.workspace = true
 resolver = "2"
-rust-version = "1.83"
 license = "GPL-3.0-or-later"
 description = "XR-ize your favorite OpenVR games"
 repository = "https://github.com/Supreeeme/xrizer"
@@ -18,7 +17,11 @@ tracing = ["dep:tracy-client", "openvr/tracing"]
 monado = ["dep:openxr_mndx_xdev_space"]
 
 [workspace]
-members = ["openvr", "shaders", "xbuild"]
+members = ["xbuild"]
+
+[workspace.package]
+rust-version = "1.85"
+edition = "2024"
 
 [workspace.lints.clippy]
 all = "deny"

@@ -368,7 +368,7 @@ pub fn any_graphics(attrs: TokenStream, tokens: TokenStream) -> TokenStream {
                             continue;
                         };
                         for arg in &mut args.args {
-                            if let syn::GenericArgument::Type(syn::Type::Reference(ref mut rty)) =
+                            if let syn::GenericArgument::Type(syn::Type::Reference(rty)) =
                                 arg
                             {
                                 set_lifetime(rty);
