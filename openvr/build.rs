@@ -110,6 +110,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version!(1, 0, 3),
         version!(1, 0, 1),
         version!(0, 9, 20),
+        version!(0, 9, 15),
         version!(0, 9, 12),
     ];
     let mut pruned_headers = headers.map(|(header, version)| {
@@ -220,6 +221,16 @@ fn prune_header(header: &str, version: &str) -> String {
         }
 
         if TO_DELETE.iter().any(|s| line.starts_with(*s)) || line.ends_with("VRHeadsetView();") {
+            continue;
+        }
+
+        // 0.9.12 header has duplicate macros/definitions with 0.9.15 that will
+        // cause clang to throw errors
+        if version == "vr_0_9_12"
+            && (line.starts_with("# define VR_CLANG_ATTR")
+                || line.ends_with("*VR_CALLTYPE VRApplications();")
+                || line.ends_with("*VR_CALLTYPE VRSettings();"))
+        {
             continue;
         }
 
@@ -723,7 +734,9 @@ fn process_vr_namespace_content(
             }
             syn::Item::Union(mut item) => {
                 unversion_fields(&mut item.fields.named);
-                if (vr_mod.ident == "vr_0_9_12" || vr_mod.ident == "vr_0_9_20")
+                if (vr_mod.ident == "vr_0_9_12"
+                    || vr_mod.ident == "vr_0_9_15"
+                    || vr_mod.ident == "vr_0_9_20")
                     && item.ident == "VREvent_Data_t"
                 {
                     for field in &mut item.fields.named {
@@ -745,8 +758,12 @@ fn process_vr_namespace_content(
                         &["VREvent_t", "VREvent_Reserved_t", "Compositor_FrameTiming"],
                     ),
                     (
+                        "vr_0_9_15",
+                        &["VREvent_Reserved_t", "Compositor_FrameTiming"],
+                    ),
+                    (
                         "vr_0_9_20",
-                        &["VREvent_t", "VREvent_Reserved_t", "Compositor_FrameTiming"],
+                        &["VREvent_Reserved_t", "Compositor_FrameTiming"],
                     ),
                     ("vr_1_0_1", &["Compositor_FrameTiming"]),
                     ("vr_1_0_3", &["Compositor_FrameTiming"]),

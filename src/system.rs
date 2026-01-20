@@ -149,7 +149,7 @@ impl ViewCache {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRSystem"]
-#[versions(023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 009)]
+#[versions(023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 011, 009)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
     input: Injected<Input<crate::compositor::Compositor>>,
@@ -944,7 +944,17 @@ impl vr::IVRSystem012On014 for System {
     }
 }
 
-impl vr::IVRSystem009On012 for System {
+impl vr::IVRSystem011On012 for System {
+    fn PerformanceTestEnableCapture(&self, _: bool) {
+        todo!()
+    }
+
+    fn PerformanceTestReportFidelityLevelChange(&self, _: i32) {
+        todo!()
+    }
+}
+
+impl vr::IVRSystem009On011 for System {
     fn PollNextEvent(&self, event: *mut vr::vr_0_9_12::VREvent_t) -> bool {
         self.PollNextEventWithPose(
             vr::ETrackingUniverseOrigin::Seated,

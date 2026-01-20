@@ -1555,18 +1555,7 @@ impl vr::IVROverlay013On014 for OverlayMan {
     }
 }
 
-impl vr::IVROverlay011On012 for OverlayMan {
-    fn PollNextOverlayEvent(
-        &self,
-        _: vr::VROverlayHandle_t,
-        _: *mut vr::vr_0_9_20::VREvent_t,
-        _: u32,
-    ) -> bool {
-        todo!()
-    }
-}
-
-impl vr::IVROverlay007On011 for OverlayMan {
+impl vr::IVROverlay007On010 for OverlayMan {
     fn PollNextOverlayEvent(
         &self,
         _: vr::VROverlayHandle_t,
