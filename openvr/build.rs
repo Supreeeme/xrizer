@@ -110,6 +110,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version!(1, 0, 3),
         version!(1, 0, 1),
         version!(0, 9, 20),
+        version!(0, 9, 17),
         version!(0, 9, 15),
         version!(0, 9, 12),
     ];
@@ -736,6 +737,7 @@ fn process_vr_namespace_content(
                 unversion_fields(&mut item.fields.named);
                 if (vr_mod.ident == "vr_0_9_12"
                     || vr_mod.ident == "vr_0_9_15"
+                    || vr_mod.ident == "vr_0_9_17"
                     || vr_mod.ident == "vr_0_9_20")
                     && item.ident == "VREvent_Data_t"
                 {
@@ -759,6 +761,10 @@ fn process_vr_namespace_content(
                     ),
                     (
                         "vr_0_9_15",
+                        &["VREvent_Reserved_t", "Compositor_FrameTiming"],
+                    ),
+                    (
+                        "vr_0_9_17",
                         &["VREvent_Reserved_t", "Compositor_FrameTiming"],
                     ),
                     (
