@@ -596,6 +596,7 @@ fn actions_with_bad_paths() {
     let commas = f.get_action_handle(c"/actions/set1/in/action,with,commas");
     let mixed = f.get_action_handle(c"/actions/set1/in/mixed, action");
     let paren = f.get_action_handle(c"/actions/set1/in/(action)(with)(parenthesis)");
+    let brackets = f.get_action_handle(c"/actions/set1/in/[action][with][brackets]");
     let long_bad1 = f.get_action_handle(c"/actions/set1/in/ThisActionHasAReallyLongNameThatIsMostCertainlyLongerThanTheOpenXRLimit,However,ItWillBeGivenASimpleLocalizedName");
     let long_bad2 = f.get_action_handle(c"/actions/set1/in/ThisActionWillAlsoHaveAReallyLongNameAndAShortLocalizedName,MuchLikeThePreviousAction");
     let long_exact = f.get_action_handle(
@@ -640,6 +641,11 @@ fn actions_with_bad_paths() {
         fakexr::ActionState::Bool(false),
         LeftHand,
     );
+    fakexr::set_action_state(
+        f.get_action::<bool>(brackets),
+        fakexr::ActionState::Bool(false),
+        LeftHand,
+    );
     f.sync(vr::VRActiveActionSet_t {
         ulActionSet: set1,
         ..Default::default()
@@ -656,6 +662,11 @@ fn actions_with_bad_paths() {
     assert!(s.bChanged);
 
     let s = f.get_bool_state(paren).unwrap();
+    assert!(s.bActive);
+    assert!(!s.bState);
+    assert!(!s.bChanged);
+
+    let s = f.get_bool_state(brackets).unwrap();
     assert!(s.bActive);
     assert!(!s.bState);
     assert!(!s.bChanged);
