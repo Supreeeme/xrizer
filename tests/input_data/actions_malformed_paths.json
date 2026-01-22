@@ -31,6 +31,10 @@
     		"type": "boolean"
 		},
 		{
+			"name": "/actions/set1/in/[Action][With][Brackets]",
+			"type": "boolean"
+		},
+		{
     		"name": "/actions/set1/in/this right here is an action that is exactly 64 characters long!",
     		"type": "boolean"
 		}
