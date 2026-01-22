@@ -359,8 +359,10 @@ impl<G: xr::Graphics> OverlayLayer<'_, G> {
                 next: std::ptr::null(),
                 color_bias: Default::default(),
                 color_scale: xr::Color4f {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 1.0,
                     a: alpha,
-                    ..Default::default()
                 },
             });
 
