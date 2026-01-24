@@ -6,7 +6,7 @@ use std::process::Command;
 
 #[derive(Default, macros::InterfaceImpl)]
 #[interface = "IVRApplications"]
-#[versions(007, 006, 005, 003)]
+#[versions(007, 006, 005, 004, 003, 002)]
 pub struct Applications {
     vtables: Vtables,
 }
