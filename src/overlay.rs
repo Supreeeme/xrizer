@@ -19,7 +19,9 @@ pub const SKYBOX_Z_ORDER: i64 = -1;
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVROverlay"]
-#[versions(028, 027, 026, 025, 024, 021, 020, 019, 018, 017, 016, 014, 013, 007)]
+#[versions(
+    028, 027, 026, 025, 024, 021, 020, 019, 018, 017, 016, 014, 013, 012, 007
+)]
 pub struct OverlayMan {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Compositor>>,
@@ -1553,7 +1555,7 @@ impl vr::IVROverlay013On014 for OverlayMan {
     }
 }
 
-impl vr::IVROverlay011On013 for OverlayMan {
+impl vr::IVROverlay011On012 for OverlayMan {
     fn PollNextOverlayEvent(
         &self,
         _: vr::VROverlayHandle_t,

@@ -108,6 +108,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version!(1, 0, 5),
         version!(1, 0, 4),
         version!(1, 0, 3),
+        version!(1, 0, 1),
         version!(0, 9, 20),
         version!(0, 9, 12),
     ];
@@ -747,6 +748,7 @@ fn process_vr_namespace_content(
                         "vr_0_9_20",
                         &["VREvent_t", "VREvent_Reserved_t", "Compositor_FrameTiming"],
                     ),
+                    ("vr_1_0_1", &["Compositor_FrameTiming"]),
                     ("vr_1_0_3", &["Compositor_FrameTiming"]),
                 ];
                 let should_reversion = INCOMPAT_STRUCTS
