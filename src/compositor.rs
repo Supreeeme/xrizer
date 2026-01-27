@@ -25,7 +25,7 @@ pub struct CompositorSessionData(Mutex<Option<DynFrameController>>);
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRCompositor"]
-#[versions(029, 028, 027, 026, 022, 021, 020, 019, 018, 016, 014, 009)]
+#[versions(029, 028, 027, 026, 022, 021, 020, 019, 018, 016, 015, 014, 009)]
 pub struct Compositor {
     vtables: Vtables,
     openxr: Arc<OpenXrData<Self>>,
@@ -938,7 +938,29 @@ impl vr::IVRCompositor016On018 for Compositor {
     }
 }
 
-impl vr::IVRCompositor014On016 for Compositor {
+impl vr::IVRCompositor015On016 for Compositor {
+    fn GetFrameTiming(
+        &self,
+        _timing: *mut openvr::vr_1_0_1::Compositor_FrameTiming,
+        _frames_ago: u32,
+    ) -> bool {
+        crate::warn_unimplemented!("GetFrameTiming (v1.0.1)");
+        false
+    }
+    fn RequestScreenshot(
+        &self,
+        _screenshot_type: vr::EVRScreenshotType,
+        _dest_file_name: *const i8,
+        _vr_dest_file_name: *const i8,
+    ) -> vr::EVRCompositorError {
+        todo!("RequestScreenshot (v1.0.1)");
+    }
+    fn GetCurrentScreenshotType(&self) -> vr::EVRScreenshotType {
+        todo!("GetCurrentScreenshotType (v1.0.1)");
+    }
+}
+
+impl vr::IVRCompositor014On015 for Compositor {
     fn GetFrameTiming(
         &self,
         _timing: *mut vr::vr_0_9_20::Compositor_FrameTiming,
