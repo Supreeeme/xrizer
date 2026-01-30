@@ -171,6 +171,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             .session
             .sync_actions(&[xr::ActiveActionSet::new(&info_set)])
             .unwrap();
+        self.interaction_profile_changed(session_data);
 
         // Transform actions and sets into maps
         // If the application has already requested the handle for an action/set, we need to
