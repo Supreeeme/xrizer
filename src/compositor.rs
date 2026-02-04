@@ -952,8 +952,8 @@ impl vr::IVRCompositor015On016 for Compositor {
     fn RequestScreenshot(
         &self,
         _screenshot_type: vr::EVRScreenshotType,
-        _dest_file_name: *const i8,
-        _vr_dest_file_name: *const i8,
+        _dest_file_name: *const std::ffi::c_char,
+        _vr_dest_file_name: *const std::ffi::c_char,
     ) -> vr::EVRCompositorError {
         todo!("RequestScreenshot (v1.0.1)");
     }
