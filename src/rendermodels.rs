@@ -5,7 +5,7 @@ use openvr as vr;
 
 #[derive(Default, macros::InterfaceImpl)]
 #[interface = "IVRRenderModels"]
-#[versions(006, 005)]
+#[versions(006, 005, 004)]
 pub struct RenderModels {
     vtables: Vtables,
 }
