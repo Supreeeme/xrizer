@@ -51,11 +51,6 @@ impl InteractionProfile for Touch {
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {
-                from: "trigger/click",
-                to: "trigger/value",
-                stop: true,
-            },
-            PathTranslation {
                 from: "grip/click",
                 to: "squeeze/value",
                 stop: true,
