@@ -2,6 +2,7 @@ use crate::{
     clientcore::{Injected, Injector},
     graphics_backends::{GraphicsBackend, VulkanData, supported_apis_enum},
 };
+use ash::vk::{self, Handle};
 use derive_more::Deref;
 use glam::f32::{Quat, Vec3};
 use log::{info, warn};
@@ -430,9 +431,33 @@ impl SessionData {
         let (temp_vulkan, info) = if let Some(info) = create_info {
             if let SessionCreateInfo::Vulkan(info) = info {
                 // Monado seems to (incorrectly) give validation errors unless we call this.
-                let pd =
-                    unsafe { instance.vulkan_graphics_device(system_id, info.instance) }.unwrap();
-                assert_eq!(pd, info.physical_device);
+                let expected_pd = vk::PhysicalDevice::from_raw(
+                    unsafe { instance.vulkan_graphics_device(system_id, info.instance) }.unwrap()
+                        as _,
+                );
+                let pd = vk::PhysicalDevice::from_raw(info.physical_device as _);
+
+                if expected_pd != pd {
+                    let inst = unsafe {
+                        ash::Instance::load(
+                            ash::Entry::load().unwrap().static_fn(),
+                            vk::Instance::from_raw(info.instance as _),
+                        )
+                    };
+                    let get_pd_name = |pd| {
+                        let pd_properties = unsafe { inst.get_physical_device_properties(pd) };
+                        pd_properties
+                            .device_name_as_c_str()
+                            .map(|name| name.to_string_lossy().to_string())
+                            .unwrap_or_else(|_| "<unknown>".to_string())
+                    };
+
+                    panic!(
+                        "Application is using the wrong GPU (expected {}, got {})",
+                        get_pd_name(expected_pd),
+                        get_pd_name(pd)
+                    );
+                }
             }
             (None, info)
         } else {
