@@ -1025,7 +1025,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         };
 
         let set_map = self.set_map.read().unwrap();
-        let mut sync_sets = Vec::with_capacity(active_sets.len() + 1);
+        let mut sync_sets = Vec::with_capacity(active_sets.len() + 3);
         {
             tracy_span!("UpdateActionState generate active sets");
             for set in active_sets {
@@ -1044,6 +1044,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 &data.input_data.pose_data.get().unwrap().set,
             ));
             sync_sets.push(xr::ActiveActionSet::new(&skeletal_input.set));
+            sync_sets.push(xr::ActiveActionSet::new(&actions.haptic_set));
             self.legacy_state.on_action_sync();
         }
 
@@ -1562,6 +1563,8 @@ struct ManifestLoadedActions {
     per_profile_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, Vec<BindingData>>>,
     info_set: xr::ActionSet,
     _info_action: xr::Action<bool>,
+    haptic_set: xr::ActionSet,
+    haptic_action: xr::Action<xr::Haptic>,
 }
 
 impl ManifestLoadedActions {

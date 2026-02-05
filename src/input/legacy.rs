@@ -1,6 +1,6 @@
 use super::{Input, PoseData, Profiles, WriteOnDrop};
 use crate::{
-    input::{ActionData, LoadedActions, ManifestLoadedActions},
+    input::{LoadedActions, ManifestLoadedActions},
     openxr_data::{self},
 };
 use log::{debug, trace, warn};
@@ -130,7 +130,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
     }
 
-    /// Trigger a full amplitude vibration on the given path via a Manifest Action.
+    /// Trigger a full amplitude vibration on the given path via the global `haptic_action` in our
+    /// loaded Manifest Actions.
     ///
     /// This is necessary for the legacy input system to handle because applications may call
     /// legacy-input haptic interface functions while providing manifest files.
@@ -141,19 +142,8 @@ impl<C: openxr_data::Compositor> Input<C> {
         duration_us: ::std::ffi::c_ushort,
     ) {
         trace!("triggered legacy haptic while using action manifest");
-        let Some(haptic_action) =
-            manifest_actions
-                .actions
-                .iter()
-                .find_map(|(_k, action)| match action {
-                    ActionData::Haptic(haptic_action) => Some(haptic_action),
-                    _ => None,
-                })
-        else {
-            debug!("triggered legacy haptic with loaded actions, but no haptic action found.");
-            return;
-        };
-        haptic_action
+        manifest_actions
+            .haptic_action
             .apply_feedback(
                 &self.openxr.session_data.get().session,
                 hand_path,
@@ -418,7 +408,6 @@ impl LegacyActionData {
 
 #[cfg(test)]
 mod tests {
-    use crate::input::ActionData;
     use crate::input::profiles::{knuckles::Knuckles, simple_controller::SimpleController};
     use crate::input::tests::{Fixture, compare_pose};
     use crate::openxr_data::Hand;
@@ -872,13 +861,7 @@ mod tests {
             .input_data
             .get_loaded_actions()
             .unwrap()
-            .actions
-            .iter()
-            .find_map(|(_k, action)| match action {
-                ActionData::Haptic(haptic_action) => Some(haptic_action),
-                _ => None,
-            })
-            .unwrap()
+            .haptic_action
             .as_raw();
 
         assert!(!fakexr::is_haptic_activated(
