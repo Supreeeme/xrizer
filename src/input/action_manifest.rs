@@ -286,6 +286,8 @@ struct DefaultBindings {
 #[serde(rename_all = "snake_case")]
 pub(super) enum ControllerType {
     ViveController,
+    #[serde(rename = "vive_focus3_controller")]
+    ViveFocus3,
     Knuckles,
     OculusTouch,
     #[serde(untagged)]
