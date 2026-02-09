@@ -20,7 +20,7 @@ use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span,
 };
-use custom_bindings::{BindingData, GrabActions};
+use custom_bindings::{BoolBindingData, GrabActions};
 use glam::Quat;
 use legacy::LegacyActionData;
 use log::{debug, info, trace, warn};
@@ -1567,7 +1567,7 @@ struct ManifestLoadedActions {
     extra_actions: SecondaryMap<ActionKey, ExtraActionData>,
     actions_with_custom_bindings: HashSet<ActionKey>,
     per_profile_pose_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, BoundPose>>,
-    per_profile_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, Vec<BindingData>>>,
+    per_profile_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, Vec<BoolBindingData>>>,
     info_set: xr::ActionSet,
     _info_action: xr::Action<bool>,
     haptic_set: xr::ActionSet,
@@ -1579,7 +1579,7 @@ impl ManifestLoadedActions {
         &self,
         handle: vr::VRActionHandle_t,
         interaction_profile: xr::Path,
-    ) -> Result<&Vec<BindingData>, vr::EVRInputError> {
+    ) -> Result<&Vec<BoolBindingData>, vr::EVRInputError> {
         let key = ActionKey::from(KeyData::from_ffi(handle));
         self.per_profile_bindings
             .get(&interaction_profile)
