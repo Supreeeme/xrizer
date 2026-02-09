@@ -59,17 +59,14 @@ unsafe fn get_visualid(
     glx: &Glx,
     display: *mut glx::types::Display,
     cfg: Option<glx::types::GLXFBConfig>,
-) -> u32 {
+) -> Option<u32> {
     unsafe {
-        let Some(cfg) = cfg else {
-            return 0;
-        };
-        let visual = glx.GetVisualFromFBConfig(display, cfg);
+        let visual = glx.GetVisualFromFBConfig(display, cfg?);
         if visual.is_null() {
             warn!("No visual available from fbconfig.");
-            0
+            None
         } else {
-            (&raw const (*visual).visualid).read() as u32
+            Some((&raw const (*visual).visualid).read() as u32)
         }
     }
 }
@@ -119,9 +116,9 @@ impl GlData {
                 x_display: x_display.cast(),
                 glx_fb_config: fbconfig.map(|p| p.cast_mut()).unwrap_or_else(|| {
                     warn!("No fbconfig found.");
-                    std::ptr::null_mut()
+                    1 as _
                 }),
-                visualid,
+                visualid: visualid.unwrap_or(1),
                 glx_drawable,
                 glx_context: glx_context.cast_mut(),
             }
