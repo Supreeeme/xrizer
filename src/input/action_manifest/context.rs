@@ -1,5 +1,5 @@
-use crate::input::ActionData::{Bool, Vector1, Vector2};
-use crate::input::action_manifest::{ActionPath, ControllerType, LoadedActionDataMap};
+use super::actions::{ControllerType, LoadedActionDataMap};
+use super::bindings::{ActionPath, DpadParameters, DpadSubMode};
 use crate::input::custom_bindings::{
     AsActionData, AsIter, BindingData, CustomBindingHelper, Names,
 };
@@ -144,13 +144,13 @@ pub(super) fn parse_hand_from_path(instance: &xr::Instance, path: &str) -> Optio
 }
 
 trait ActionPattern {
-    fn check_match(&self, data: &super::ActionData, name: &str);
+    fn check_match(&self, data: &ActionData, name: &str);
 }
 macro_rules! action_match {
     ($pat:pat, $extra:literal) => {{
         struct S;
         impl ActionPattern for S {
-            fn check_match(&self, data: &super::ActionData, name: &str) {
+            fn check_match(&self, data: &ActionData, name: &str) {
                 assert!(
                     matches!(data, $pat),
                     "Data for action {name} didn't match pattern {} ({})",
@@ -202,16 +202,24 @@ impl BindingsProfileLoadContext<'_> {
         self.try_get_binding(
             action_path,
             input_path,
-            action_match!(Bool(_) | Vector1 { .. }),
+            action_match!(ActionData::Bool(_) | ActionData::Vector1 { .. }),
         );
     }
 
     pub fn try_get_float_binding(&mut self, action_path: String, input_path: String) {
-        self.try_get_binding(action_path, input_path, action_match!(Vector1 { .. }));
+        self.try_get_binding(
+            action_path,
+            input_path,
+            action_match!(ActionData::Vector1 { .. }),
+        );
     }
 
     pub fn try_get_v2_binding(&mut self, action_path: String, input_path: String) {
-        self.try_get_binding(action_path, input_path, action_match!(Vector2 { .. }));
+        self.try_get_binding(
+            action_path,
+            input_path,
+            action_match!(ActionData::Vector2 { .. }),
+        );
     }
 
     pub fn add_custom_binding<T: CustomBindingHelper>(
@@ -260,7 +268,7 @@ impl BindingsProfileLoadContext<'_> {
         parent_action_key: &str,
         action_set_name: &str,
         action_set: &xr::ActionSet,
-        parameters: Option<&crate::input::action_manifest::DpadParameters>,
+        parameters: Option<&DpadParameters>,
     ) -> (
         xr::Action<xr::Vector2f>,
         Option<DpadActivatorData>,
@@ -302,14 +310,14 @@ impl BindingsProfileLoadContext<'_> {
             .as_ref()
             .and_then(|p| {
                 let name = match p.sub_mode {
-                    crate::input::action_manifest::DpadSubMode::Click => {
+                    DpadSubMode::Click => {
                         if use_force {
                             format!("{parent_path}/force")
                         } else {
                             format!("{parent_path}/click")
                         }
                     }
-                    crate::input::action_manifest::DpadSubMode::Touch => {
+                    DpadSubMode::Touch => {
                         format!("{parent_path}/touch")
                     }
                 };
