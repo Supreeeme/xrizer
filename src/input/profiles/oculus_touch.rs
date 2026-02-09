@@ -48,6 +48,9 @@ impl InteractionProfile for Touch {
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/oculus/touch_controller"
     }
+    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+        true
+    }
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {

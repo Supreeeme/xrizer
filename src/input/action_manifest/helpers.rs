@@ -6,7 +6,7 @@ use crate::input::custom_bindings::{
 use crate::input::skeletal::SkeletalInputActionData;
 use crate::input::{ActionData, BoundPose, ExtraActionData, Input, InteractionProfile};
 use crate::openxr_data::{self, Hand, OpenXrData};
-use log::{trace, warn};
+use log::{info, trace, warn};
 use openxr as xr;
 use std::collections::HashMap;
 
@@ -58,6 +58,12 @@ impl BindingsLoadContext<'_> {
             warn!("Controller type {controller_type:?} has no OpenXR path supported?");
             return None;
         };
+        if !profile.has_required_extensions(&openxr.enabled_extensions) {
+            info!(
+                "Not loading bindings for {controller_type:?} because required extensions are not supported"
+            );
+            return None;
+        }
 
         let hands = [
             input.get_subaction_path(Hand::Left),

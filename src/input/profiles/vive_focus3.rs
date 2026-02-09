@@ -45,6 +45,9 @@ impl InteractionProfile for ViveFocus3 {
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/htc/vive_focus3_controller"
     }
+    fn has_required_extensions(&self, enabled_extensions: &openxr::ExtensionSet) -> bool {
+        enabled_extensions.htc_vive_focus3_controller_interaction
+    }
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {

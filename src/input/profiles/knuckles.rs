@@ -15,6 +15,9 @@ impl InteractionProfile for Knuckles {
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/valve/index_controller"
     }
+    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+        true
+    }
     fn properties(&self) -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::PerHand {
