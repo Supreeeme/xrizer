@@ -18,6 +18,7 @@ pub(super) struct BindingsLoadContext<'a> {
     pub per_profile_pose_bindings: HashMap<xr::Path, HashMap<String, BoundPose>>,
     pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
+    pub haptic_action: &'a xr::Action<xr::Haptic>,
     pub skeletal_input: &'a SkeletalInputActionData,
 }
 
@@ -27,6 +28,7 @@ impl<'a> BindingsLoadContext<'a> {
         actions: LoadedActionDataMap,
         grip_action: &'a xr::Action<xr::Posef>,
         info_action: &'a xr::Action<bool>,
+        haptic_action: &'a xr::Action<xr::Haptic>,
         skeletal_input: &'a SkeletalInputActionData,
     ) -> Self {
         BindingsLoadContext {
@@ -37,6 +39,7 @@ impl<'a> BindingsLoadContext<'a> {
             per_profile_pose_bindings: Default::default(),
             grip_action,
             info_action,
+            haptic_action,
             skeletal_input,
         }
     }
@@ -79,6 +82,7 @@ impl BindingsLoadContext<'_> {
             pose_bindings,
             grip_action: self.grip_action,
             info_action: self.info_action,
+            haptic_action: self.haptic_action,
             skeletal_input: self.skeletal_input,
             instance,
             hands,
@@ -97,6 +101,7 @@ pub(super) struct BindingsProfileLoadContext<'a> {
     pub pose_bindings: &'a mut HashMap<String, BoundPose>,
     pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
+    pub haptic_action: &'a xr::Action<xr::Haptic>,
     pub skeletal_input: &'a SkeletalInputActionData,
     pub instance: &'a xr::Instance,
     pub hands: [xr::Path; 2],

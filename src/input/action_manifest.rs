@@ -133,12 +133,27 @@ impl<C: openxr_data::Compositor> Input<C> {
         let info_action = info_set
             .create_action::<bool>("xrizer-info-action", "XRizer info action", &[])
             .unwrap();
+        // Generate an action set & action for handling haptic pulses.
+        // See `System::TriggerHapticPulse` & `Input::legacy_haptic`.
+        let haptic_set = self
+            .openxr
+            .instance
+            .create_action_set("xrizer-haptic-set", "XRizer haptic set", 0)
+            .unwrap();
+        let haptic_action = haptic_set
+            .create_action::<xr::Haptic>(
+                "xrizer-haptic-action",
+                "XRizer haptic action",
+                &[self.subaction_paths.left, self.subaction_paths.right],
+            )
+            .unwrap();
 
         let mut binding_context = BindingsLoadContext::new(
             &sets,
             actions,
             &session_data.input_data.pose_data.get().unwrap().grip,
             &info_action,
+            &haptic_action,
             skeletal_input,
         );
 
@@ -161,6 +176,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             .chain([
                 &session_data.input_data.pose_data.get().unwrap().set,
                 &info_set,
+                &haptic_set,
                 &skeletal_input.set,
             ])
             .collect();
@@ -232,6 +248,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             per_profile_pose_bindings,
             _info_action: info_action,
             info_set,
+            haptic_action,
+            haptic_set,
         };
 
         session_data
@@ -1000,6 +1018,12 @@ impl<C: openxr_data::Compositor> Input<C> {
                 context.info_action,
                 info_action_binding,
             )))
+            .chain(
+                legacy_bindings
+                    .haptic
+                    .into_iter()
+                    .map(|path| xr::Binding::new(context.haptic_action, path)),
+            )
             .chain(skeletal_bindings.binding_iter(&context.skeletal_input.actions))
             .collect();
 
