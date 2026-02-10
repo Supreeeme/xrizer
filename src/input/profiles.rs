@@ -1,9 +1,14 @@
 pub mod knuckles;
+
 pub mod oculus_touch;
+
 pub mod simple_controller;
 pub mod vive_controller;
+pub mod wmr;
+
 #[cfg(feature = "monado")]
 pub mod vive_tracker;
+
 use super::{
     action_manifest::ControllerType, legacy::LegacyBindings, skeletal::SkeletalInputBindings,
 };
@@ -15,6 +20,10 @@ use openxr as xr;
 use simple_controller::SimpleController;
 use std::ffi::CStr;
 use vive_controller::ViveWands;
+use wmr::{
+    hp_motion_controller::ReverbG2Controller, ms_motion_controller::HolographicController,
+    samsung_odyssey_controller::SamsungOdysseyController,
+};
 
 #[allow(private_interfaces)]
 pub trait InteractionProfile: Sync + Send {
@@ -110,6 +119,15 @@ impl Profiles {
         // Add supported interaction profiles here.
         static P: Profiles = Profiles {
             list: &[
+                (ControllerType::HPMotionController, &ReverbG2Controller),
+                (
+                    ControllerType::SamsungOdysseyController,
+                    &SamsungOdysseyController,
+                ),
+                (
+                    ControllerType::HolographicController,
+                    &HolographicController,
+                ),
                 (ControllerType::ViveController, &ViveWands),
                 (ControllerType::Knuckles, &Knuckles),
                 (ControllerType::OculusTouch, &Touch),
