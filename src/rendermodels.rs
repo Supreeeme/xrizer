@@ -24,6 +24,8 @@ struct RenderModelData {
 const RENDER_MODELS: &[(&str, RenderModelData)] = {
     let oculus_quest2_controller_left =
         include_bytes!("../resources/rendermodels/oculus_quest2_controller_left.obj.lz4");
+    let oculus_quest_plus_controller_left =
+        include_bytes!("../resources/rendermodels/oculus_quest_plus_controller_left.obj.lz4");
     let valve_controller_knu_1_0_left =
         include_bytes!("../resources/rendermodels/valve_controller_knu_1_0_left.obj.lz4");
     let vive_focus3_controller_left =
@@ -49,6 +51,20 @@ const RENDER_MODELS: &[(&str, RenderModelData)] = {
             "oculus_quest2_controller_right",
             RenderModelData {
                 bytes: oculus_quest2_controller_left,
+                flipped: true,
+            },
+        ),
+        (
+            "oculus_quest_plus_controller_left",
+            RenderModelData {
+                bytes: oculus_quest_plus_controller_left,
+                flipped: false,
+            },
+        ),
+        (
+            "oculus_quest_plus_controller_right",
+            RenderModelData {
+                bytes: oculus_quest_plus_controller_left,
                 flipped: true,
             },
         ),
@@ -568,7 +584,7 @@ impl OwnedRenderModel {
                         let i2 = map_vertex_index(poly_indices[i + 1])?;
 
                         if flipped {
-                            // so reverse winding to keep normals/front-faces correct
+                            // reverse winding to keep normals/front-faces correct
                             indices.push(i0);
                             indices.push(i2);
                             indices.push(i1);
