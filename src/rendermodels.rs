@@ -26,6 +26,8 @@ const RENDER_MODELS: &[(&str, RenderModelData)] = {
         include_bytes!("../resources/rendermodels/oculus_quest2_controller_left.obj.lz4");
     let valve_controller_knu_1_0_left =
         include_bytes!("../resources/rendermodels/valve_controller_knu_1_0_left.obj.lz4");
+    let vive_focus3_controller_left =
+        include_bytes!("../resources/rendermodels/vive_focus3_controller_left.obj.lz4");
 
     // must be in strict alphabetical order
     &[
@@ -61,6 +63,20 @@ const RENDER_MODELS: &[(&str, RenderModelData)] = {
             "valve_controller_knu_1_0_right",
             RenderModelData {
                 bytes: valve_controller_knu_1_0_left,
+                flipped: true,
+            },
+        ),
+        (
+            "vive_focus3_controller_left",
+            RenderModelData {
+                bytes: vive_focus3_controller_left,
+                flipped: false,
+            },
+        ),
+        (
+            "vive_focus3_controller_right",
+            RenderModelData {
+                bytes: vive_focus3_controller_left,
                 flipped: true,
             },
         ),
@@ -551,9 +567,16 @@ impl OwnedRenderModel {
                         let i1 = map_vertex_index(poly_indices[i])?;
                         let i2 = map_vertex_index(poly_indices[i + 1])?;
 
-                        indices.push(i0);
-                        indices.push(i1);
-                        indices.push(i2);
+                        if flipped {
+                            // so reverse winding to keep normals/front-faces correct
+                            indices.push(i0);
+                            indices.push(i2);
+                            indices.push(i1);
+                        } else {
+                            indices.push(i0);
+                            indices.push(i1);
+                            indices.push(i2);
+                        }
                     }
                 }
             }
