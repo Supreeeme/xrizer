@@ -34,6 +34,9 @@ impl InteractionProfile for ViveWands {
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/htc/vive_controller"
     }
+    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+        true
+    }
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {

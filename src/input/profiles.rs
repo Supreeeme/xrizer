@@ -2,6 +2,7 @@ pub mod knuckles;
 pub mod oculus_touch;
 pub mod simple_controller;
 pub mod vive_controller;
+pub mod vive_focus3;
 #[cfg(feature = "monado")]
 pub mod vive_tracker;
 use super::{
@@ -15,10 +16,12 @@ use openxr as xr;
 use simple_controller::SimpleController;
 use std::ffi::CStr;
 use vive_controller::ViveWands;
+use vive_focus3::ViveFocus3;
 
 #[allow(private_interfaces)]
 pub trait InteractionProfile: Sync + Send {
     fn profile_path(&self) -> &'static str;
+    fn has_required_extensions(&self, enabled_extensions: &xr::ExtensionSet) -> bool;
     fn properties(&self) -> &'static ProfileProperties;
     fn translate_map(&self) -> &'static [PathTranslation];
 
@@ -114,6 +117,7 @@ impl Profiles {
                 (ControllerType::Knuckles, &Knuckles),
                 (ControllerType::OculusTouch, &Touch),
                 (ControllerType::ViveController, &SimpleController),
+                (ControllerType::ViveFocus3, &ViveFocus3),
             ],
         };
         &P

@@ -11,6 +11,9 @@ impl InteractionProfile for ViveTracker {
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/htc/vive_tracker_htcx"
     }
+    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+        true
+    }
     fn properties(&self) -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::BothHands(c"Vive Tracker Handheld Object"),

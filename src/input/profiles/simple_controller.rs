@@ -35,6 +35,9 @@ impl InteractionProfile for SimpleController {
     fn profile_path(&self) -> &'static str {
         "/interaction_profiles/khr/simple_controller"
     }
+    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+        true
+    }
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {

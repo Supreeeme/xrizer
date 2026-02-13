@@ -6,71 +6,78 @@ use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
-use openvr::EVRButtonId::{A, ApplicationMenu, Axis0, Axis1, Axis2, Grip, System};
+use openvr::EVRButtonId::{A, ApplicationMenu, Axis1, Axis2, Axis3, Axis4, Grip, System};
 
-pub struct Touch;
+pub struct ViveFocus3;
 
-impl InteractionProfile for Touch {
+impl InteractionProfile for ViveFocus3 {
     fn properties(&self) -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
-            model: Property::PerHand {
-                left: c"Oculus Quest2 (Left Controller)",
-                right: c"Oculus Quest2 (Right Controller)",
-            },
-            openvr_controller_type: c"oculus_touch",
+            model: Property::BothHands(c"vive_focus3_controller"),
+            openvr_controller_type: c"vive_focus3_controller",
             render_model_name: Property::PerHand {
-                left: c"oculus_quest2_controller_left",
-                right: c"oculus_quest2_controller_right",
+                left: c"vive_focus3_controller_left",
+                right: c"vive_focus3_controller_right",
             },
-            registered_device_type: Property::PerHand {
-                left: c"oculus/WMHD315M3010GV_Controller_Left",
-                right: c"oculus/WMHD315M3010GV_Controller_Right",
-            },
+            registered_device_type: Property::BothHands(
+                c"htc_business_streaming/vive_focus3_controller",
+            ),
             serial_number: Property::PerHand {
-                left: c"WMHD315M3010GV_Controller_Left",
-                right: c"WMHD315M3010GV_Controller_Right",
+                left: c"CTL_LEFT",
+                right: c"CTL_RIGHT",
             },
-            tracking_system_name: c"oculus",
-            manufacturer_name: c"Oculus",
+            tracking_system_name: c"htc_eyes",
+            manufacturer_name: c"htc_rr",
             main_axis: MainAxisType::Thumbstick,
             legacy_buttons_mask: button_mask_from_ids!(
                 System,
                 ApplicationMenu,
                 Grip,
                 A,
-                Axis0,
                 Axis1,
-                Axis2
+                Axis2,
+                Axis3,
+                Axis4,
             ),
         };
         &DEVICE_PROPERTIES
     }
     fn profile_path(&self) -> &'static str {
-        "/interaction_profiles/oculus/touch_controller"
+        "/interaction_profiles/htc/vive_focus3_controller"
     }
-    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
-        true
+    fn has_required_extensions(&self, enabled_extensions: &openxr::ExtensionSet) -> bool {
+        enabled_extensions.htc_vive_focus3_controller_interaction
     }
     fn translate_map(&self) -> &'static [PathTranslation] {
         &[
             PathTranslation {
-                from: "grip/click",
-                to: "squeeze/value",
+                from: "x/touch",
+                to: "x/click",
                 stop: true,
             },
             PathTranslation {
-                from: "grip/pull",
-                to: "squeeze/value",
+                from: "y/touch",
+                to: "y/click",
                 stop: true,
             },
             PathTranslation {
-                from: "trigger/pull",
-                to: "trigger/value",
+                from: "a/touch",
+                to: "a/click",
                 stop: true,
             },
             PathTranslation {
-                from: "trigger/click",
-                to: "trigger/value",
+                from: "b/touch",
+                to: "b/click",
+                stop: true,
+            },
+            PathTranslation {
+                from: "input/grip",
+                to: "input/squeeze",
+                stop: false,
+            },
+            PathTranslation {
+                from: "pull",
+                to: "value",
                 stop: true,
             },
             PathTranslation {
@@ -92,7 +99,7 @@ impl InteractionProfile for Touch {
                 grip_pose: stp.leftright("input/grip/pose"),
             },
             trigger: stp.leftright("input/trigger/value"),
-            trigger_click: stp.leftright("input/trigger/value"),
+            trigger_click: stp.leftright("input/trigger/click"),
             app_menu: vec![
                 stp("/user/hand/left/input/y/click"),
                 stp("/user/hand/right/input/b/click"),
@@ -101,7 +108,7 @@ impl InteractionProfile for Touch {
                 stp("/user/hand/left/input/x/click"),
                 stp("/user/hand/right/input/a/click"),
             ],
-            squeeze_click: stp.leftright("input/squeeze/value"),
+            squeeze_click: stp.leftright("input/squeeze/click"),
             squeeze: stp.leftright("input/squeeze/value"),
             main_xy: stp.leftright("input/thumbstick"),
             main_xy_click: stp.leftright("input/thumbstick/click"),
@@ -115,10 +122,10 @@ impl InteractionProfile for Touch {
             thumb_touch: stp
                 .leftright("input/thumbstick/touch")
                 .into_iter()
-                .chain(stp.left("input/x/touch"))
-                .chain(stp.left("input/y/touch"))
-                .chain(stp.right("input/a/touch"))
-                .chain(stp.right("input/b/touch"))
+                .chain(stp.left("input/x/click"))
+                .chain(stp.left("input/y/click"))
+                .chain(stp.right("input/a/click"))
+                .chain(stp.right("input/b/click"))
                 .chain(stp.leftright("input/thumbrest/touch"))
                 .collect(),
             index_touch: stp.leftright("input/trigger/touch"),
@@ -128,27 +135,19 @@ impl InteractionProfile for Touch {
     }
 
     fn legal_paths(&self) -> Box<[String]> {
-        let left_only = [
-            "input/x/click",
-            "input/x/touch",
-            "input/y/click",
-            "input/y/touch",
-            "input/menu/click",
-        ]
-        .iter()
-        .map(|p| format!("/user/hand/left/{p}"));
-        let right_only = [
-            "input/a/click",
-            "input/a/touch",
-            "input/b/click",
-            "input/b/touch",
-        ]
-        .iter()
-        .map(|p| format!("/user/hand/right/{p}"));
+        let left_only = ["input/x/click", "input/y/click", "input/menu/click"]
+            .iter()
+            .map(|p| format!("/user/hand/left/{p}"));
+        let right_only = ["input/a/click", "input/b/click"]
+            .iter()
+            .map(|p| format!("/user/hand/right/{p}"));
 
         let both = [
             "input/squeeze/value",
+            "input/squeeze/click",
+            "input/squeeze/touch",
             "input/trigger/value",
+            "input/trigger/click",
             "input/trigger/touch",
             "input/thumbstick",
             "input/thumbstick/x",
@@ -199,7 +198,7 @@ impl InteractionProfile for Touch {
 
 #[cfg(test)]
 mod tests {
-    use super::{InteractionProfile, Touch};
+    use super::{InteractionProfile, ViveFocus3};
     use crate::input::tests::Fixture;
     use openxr as xr;
 
@@ -208,7 +207,7 @@ mod tests {
         let f = Fixture::new();
         f.load_actions(c"actions.json");
 
-        let path = Touch.profile_path();
+        let path = ViveFocus3.profile_path();
         f.verify_bindings::<bool>(
             path,
             c"/actions/set1/in/boolact",

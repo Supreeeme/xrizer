@@ -85,6 +85,10 @@
 		{
 			"binding_url": "oculus.json",
 			"controller_type": "oculus_touch"
+		},
+		{
+			"binding_url": "focus3.json",
+			"controller_type": "vive_focus3_controller"
 		}
 	],
 	"localization": []

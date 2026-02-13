@@ -346,10 +346,11 @@ extern "system" fn enumerate_instance_extension_properties(
     properties: *mut xr::ExtensionProperties,
 ) -> xr::Result {
     assert!(layer_name.is_null());
-    unsafe { *property_count_output = 2 };
-    if property_capacity_input >= 2 {
+    unsafe { *property_count_output = 3 };
+    if property_capacity_input >= 3 {
         let props =
             unsafe { std::slice::from_raw_parts_mut(properties, property_capacity_input as usize) };
+
         props[0] = xr::ExtensionProperties {
             ty: xr::ExtensionProperties::TYPE,
             next: std::ptr::null_mut(),
@@ -367,11 +368,21 @@ extern "system" fn enumerate_instance_extension_properties(
             extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
             extension_version: 1,
         };
-
         let name = openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
         let name =
             unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
         props[1].extension_name[..name.len()].copy_from_slice(name);
+
+        props[2] = xr::ExtensionProperties {
+            ty: xr::ExtensionProperties::TYPE,
+            next: std::ptr::null_mut(),
+            extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
+            extension_version: 1,
+        };
+        let name = xr::HTC_VIVE_FOCUS3_CONTROLLER_INTERACTION_EXTENSION_NAME;
+        let name =
+            unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
+        props[2].extension_name[..name.len()].copy_from_slice(name);
     }
     xr::Result::SUCCESS
 }
