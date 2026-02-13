@@ -1,4 +1,5 @@
 pub mod knuckles;
+pub mod meta_touch_plus;
 pub mod oculus_touch;
 pub mod simple_controller;
 pub mod vive_controller;
@@ -12,6 +13,7 @@ use crate::input::profiles::typemagic::ContainsPath;
 use crate::openxr_data::Hand;
 use glam::Mat4;
 use knuckles::Knuckles;
+use meta_touch_plus::MetaTouchPlus;
 use oculus_touch::OculusTouch;
 use openxr as xr;
 use simple_controller::SimpleController;
@@ -51,7 +53,10 @@ impl ControllerType {
                 runner.run::<ViveWands>();
                 runner.run::<SimpleController>();
             }
-            Self::OculusTouch => runner.run::<OculusTouch>(),
+            Self::OculusTouch => {
+                runner.run::<MetaTouchPlus>();
+                runner.run::<OculusTouch>();
+            }
             Self::Knuckles => runner.run::<Knuckles>(),
             Self::ViveFocus3 => runner.run::<ViveFocus3>(),
             Self::Unknown(_) => {}
@@ -87,6 +92,7 @@ pub fn run_for_all_profiles(runner: &mut impl RunWithProfile) {
 
     profile!(ViveWands);
     profile!(Knuckles);
+    profile!(MetaTouchPlus);
     profile!(OculusTouch);
     profile!(ViveFocus3);
     profile!(SimpleController);
@@ -537,7 +543,7 @@ pub mod paths {
         Y::<Click, Touch>,
         Menu::<Click>,
         Select::<Click>,
-        Trigger::<Click, Value, Touch>,
+        Trigger::<Click, Value, Force, Touch>,
         Squeeze::<Click, Value, Force, Touch>,
         Thumbstick::<Click, Touch, Vec2X, Vec2Y>,
         Trackpad::<Click, Touch, Force, Vec2X, Vec2Y>,
