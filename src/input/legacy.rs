@@ -51,24 +51,32 @@ impl<C: openxr_data::Compositor> Input<C> {
         let input_data = &session_data.input_data;
 
         profiles::run_for_all_profiles(&mut Runner {
-            instance: &self.openxr.instance,
+            openxr: &self.openxr,
             input_data,
             legacy: &legacy,
         });
 
-        struct Runner<'a> {
-            instance: &'a xr::Instance,
+        struct Runner<'a, C: openxr_data::Compositor> {
+            openxr: &'a super::OpenXrData<C>,
             input_data: &'a super::InputSessionData,
             legacy: &'a LegacyActionData,
         }
 
-        impl RunWithProfile for Runner<'_> {
+        impl<C: openxr_data::Compositor> RunWithProfile for Runner<'_, C> {
             fn run<P: super::InteractionProfile>(&mut self) {
-                let conv = super::profiles::InputToXrPath::new(self.instance);
+                if !P::has_required_extensions(&self.openxr.enabled_extensions) {
+                    return;
+                }
+
+                let conv = super::profiles::InputToXrPath::new(&self.openxr.instance);
                 let bindings = P::legacy_bindings(&conv);
-                self.instance
+                self.openxr
+                    .instance
                     .suggest_interaction_profile_bindings(
-                        self.instance.string_to_path(P::profile_path()).unwrap(),
+                        self.openxr
+                            .instance
+                            .string_to_path(P::profile_path())
+                            .unwrap(),
                         &bindings
                             .into_iter(
                                 &self.legacy.actions,
