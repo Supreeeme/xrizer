@@ -2,6 +2,7 @@
 mod generated;
 
 use super::Input;
+use crate::input::TrackedDeviceType;
 use crate::openxr_data::{self, Hand, SessionData};
 use HandSkeletonBone::*;
 use glam::{Affine3A, Quat, Vec3};
@@ -11,52 +12,75 @@ use openxr::{self as xr};
 use paste::paste;
 use std::cell::RefCell;
 use std::f32::consts::{FRAC_PI_2, PI};
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 impl<C: openxr_data::Compositor> Input<C> {
-    /// Returns false if hand tracking data couldn't be generated for some reason.
     pub(super) fn get_bones_from_hand_tracking(
         &self,
         session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
-        hand_tracker: &xr::HandTracker,
         hand: Hand,
-        transforms: &mut [vr::VRBoneTransform_t],
-    ) {
+    ) -> Option<[vr::VRBoneTransform_t; Count as usize]> {
         use HandSkeletonBone::*;
 
-        let pose_data = session_data.input_data.pose_data.get().unwrap();
-        let display_time = self.openxr.display_time.get();
+        let mut bone_cache = self.skeletal_bone_cache[hand as usize - 1].lock().unwrap();
+        if let Some(mut bones) = *bone_cache {
+            finalize_transforms(&mut bones, space);
+            return Some(bones);
+        }
+
+        let mut transforms: [vr::VRBoneTransform_t; Count as usize] = Default::default();
+
         let devices = session_data.input_data.devices.read().unwrap();
 
-        let Some(controller) = devices.get_controller(hand) else {
-            self.get_estimated_bones(session_data, space, hand, transforms);
-            return;
+        let controller = devices.get_controller(hand)?;
+        let TrackedDeviceType::Controller(data) = controller.get_type() else {
+            unreachable!()
         };
 
-        let Some(raw) = match hand {
+        let grip: xr::Posef = controller
+            .get_pose(&self.openxr, session_data, session_data.current_origin)
+            .unwrap_or_default()
+            .mDeviceToAbsoluteTracking
+            .into();
+        let is_synthesised = data.pose_is_synthesised.load(Ordering::Relaxed);
+
+        let pose_data = session_data.input_data.pose_data.get().unwrap();
+
+        let raw = match hand {
             Hand::Left => &pose_data.left_space,
             Hand::Right => &pose_data.right_space,
         }
-        .try_get_or_init_raw(&controller.interaction_profile, session_data, pose_data) else {
-            self.get_estimated_bones(session_data, space, hand, transforms);
-            return;
+        .try_get_or_init_raw(&controller.interaction_profile, session_data, pose_data);
+
+        let base = if is_synthesised {
+            session_data.tracking_space()
+        } else {
+            &raw?
         };
 
-        let Some(joints) = raw.locate_hand_joints(hand_tracker, display_time).unwrap() else {
-            self.get_estimated_bones(session_data, space, hand, transforms);
-            return;
+        let Some((joints, _)) = controller.get_hand_skeleton(&self.openxr, base) else {
+            drop(bone_cache);
+            return Some(self.get_estimated_bones(session_data, space, hand));
         };
 
         let mut joints: Box<[_]> = joints
             .into_iter()
             .map(|joint_location| {
-                let position = joint_location.pose.position;
-                let orientation = joint_location.pose.orientation;
-                Affine3A::from_rotation_translation(
-                    Quat::from_xyzw(orientation.x, orientation.y, orientation.z, orientation.w),
-                    Vec3::from_array([position.x, position.y, position.z]),
-                )
+                let xr::Posef {
+                    position,
+                    orientation,
+                } = joint_location.pose;
+                let mut position = Vec3::from_array([position.x, position.y, position.z]);
+                if is_synthesised {
+                    position -=
+                        Vec3::from_array([grip.position.x, grip.position.y, grip.position.z]);
+                }
+                let orientation =
+                    Quat::from_xyzw(orientation.x, orientation.y, orientation.z, orientation.w);
+
+                Affine3A::from_rotation_translation(orientation, position)
             })
             .collect();
 
@@ -129,16 +153,23 @@ impl<C: openxr_data::Compositor> Input<C> {
         // applied to the wrist in the conversion method.
         transforms[Root as usize] = Affine3A::IDENTITY.into();
 
-        // Currently as is, the hands will point down
-        // This rotation corrects them so they are pointing the correct direction
-        // Note that it is hand specific.
-        joints[xr::HandJoint::WRIST] *= match hand {
-            Hand::Left => {
-                Affine3A::from_quat(Quat::from_euler(glam::EulerRot::YZXEx, FRAC_PI_2, PI, 0.0))
-            }
-            Hand::Right => Affine3A::from_rotation_y(-FRAC_PI_2),
-        };
-        transforms[Wrist as usize] = joints[xr::HandJoint::WRIST].into();
+        if is_synthesised {
+            transforms[Wrist as usize] = match hand {
+                Hand::Left => generated::left_hand::OPENHAND[Wrist as usize],
+                Hand::Right => generated::right_hand::OPENHAND[Wrist as usize],
+            };
+        } else {
+            // Currently as is, the hands will point down
+            // This rotation corrects them so they are pointing the correct direction
+            // Note that it is hand specific.
+            joints[xr::HandJoint::WRIST] *= match hand {
+                Hand::Left => {
+                    Affine3A::from_quat(Quat::from_euler(glam::EulerRot::YZXEx, FRAC_PI_2, PI, 0.0))
+                }
+                Hand::Right => Affine3A::from_rotation_y(-FRAC_PI_2),
+            };
+            transforms[Wrist as usize] = joints[xr::HandJoint::WRIST].into();
+        }
 
         for (joint, bone) in JOINTS_TO_BONES[1..]
             .iter()
@@ -148,21 +179,13 @@ impl<C: openxr_data::Compositor> Input<C> {
             xr_joint_to_vr_bone(&joints[joint], &mut transforms[bone as usize])
         }
 
-        // Convert back to model space if needed
-        // it is unnecessary to convert back and forth, but it works and it's easy
-        if space == vr::EVRSkeletalTransformSpace::Model {
-            let bone_data: Vec<(Vec3, Quat)> = parent_to_model_space_bone_data(
-                transforms.iter().map(|t| bone_transform_to_glam(*t)),
-            )
-            .collect();
+        *bone_cache = Some(transforms);
 
-            for (transform, (pos, rot)) in transforms.iter_mut().zip(bone_data) {
-                transform.position = pos.into();
-                transform.orientation = rot.into();
-            }
-        }
+        finalize_transforms(&mut transforms, space);
+        self.skeletal_tracking_level.write().unwrap()[hand as usize - 1] =
+            vr::EVRSkeletalTrackingLevel::Full;
 
-        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Full;
+        Some(transforms)
     }
 
     pub(super) fn get_estimated_bones(
@@ -170,8 +193,15 @@ impl<C: openxr_data::Compositor> Input<C> {
         session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
         hand: Hand,
-        transforms: &mut [vr::VRBoneTransform_t],
-    ) {
+    ) -> [vr::VRBoneTransform_t; Count as usize] {
+        let mut bone_cache = self.skeletal_bone_cache[hand as usize - 1].lock().unwrap();
+        if let Some(mut bones) = *bone_cache {
+            finalize_transforms(&mut bones, space);
+            return bones;
+        }
+
+        let mut transforms: [vr::VRBoneTransform_t; Count as usize] = Default::default();
+
         let finger_state = self.get_finger_state(session_data, hand);
         let (open, fist) = match hand {
             Hand::Left => (&generated::left_hand::OPENHAND, &generated::left_hand::FIST),
@@ -181,35 +211,27 @@ impl<C: openxr_data::Compositor> Input<C> {
             ),
         };
 
-        const fn constrain<'a, F, G>(f: F) -> F
-        where
-            F: Fn(&'a [vr::VRBoneTransform_t], f32) -> G,
-            G: Fn(usize) -> (Vec3, Quat) + 'a,
-        {
-            f
+        // lerp to target pose
+        for idx in HandSkeletonBone::Root as usize..HandSkeletonBone::Count as usize {
+            let curl_state = finger_state
+                .get_bone_state(unsafe { std::mem::transmute::<usize, HandSkeletonBone>(idx) });
+
+            let (start_pos, start_rot) = bone_transform_to_glam(open[idx]);
+            let (closed_pos, closed_rot) = bone_transform_to_glam(fist[idx]);
+
+            transforms[idx] = vr::VRBoneTransform_t {
+                position: start_pos.lerp(closed_pos, curl_state).into(),
+                orientation: start_rot.slerp(closed_rot, curl_state).into(),
+            };
         }
-        let bone_transform_map = constrain(|start_data: &[vr::VRBoneTransform_t], state| {
-            move |idx| {
-                let (start_pos, start_rot) = bone_transform_to_glam(start_data[idx]);
-                let (closed_pos, closed_rot) = bone_transform_to_glam(fist[idx]);
 
-                let pos = start_pos.lerp(closed_pos, state);
-                let rot = start_rot.slerp(closed_rot, state);
+        *bone_cache = Some(transforms);
 
-                (pos, rot)
-            }
-        });
+        finalize_transforms(&mut transforms, space);
+        self.skeletal_tracking_level.write().unwrap()[hand as usize - 1] =
+            vr::EVRSkeletalTrackingLevel::Estimated;
 
-        let bone_it = (0..HandSkeletonBone::Count as usize).map(|idx| {
-            let bone = unsafe { std::mem::transmute::<usize, HandSkeletonBone>(idx) };
-            let curl_state = finger_state.get_bone_state(bone);
-
-            let map_fn = bone_transform_map(open, curl_state);
-            map_fn(idx)
-        });
-
-        finalize_transforms(bone_it, space, transforms);
-        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
+        transforms
     }
 
     fn get_finger_state(&self, session_data: &SessionData, hand: Hand) -> FingerState {
@@ -285,27 +307,25 @@ impl<C: openxr_data::Compositor> Input<C> {
         hand: Hand,
         space: vr::EVRSkeletalTransformSpace,
         pose: vr::EVRSkeletalReferencePose,
-        transforms: &mut [vr::VRBoneTransform_t],
+        out_transforms: &mut [vr::VRBoneTransform_t],
     ) {
-        let skeleton = match hand {
+        let mut skeleton = match hand {
             Hand::Left => match pose {
-                vr::EVRSkeletalReferencePose::BindPose => &generated::left_hand::BINDPOSE,
-                vr::EVRSkeletalReferencePose::OpenHand => &generated::left_hand::OPENHAND,
-                vr::EVRSkeletalReferencePose::Fist => &generated::left_hand::FIST,
-                vr::EVRSkeletalReferencePose::GripLimit => &generated::left_hand::GRIPLIMIT,
+                vr::EVRSkeletalReferencePose::BindPose => generated::left_hand::BINDPOSE,
+                vr::EVRSkeletalReferencePose::OpenHand => generated::left_hand::OPENHAND,
+                vr::EVRSkeletalReferencePose::Fist => generated::left_hand::FIST,
+                vr::EVRSkeletalReferencePose::GripLimit => generated::left_hand::GRIPLIMIT,
             },
             Hand::Right => match pose {
-                vr::EVRSkeletalReferencePose::BindPose => &generated::right_hand::BINDPOSE,
-                vr::EVRSkeletalReferencePose::OpenHand => &generated::right_hand::OPENHAND,
-                vr::EVRSkeletalReferencePose::Fist => &generated::right_hand::FIST,
-                vr::EVRSkeletalReferencePose::GripLimit => &generated::right_hand::GRIPLIMIT,
+                vr::EVRSkeletalReferencePose::BindPose => generated::right_hand::BINDPOSE,
+                vr::EVRSkeletalReferencePose::OpenHand => generated::right_hand::OPENHAND,
+                vr::EVRSkeletalReferencePose::Fist => generated::right_hand::FIST,
+                vr::EVRSkeletalReferencePose::GripLimit => generated::right_hand::GRIPLIMIT,
             },
         };
 
-        let bone_it =
-            (0..HandSkeletonBone::Count as usize).map(|idx| bone_transform_to_glam(skeleton[idx]));
-
-        finalize_transforms(bone_it, space, transforms);
+        finalize_transforms(&mut skeleton, space);
+        out_transforms.copy_from_slice(&skeleton[0..out_transforms.len()]);
     }
 }
 
@@ -365,37 +385,20 @@ fn bone_transform_to_glam(transform: vr::VRBoneTransform_t) -> (Vec3, Quat) {
 }
 
 fn finalize_transforms(
-    bone_iterator: impl PoseIterator,
-    space: vr::EVRSkeletalTransformSpace,
     transforms: &mut [vr::VRBoneTransform_t],
+    space: vr::EVRSkeletalTransformSpace,
 ) {
-    // If we need to convert our iterator to model space, it will become a different type -
-    // this is the only reason for this enum existing
-    enum TransformedIt<T: PoseIterator, U: PoseIterator> {
-        Parent(T),
-        Model(U),
-    }
-    let mut full_it = TransformedIt::Parent(bone_iterator);
-
+    // Convert back to model space if needed
+    // it is unnecessary to convert back and forth, but it works and it's easy
     if space == vr::EVRSkeletalTransformSpace::Model {
-        let TransformedIt::Parent(it) = full_it else {
-            unreachable!();
-        };
-        full_it = TransformedIt::Model(parent_to_model_space_bone_data(it));
-    }
+        let bone_data: Vec<(Vec3, Quat)> =
+            parent_to_model_space_bone_data(transforms.iter().map(|t| bone_transform_to_glam(*t)))
+                .collect();
 
-    fn convert(it: impl PoseIterator, transforms: &mut [vr::VRBoneTransform_t]) {
-        for ((pos, rot), transform) in it.zip(transforms) {
-            *transform = vr::VRBoneTransform_t {
-                position: pos.into(),
-                orientation: rot.into(),
-            };
+        for (transform, (pos, rot)) in transforms.iter_mut().zip(bone_data) {
+            transform.position = pos.into();
+            transform.orientation = rot.into();
         }
-    }
-
-    match full_it {
-        TransformedIt::Parent(it) => convert(it, transforms),
-        TransformedIt::Model(it) => convert(it, transforms),
     }
 }
 
