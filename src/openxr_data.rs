@@ -119,6 +119,7 @@ impl<C: Compositor> OpenXrData<C> {
         let mut exts = xr::ExtensionSet::default();
         exts.khr_vulkan_enable = supported_exts.khr_vulkan_enable;
         exts.khr_opengl_enable = supported_exts.khr_opengl_enable;
+        exts.khr_convert_timespec_time = supported_exts.khr_convert_timespec_time;
         exts.ext_hand_tracking = supported_exts.ext_hand_tracking;
         exts.khr_visibility_mask = supported_exts.khr_visibility_mask;
         exts.khr_composition_layer_cylinder = supported_exts.khr_composition_layer_cylinder;
@@ -167,12 +168,18 @@ impl<C: Compositor> OpenXrData<C> {
             .0,
         )));
 
+        let display_time = if exts.khr_convert_timespec_time {
+            instance.now().map(|t| t.as_nanos()).unwrap_or(1i64)
+        } else {
+            1i64
+        };
+
         Ok(Self {
             _entry: entry,
             instance,
             system_id,
             session_data,
-            display_time: AtomicXrTime(1.into()),
+            display_time: AtomicXrTime(display_time.into()),
             enabled_extensions: exts,
             input: injector.inject(),
             compositor: injector.inject(),
