@@ -127,6 +127,7 @@ impl<C: Compositor> OpenXrData<C> {
             supported_exts.khr_composition_layer_color_scale_bias;
         exts.htc_vive_focus3_controller_interaction =
             supported_exts.htc_vive_focus3_controller_interaction;
+        exts.meta_touch_controller_plus = supported_exts.meta_touch_controller_plus;
 
         // Extension that enables simple full body tracking support via generic tracked devices.
         // Available only in the Monado OpenXR runtime.
