@@ -32,6 +32,7 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::path::PathBuf;
+use std::ptr;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
@@ -1012,13 +1013,6 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let active_sets =
             unsafe { std::slice::from_raw_parts(active_sets, active_set_count as usize) };
 
-        if active_sets
-            .iter()
-            .any(|set| set.ulRestrictedToDevice != vr::k_ulInvalidInputValueHandle)
-        {
-            crate::warn_once!("Per device action set restriction is not implemented yet.");
-        }
-
         let data = self.openxr.session_data.get();
         let Some(actions) = data.input_data.get_loaded_actions() else {
             return vr::EVRInputError::InvalidParam;
@@ -1026,17 +1020,37 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         let set_map = self.set_map.read().unwrap();
         let mut sync_sets = Vec::with_capacity(active_sets.len() + 3);
+        let mut priorities = Vec::with_capacity(active_sets.len() + 3);
+
         {
             tracy_span!("UpdateActionState generate active sets");
+            // we need to convert int32 to uint32
+            let priority_offset = -active_sets
+                .iter()
+                .map(|set| set.nPriority)
+                .min()
+                .unwrap() // safe: count cannot be zero here
+                .min(0)
+                + 1; // override legacy actions
+
             for set in active_sets {
                 let key = ActionSetKey::from(KeyData::from_ffi(set.ulActionSet));
                 let name = set_map.get(key);
+                let priority = (set.nPriority + priority_offset) as u32;
                 let Some(set) = actions.sets.get(key) else {
                     debug!("Application passed invalid action set key: {key:?} ({name:?})");
                     return vr::EVRInputError::InvalidHandle;
                 };
-                debug!("Activating set {}", name.unwrap());
+                debug!(
+                    "Activating set {} with priority {}",
+                    name.unwrap(),
+                    priority
+                );
                 sync_sets.push(set.into());
+                priorities.push(xr::sys::ActiveActionSetPriorityEXT {
+                    action_set: set.as_raw(),
+                    priority_override: priority,
+                });
             }
 
             let skeletal_input = data.input_data.estimated_skeleton_actions.get().unwrap();
@@ -1050,7 +1064,39 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         {
             tracy_span!("xrSyncActions");
-            data.session.sync_actions(&sync_sets).unwrap();
+            let next_priorities = xr::sys::ActiveActionSetPrioritiesEXT {
+                ty: xr::sys::ActiveActionSetPrioritiesEXT::TYPE,
+                next: ptr::null(),
+                action_set_priority_count: priorities.len() as u32,
+                action_set_priorities: priorities.as_ptr(),
+            };
+
+            // TODO: enable only when runtime provides hand tracking data
+            let next_ptr = if self
+                .openxr
+                .enabled_extensions
+                .ext_active_action_set_priority
+            {
+                &next_priorities as *const _ as *const _
+            } else {
+                ptr::null()
+            };
+
+            let info = xr::sys::ActionsSyncInfo {
+                ty: xr::sys::ActionsSyncInfo::TYPE,
+                next: next_ptr,
+                count_active_action_sets: sync_sets.len() as u32,
+                active_action_sets: sync_sets.as_ptr() as _,
+            };
+
+            let result =
+                unsafe { (self.openxr.instance.fp().sync_actions)(data.session.as_raw(), &info) };
+            if result.into_raw() >= 0 {
+                Ok(result)
+            } else {
+                Err(result)
+            }
+            .unwrap();
         }
 
         let devices = data.input_data.devices.read().unwrap();
