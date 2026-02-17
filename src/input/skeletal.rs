@@ -207,6 +207,21 @@ impl<C: openxr_data::Compositor> Input<C> {
         summary_data.flFingerSplay.fill(0.2);
 
         for (i, out_curl) in summary_data.flFingerCurl.iter_mut().enumerate() {
+            // For Knuckles, the skeleton thumb tries to accurately match where the physical
+            // thumb is, e.g. the curl depends on which part of the touchpad is being touched,
+            // or how the thumbstick is being pushed, but in GetSkeletalSummaryData with
+            // EVRSummaryType::FromDevice the curl is set to 1 if any of touchpad, A/B,
+            // or thumbstick is being touched, so just use the skeletal input actions to
+            // determine the curl value for the thumb.
+            if i == 0
+                && controller.interaction_profile.is_some_and(|p| {
+                    p.profile_path() == "/interaction_profiles/valve/index_controller"
+                })
+            {
+                *out_curl = self.get_finger_state(session_data, hand).thumb;
+                continue;
+            }
+
             let (metacarpal, proximal, tip) = match i {
                 0 => (
                     joints[xr::HandJoint::THUMB_METACARPAL],
