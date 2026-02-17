@@ -1024,6 +1024,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         {
             tracy_span!("UpdateActionState generate active sets");
+
             // we need to convert int32 to uint32
             let priority_offset = -active_sets
                 .iter()
@@ -1037,6 +1038,37 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 let key = ActionSetKey::from(KeyData::from_ffi(set.ulActionSet));
                 let name = set_map.get(key);
                 let priority = (set.nPriority + priority_offset) as u32;
+
+                let mut path = xr::Path::NULL;
+                if let Some(new_path) = self.subaction_path_from_handle(set.ulRestrictedToDevice) {
+                    path = new_path;
+                    // Handle secondary action set
+                    if set.ulSecondaryActionSet != vr::k_ulInvalidInputValueHandle {
+                        let left_hand_subaction_path = self.get_subaction_path(Hand::Left);
+                        let right_hand_subaction_path = self.get_subaction_path(Hand::Right);
+                        let path = if path == left_hand_subaction_path {
+                            right_hand_subaction_path
+                        } else {
+                            left_hand_subaction_path
+                        };
+                        let key = ActionSetKey::from(KeyData::from_ffi(set.ulSecondaryActionSet));
+                        let name = set_map.get(key);
+                        let Some(set) = actions.sets.get(key) else {
+                            debug!(
+                                "Application passed invalid secondary action set key: {key:?} ({name:?})"
+                            );
+                            return vr::EVRInputError::InvalidHandle;
+                        };
+                        debug!("Activating secondary set {}", name.unwrap());
+                        sync_sets.push(xr::ActiveActionSet::with_subaction(set, path));
+                        priorities.push(xr::sys::ActiveActionSetPriorityEXT {
+                            action_set: set.as_raw(),
+                            // TODO: check if SteamVR actually puts these on the same priority as the primary
+                            priority_override: priority,
+                        });
+                    }
+                };
+
                 let Some(set) = actions.sets.get(key) else {
                     debug!("Application passed invalid action set key: {key:?} ({name:?})");
                     return vr::EVRInputError::InvalidHandle;
@@ -1046,7 +1078,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                     name.unwrap(),
                     priority
                 );
-                sync_sets.push(set.into());
+                sync_sets.push(xr::ActiveActionSet::with_subaction(set, path));
                 priorities.push(xr::sys::ActiveActionSetPriorityEXT {
                     action_set: set.as_raw(),
                     priority_override: priority,
