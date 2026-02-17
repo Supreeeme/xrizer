@@ -144,6 +144,8 @@ impl InteractionProfile for Knuckles {
                 .leftright("input/thumbstick/touch")
                 .into_iter()
                 .chain(stp.leftright("input/trackpad/touch"))
+                .chain(stp.leftright("input/a/touch"))
+                .chain(stp.leftright("input/b/touch"))
                 .collect(),
             index_touch: stp.leftright("input/trigger/touch"),
             index_curl: stp.leftright("input/trigger/value"),
