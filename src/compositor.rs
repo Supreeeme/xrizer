@@ -112,13 +112,17 @@ impl Compositor {
         };
 
         #[macros::any_graphics(DynFrameController)]
-        fn wait_frame<G: GraphicsBackend + 'static>(ctrl: &mut FrameController<G>) -> xr::Time {
+        fn wait_frame<G: GraphicsBackend + 'static>(
+            ctrl: &mut FrameController<G>,
+        ) -> (xr::Time, i64) {
             ctrl.wait_frame()
         }
 
+        let (display_time, display_period) = ctrl.with_any_graphics_mut::<wait_frame>(());
+        self.openxr.display_time.set(display_time);
         self.openxr
-            .display_time
-            .set(ctrl.with_any_graphics_mut::<wait_frame>(()));
+            .display_period_nanos
+            .store(display_period, Ordering::Relaxed);
     }
 
     fn maybe_begin_frame(&self, session_data: &SessionData) {
@@ -622,7 +626,10 @@ impl vr::IVRCompositor029_Interface for Compositor {
             set!(m_flCompositorRenderCpuMs, 3.0);
             set!(m_flCompositorIdleCpuMs, 0.1);
 
-            set!(m_flClientFrameIntervalMs, 11.1);
+            set!(
+                m_flClientFrameIntervalMs,
+                1000.0 / self.openxr.get_refresh_rate()
+            );
             set!(m_flPresentCallCpuMs, 0.0);
             set!(m_flWaitForPresentCpuMs, 0.0);
             set!(m_flSubmitFrameMs, 0.0);
@@ -1165,13 +1172,16 @@ impl<G: GraphicsBackend> FrameController<G> {
         self.image_acquired = true;
     }
 
-    fn wait_frame(&mut self) -> xr::Time {
+    fn wait_frame(&mut self) -> (xr::Time, i64) {
         let frame_state = {
             tracy_span!("wait frame");
             self.waiter.wait().unwrap()
         };
         self.should_render = frame_state.should_render && !self.app_suspend_render;
-        frame_state.predicted_display_time
+        (
+            frame_state.predicted_display_time,
+            frame_state.predicted_display_period.as_nanos(),
+        )
     }
 
     fn begin_frame(&mut self) {
