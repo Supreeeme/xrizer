@@ -104,7 +104,6 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let actions = load_actions(
             &self.openxr.instance,
-            &session_data.session,
             english.as_ref(),
             &mut sets,
             manifest.actions,
@@ -441,7 +440,6 @@ fn create_action<T: xr::ActionTy>(
 type LoadedActionDataMap = HashMap<String, super::ActionData>;
 fn load_actions(
     instance: &xr::Instance,
-    session: &xr::Session<xr::AnyGraphics>,
     english: Option<&Localization>,
     sets: &mut HashMap<String, xr::ActionSet>,
     actions: Vec<ActionType>,
@@ -485,25 +483,7 @@ fn load_actions(
             ActionType::Pose(data) => (&data.name, Pose),
             ActionType::Skeleton(SkeletonData { skeleton, data }) => {
                 trace!("Creating skeleton action {}", data.name.path);
-                let hand_tracker = match session.create_hand_tracker(match skeleton {
-                    Hand::Left => xr::Hand::LEFT,
-                    Hand::Right => xr::Hand::RIGHT,
-                }) {
-                    Ok(t) => Some(t),
-                    Err(
-                        xr::sys::Result::ERROR_EXTENSION_NOT_PRESENT
-                        | xr::sys::Result::ERROR_FEATURE_UNSUPPORTED,
-                    ) => None,
-                    Err(other) => panic!("Creating hand tracker failed: {other:?}"),
-                };
-
-                (
-                    &data.name,
-                    Skeleton {
-                        hand: *skeleton,
-                        hand_tracker,
-                    },
-                )
+                (&data.name, Skeleton(*skeleton))
             }
             ActionType::Vibration(data) => (&data.name, Haptic(create_action!(xr::Haptic, data))),
         };
@@ -1503,7 +1483,7 @@ fn handle_skeleton_bindings(
         };
 
         match &context.actions[&output.path] {
-            super::ActionData::Skeleton { hand, .. } => {
+            super::ActionData::Skeleton(hand) => {
                 let bound_hand = match path.as_str() {
                     "/user/hand/left/input/skeleton/left" => Hand::Left,
                     "/user/hand/right/input/skeleton/right" => Hand::Right,
