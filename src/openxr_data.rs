@@ -1,10 +1,11 @@
 use crate::{
     clientcore::{Injected, Injector},
     graphics_backends::{GraphicsBackend, VulkanData, supported_apis_enum},
+    system::System,
 };
 use derive_more::Deref;
 use glam::f32::{Quat, Vec3};
-use log::{info, warn};
+use log::{debug, info, warn};
 use openvr as vr;
 use openxr as xr;
 use std::mem::ManuallyDrop;
@@ -45,6 +46,7 @@ pub struct OpenXrData<C: Compositor> {
     /// should only be externally accessed for testing
     pub(crate) input: Injected<crate::input::Input<C>>,
     pub(crate) compositor: Injected<C>,
+    pub(crate) system: Injected<System>,
 }
 
 impl<C: Compositor> Drop for OpenXrData<C> {
@@ -183,6 +185,7 @@ impl<C: Compositor> OpenXrData<C> {
             enabled_extensions: exts,
             input: injector.inject(),
             compositor: injector.inject(),
+            system: injector.inject(),
         })
     }
 
@@ -202,6 +205,25 @@ impl<C: Compositor> OpenXrData<C> {
                 xr::Event::SessionStateChanged(event) => {
                     state = Some(event.state());
                     info!("OpenXR session state changed: {:?}", event.state());
+                    if let Some(system) = self.system.get().filter(|_| {
+                        (cfg!(test) || session_data.temp_vulkan.is_none())
+                            && state == Some(xr::SessionState::STOPPING)
+                    }) {
+                        debug!("pushing Quit event");
+                        system.push_event(vr::VREvent_t {
+                            eventType: vr::EVREventType::Quit as u32,
+                            trackedDeviceIndex: vr::k_unTrackedDeviceIndexInvalid,
+                            eventAgeSeconds: 0.0,
+                            data: vr::VREvent_Data_t {
+                                process: vr::VREvent_Process_t {
+                                    pid: u32::MAX,
+                                    oldPid: u32::MAX,
+                                    bForced: false,
+                                    bConnectionLost: false,
+                                },
+                            },
+                        });
+                    }
                 }
                 xr::Event::InteractionProfileChanged(_) => {
                     if let Some(input) = self.input.get() {

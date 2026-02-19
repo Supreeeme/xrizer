@@ -9,6 +9,7 @@ use glam::{Mat3, Quat, Vec3};
 use log::{debug, error, trace, warn};
 use openvr as vr;
 use openxr as xr;
+use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
 use std::sync::{Arc, Mutex};
 
@@ -152,6 +153,7 @@ impl ViewCache {
 #[versions(023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 011, 009)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
+    events: Mutex<VecDeque<vr::VREvent_t>>,
     input: Injected<Input<crate::compositor::Compositor>>,
     overlay: Injected<OverlayMan>,
     vtables: Vtables,
@@ -166,6 +168,7 @@ impl System {
     pub fn new(openxr: Arc<RealOpenXrData>, injector: &Injector) -> Self {
         Self {
             openxr,
+            events: Mutex::default(),
             input: injector.inject(),
             overlay: injector.inject(),
             vtables: Default::default(),
@@ -191,6 +194,11 @@ impl System {
         let session = self.openxr.session_data.get();
         let mut views = self.views.lock().unwrap();
         views.get_views(&session, self.openxr.display_time.get(), ty)
+    }
+
+    pub fn push_event(&self, event: vr::VREvent_t) {
+        let mut events = self.events.lock().unwrap();
+        events.push_back(event);
     }
 }
 
@@ -301,9 +309,7 @@ impl vr::IVRSystem023_Interface for System {
     fn GetAppContainerFilePaths(&self, _: *mut std::os::raw::c_char, _: u32) -> u32 {
         todo!()
     }
-    fn AcknowledgeQuit_Exiting(&self) {
-        todo!()
-    }
+    fn AcknowledgeQuit_Exiting(&self) {}
     fn PerformFirmwareUpdate(&self, _: vr::TrackedDeviceIndex_t) -> vr::EVRFirmwareError {
         todo!()
     }
@@ -483,6 +489,31 @@ impl vr::IVRSystem023_Interface for System {
         size: u32,
         pose: *mut vr::TrackedDevicePose_t,
     ) -> bool {
+        if let Some(queued) = self.events.lock().unwrap().pop_front() {
+            unsafe {
+                (&raw mut (*event).eventType).write(queued.eventType);
+                (&raw mut (*event).eventAgeSeconds).write(queued.eventAgeSeconds);
+                match vr::EVREventType::try_from(queued.eventType).unwrap() {
+                    vr::EVREventType::Quit => {
+                        const CONNECTION_LOST_OFFSET: usize =
+                            std::mem::offset_of!(vr::VREvent_t, data)
+                                + std::mem::offset_of!(vr::VREvent_Process_t, bConnectionLost);
+
+                        (&raw mut (*event).data.process.pid).write(queued.data.process.pid);
+                        (&raw mut (*event).data.process.oldPid).write(queued.data.process.oldPid);
+                        (&raw mut (*event).data.process.bForced).write(queued.data.process.bForced);
+                        if size > CONNECTION_LOST_OFFSET as u32 {
+                            (&raw mut (*event).data.process.bConnectionLost)
+                                .write(queued.data.process.bConnectionLost);
+                        }
+
+                        return true;
+                    }
+                    _ => todo!(),
+                }
+            }
+        }
+
         let Some(input) = self.input.get() else {
             return false;
         };
@@ -966,7 +997,7 @@ impl vr::IVRSystem009On011 for System {
     fn PollNextEventWithPose(
         &self,
         origin: vr::ETrackingUniverseOrigin,
-        event: *mut vr::vr_0_9_12::VREvent_t,
+        out_event: *mut vr::vr_0_9_12::VREvent_t,
         pose: *mut vr::TrackedDevicePose_t,
     ) -> bool {
         let mut e = vr::VREvent_t::default();
@@ -974,32 +1005,35 @@ impl vr::IVRSystem009On011 for System {
             self,
             origin,
             &mut e,
-            std::mem::size_of_val(&event) as u32,
+            std::mem::size_of_val(&e) as u32,
             pose,
         );
 
-        if ret && !event.is_null() {
-            let event = unsafe { event.as_mut() }.unwrap();
-            event.eventType = if let Ok(t) = vr::EVREventType::try_from(e.eventType) {
-                t
-            } else {
+        if ret && !out_event.is_null() {
+            let Ok(event_type) = vr::EVREventType::try_from(e.eventType) else {
                 error!("Unhandled event type for 0.9.12: {}", e.eventType);
                 return false;
             };
-            event.trackedDeviceIndex = e.trackedDeviceIndex;
-            event.data = match e.eventType {
-                x if x == vr::EVREventType::ButtonPress as u32
-                    || x == vr::EVREventType::ButtonUnpress as u32
-                    || x == vr::EVREventType::ButtonTouch as u32
-                    || x == vr::EVREventType::ButtonUntouch as u32 =>
-                {
-                    vr::vr_0_9_12::VREvent_Data_t {
-                        controller: unsafe { e.data.controller },
+
+            unsafe {
+                (&raw mut (*out_event).eventType).write(event_type);
+                (&raw mut (*out_event).trackedDeviceIndex).write(e.trackedDeviceIndex);
+                match event_type {
+                    vr::EVREventType::ButtonPress
+                    | vr::EVREventType::ButtonUnpress
+                    | vr::EVREventType::ButtonTouch
+                    | vr::EVREventType::ButtonUntouch => {
+                        (&raw mut (*out_event).data.controller).write(e.data.controller);
                     }
-                }
-                other => {
-                    error!("Unhandled event type data for 0.9.12: {other:?}");
-                    return false;
+                    vr::EVREventType::Quit => {
+                        (&raw mut (*out_event).data.process.pid).write(e.data.process.pid);
+                        (&raw mut (*out_event).data.process.oldPid).write(e.data.process.oldPid);
+                        (&raw mut (*out_event).data.process.bForced).write(e.data.process.bForced);
+                    }
+                    other => {
+                        error!("Unhandled event type data for 0.9.12: {other:?}");
+                        return false;
+                    }
                 }
             }
         }
@@ -1055,5 +1089,25 @@ mod tests {
         test_prop(vr::ETrackedDeviceProperty::SerialNumber_String);
         test_prop(vr::ETrackedDeviceProperty::ManufacturerName_String);
         test_prop(vr::ETrackedDeviceProperty::ControllerType_String);
+    }
+
+    #[test]
+    fn test_session_stop() {
+        let xr = Arc::new(OpenXrData::new(&Injector::default()).unwrap());
+        let injector = Injector::default();
+        let system = Arc::new(System::new(xr.clone(), &injector));
+
+        xr.system.set(Arc::downgrade(&system));
+
+        xr.session_data.get().session.request_exit().unwrap();
+        xr.poll_events();
+        let mut event = vr::VREvent_t::default();
+        assert!(system.PollNextEventWithPose(
+            vr::ETrackingUniverseOrigin::Standing,
+            &mut event,
+            std::mem::size_of_val(&event) as u32,
+            std::ptr::null_mut()
+        ));
+        assert_eq!(event.eventType, vr::EVREventType::Quit as u32);
     }
 }
