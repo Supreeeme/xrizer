@@ -89,9 +89,15 @@ impl InteractionProfile for Knuckles {
     }
 
     fn legal_paths(&self) -> Box<[String]> {
-        let click_and_touch = ["input/a", "input/b", "input/trigger", "input/thumbstick"]
-            .iter()
-            .flat_map(|p| [format!("{p}/click"), format!("{p}/touch")]);
+        let click_and_touch = [
+            "input/a",
+            "input/b",
+            "input/trigger",
+            "input/thumbstick",
+            "input/system",
+        ]
+        .iter()
+        .flat_map(|p| [format!("{p}/click"), format!("{p}/touch")]);
         let x_and_y = ["input/thumbstick", "input/trackpad"]
             .iter()
             .flat_map(|p| [format!("{p}/x"), format!("{p}/y"), p.to_string()]);
@@ -197,6 +203,8 @@ mod tests {
                 "/user/hand/right/input/a/click".into(),
                 "/user/hand/left/input/b/click".into(),
                 "/user/hand/right/input/b/click".into(),
+                "/user/hand/left/input/system/click".into(),
+                "/user/hand/right/input/system/click".into(),
                 "/user/hand/left/input/trigger/touch".into(),
                 "/user/hand/right/input/trigger/touch".into(),
                 "/user/hand/left/input/thumbstick/click".into(),
@@ -216,6 +224,15 @@ mod tests {
                 "/user/hand/left/input/squeeze/value".into(),
                 "/user/hand/left/input/trackpad/force".into(),
                 "/user/hand/right/input/trackpad/force".into(),
+            ],
+        );
+
+        f.verify_bindings::<bool>(
+            path,
+            c"/actions/set1/in/boolact2",
+            [
+                "/user/hand/left/input/system/touch".into(),
+                "/user/hand/right/input/system/touch".into(),
             ],
         );
 
