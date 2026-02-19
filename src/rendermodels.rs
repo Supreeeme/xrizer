@@ -12,16 +12,21 @@ use log::{debug, warn};
 use lz4_flex::frame::FrameDecoder;
 use obj::{IndexTuple, ObjData};
 use openvr as vr;
+use openxr as xr;
+
+// all render models will use this color
+const RENDER_MODEL_COLOR: [u8; 4] = [32, 32, 32, 255];
 
 // use a single static component for all rendermodels
 static DEFAULT_COMPONENT: &CStr = c"xrizer_component";
 
-struct RenderModelData {
+struct RenderModelObjLz4 {
+    /// lz4-compressed obj data
     bytes: &'static [u8],
     flipped: bool,
 }
 
-const RENDER_MODELS: &[(&str, RenderModelData)] = {
+static RENDER_MODELS: &[(&str, RenderModelObjLz4)] = {
     let oculus_quest2_controller_left =
         include_bytes!("../resources/rendermodels/oculus_quest2_controller_left.obj.lz4");
     let oculus_quest_plus_controller_left =
@@ -31,81 +36,81 @@ const RENDER_MODELS: &[(&str, RenderModelData)] = {
     let vive_focus3_controller_left =
         include_bytes!("../resources/rendermodels/vive_focus3_controller_left.obj.lz4");
 
-    // must be in strict alphabetical order
+    // must be in strict alphabetical order due to binary-search lookup
     &[
         (
             "generic_controller",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: include_bytes!("../resources/rendermodels/generic_controller.obj.lz4"),
                 flipped: false,
             },
         ),
         (
             "oculus_quest2_controller_left",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: oculus_quest2_controller_left,
                 flipped: false,
             },
         ),
         (
             "oculus_quest2_controller_right",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: oculus_quest2_controller_left,
                 flipped: true,
             },
         ),
         (
             "oculus_quest_plus_controller_left",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: oculus_quest_plus_controller_left,
                 flipped: false,
             },
         ),
         (
             "oculus_quest_plus_controller_right",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: oculus_quest_plus_controller_left,
                 flipped: true,
             },
         ),
         (
             "valve_controller_knu_1_0_left",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: valve_controller_knu_1_0_left,
                 flipped: false,
             },
         ),
         (
             "valve_controller_knu_1_0_right",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: valve_controller_knu_1_0_left,
                 flipped: true,
             },
         ),
         (
             "vive_focus3_controller_left",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: vive_focus3_controller_left,
                 flipped: false,
             },
         ),
         (
             "vive_focus3_controller_right",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: vive_focus3_controller_left,
                 flipped: true,
             },
         ),
         (
             "vr_controller_vive_1_5",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: include_bytes!("../resources/rendermodels/vr_controller_vive_1_5.obj.lz4"),
                 flipped: false,
             },
         ),
         (
             "vr_tracker_vive_3_0",
-            RenderModelData {
+            RenderModelObjLz4 {
                 bytes: include_bytes!("../resources/rendermodels/vr_tracker_vive_3_0.obj.lz4"),
                 flipped: false,
             },
@@ -113,7 +118,7 @@ const RENDER_MODELS: &[(&str, RenderModelData)] = {
     ]
 };
 
-fn get_render_model_data(render_model_name: &CStr) -> Option<&'static RenderModelData> {
+fn get_render_model_data(render_model_name: &CStr) -> Option<&'static RenderModelObjLz4> {
     let name = render_model_name.to_str().ok().or_else(|| {
         warn!(
             "render_model_name is not a valid UTF-8 string: {:?}",
@@ -139,11 +144,11 @@ fn get_render_model_data(render_model_name: &CStr) -> Option<&'static RenderMode
 #[versions(006, 005, 004)]
 pub struct RenderModels {
     vtables: Vtables,
-    data: Mutex<RenderModelMutex>,
+    data: Mutex<RenderModelData>,
 }
 
 #[derive(Default)]
-struct RenderModelMutex {
+struct RenderModelData {
     loaded_model_data: HashMap<usize, OwnedRenderModel>,
     loaded_textures: HashMap<usize, OwnedTexture>,
 }
@@ -216,14 +221,12 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         }
 
         // all of our models are static and have offsets baked in
+        let identity = xr::Posef::IDENTITY;
+        let identity = vr::HmdMatrix34_t::from(identity);
+
         unsafe {
-            std::ptr::write_bytes(state, 0, 1);
-            (*state).mTrackingToComponentRenderModel = vr::HmdMatrix34_t {
-                m: [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.]],
-            };
-            (*state).mTrackingToComponentLocal = vr::HmdMatrix34_t {
-                m: [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.]],
-            };
+            (*state).mTrackingToComponentRenderModel = identity;
+            (*state).mTrackingToComponentLocal = identity;
             (*state).uProperties =
                 (vr::EVRComponentProperty::IsVisible | vr::EVRComponentProperty::IsStatic).0;
         }
@@ -307,8 +310,12 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         if render_model_name.is_null() {
             return 0;
         }
-
-        1 // DEFAULT_COMPONENT
+        let render_model_name = unsafe { CStr::from_ptr(render_model_name) };
+        if render_model_name.count_bytes() == 0 {
+            0
+        } else {
+            1 // DEFAULT_COMPONENT
+        }
     }
     fn GetRenderModelCount(&self) -> u32 {
         RENDER_MODELS.len() as _
@@ -481,7 +488,7 @@ struct OwnedTexture {
 impl OwnedTexture {
     /// creates a 1x1 dummy texture
     fn new_dummy() -> Self {
-        let data = Box::new([32, 32, 32, 255]);
+        let data = Box::new(RENDER_MODEL_COLOR);
         Self {
             data,
             width: 1,
@@ -499,16 +506,18 @@ impl OwnedTexture {
     }
 }
 
-#[allow(dead_code)]
 struct OwnedRenderModel {
     verts: Box<[vr::RenderModel_Vertex_t]>,
     indices: Box<[u16]>,
 }
 
 impl OwnedRenderModel {
-    fn load(name: &CStr, model_data: &RenderModelData) -> Result<Self, vr::EVRRenderModelError> {
+    fn load(
+        name: &CStr,
+        model_data_obj_lz4: &RenderModelObjLz4,
+    ) -> Result<Self, vr::EVRRenderModelError> {
         let mut decompressed_bytes = vec![];
-        FrameDecoder::new(model_data.bytes)
+        FrameDecoder::new(model_data_obj_lz4.bytes)
             .read_to_end(&mut decompressed_bytes)
             .map_err(|e| {
                 warn!("could not decompress model {name:?}: {e:?}");
@@ -520,7 +529,7 @@ impl OwnedRenderModel {
             vr::EVRRenderModelError::InvalidModel
         })?;
 
-        Self::new_from_obj(&obj, model_data.flipped)
+        Self::new_from_obj(&obj, model_data_obj_lz4.flipped)
     }
 
     fn new_from_obj(obj: &ObjData, flipped: bool) -> Result<Self, vr::EVRRenderModelError> {
@@ -793,6 +802,11 @@ mod tests {
 
         // return 0 if render_model_name is null
         assert_eq!(rm.GetComponentCount(ptr::null()), 0);
+
+        let empty_cstr = c"";
+
+        // return 0 for empty cstr
+        assert_eq!(rm.GetComponentCount(empty_cstr.as_ptr()), 0);
 
         // return 1 component for non-null render_model_name (Derail Valley fix)
         assert_eq!(rm.GetComponentCount(some_model.as_ptr()), 1);
