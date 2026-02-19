@@ -18,7 +18,7 @@ impl InteractionProfile for ViveTracker {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::BothHands(c"Vive Tracker Handheld Object"),
             openvr_controller_type: c"vive_tracker_handheld_object",
-            render_model_name: Property::BothHands(c"vive_tracker"),
+            render_model_name: Property::BothHands(c"vr_tracker_vive_3_0"),
             main_axis: MainAxisType::Thumbstick,
             registered_device_type: Property::BothHands(c"vive_tracker"),
             serial_number: Property::BothHands(c"vive_tracker"), // This gets replaced
