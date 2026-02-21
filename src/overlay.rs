@@ -989,7 +989,7 @@ impl vr::IVROverlay028_Interface for OverlayMan {
         } else if input_method == vr::VROverlayInputMethod::None {
             crate::warn_unimplemented!("SetOverlayInputMethod::None");
         }
-        vr::EVROverlayError::RequestFailed
+        vr::EVROverlayError::None
     }
     fn GetOverlayInputMethod(
         &self,
@@ -1316,8 +1316,36 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     fn SetOverlayRenderingPid(&self, _: vr::VROverlayHandle_t, _: u32) -> vr::EVROverlayError {
         todo!()
     }
-    fn GetOverlayErrorNameFromEnum(&self, _: vr::EVROverlayError) -> *const c_char {
-        todo!()
+    /// Return the name of the given error enum as a pointer to a static c string.
+    fn GetOverlayErrorNameFromEnum(&self, e: vr::EVROverlayError) -> *const c_char {
+        let res: &'static CStr = match e {
+            vr::EVROverlayError::None => c"None",
+            vr::EVROverlayError::UnknownOverlay => c"UnknownOverlay",
+            vr::EVROverlayError::InvalidHandle => c"InvalidHandle",
+            vr::EVROverlayError::PermissionDenied => c"PermissionDenied",
+            vr::EVROverlayError::OverlayLimitExceeded => c"OverlayLimitExceeded",
+            vr::EVROverlayError::WrongVisibilityType => c"WrongVisibilityType",
+            vr::EVROverlayError::KeyTooLong => c"KeyTooLong",
+            vr::EVROverlayError::NameTooLong => c"NameTooLong",
+            vr::EVROverlayError::KeyInUse => c"KeyInUse",
+            vr::EVROverlayError::WrongTransformType => c"WrongTransformType",
+            vr::EVROverlayError::InvalidTrackedDevice => c"InvalidTrackedDevice",
+            vr::EVROverlayError::InvalidParameter => c"InvalidParameter",
+            vr::EVROverlayError::ThumbnailCantBeDestroyed => c"ThumbnailCantBeDestroyed",
+            vr::EVROverlayError::ArrayTooSmall => c"ArrayTooSmall",
+            vr::EVROverlayError::RequestFailed => c"RequestFailed",
+            vr::EVROverlayError::InvalidTexture => c"InvalidTexture",
+            vr::EVROverlayError::UnableToLoadFile => c"UnableToLoadFile",
+            vr::EVROverlayError::KeyboardAlreadyInUse => c"KeyboardAlreadyInUse",
+            vr::EVROverlayError::NoNeighbor => c"NoNeighbor",
+            vr::EVROverlayError::TooManyMaskPrimitives => c"TooManyMaskPrimitives",
+            vr::EVROverlayError::BadMaskPrimitive => c"BadMaskPrimitive",
+            vr::EVROverlayError::TextureAlreadyLocked => c"TextureAlreadyLocked",
+            vr::EVROverlayError::TextureLockCapacityReached => c"TextureLockCapacityReached",
+            vr::EVROverlayError::TextureNotLocked => c"TextureNotLocked",
+            vr::EVROverlayError::TimedOut => c"TimedOut",
+        };
+        res.as_ptr()
     }
     fn GetOverlayImageData(
         &self,
