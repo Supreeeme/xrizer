@@ -989,7 +989,7 @@ impl vr::IVROverlay028_Interface for OverlayMan {
         } else if input_method == vr::VROverlayInputMethod::None {
             crate::warn_unimplemented!("SetOverlayInputMethod::None");
         }
-        vr::EVROverlayError::RequestFailed
+        vr::EVROverlayError::None
     }
     fn GetOverlayInputMethod(
         &self,
