@@ -12,6 +12,7 @@ use std::sync::{
     RwLock,
     atomic::{AtomicI64, Ordering},
 };
+use std::time::Duration;
 
 #[cfg(feature = "monado")]
 use openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
@@ -40,6 +41,7 @@ pub struct OpenXrData<C: Compositor> {
     pub system_id: xr::SystemId,
     pub session_data: SessionReadGuard,
     pub display_time: AtomicXrTime,
+    pub display_period_nanos: AtomicI64,
     pub enabled_extensions: xr::ExtensionSet,
 
     /// should only be externally accessed for testing
@@ -128,6 +130,7 @@ impl<C: Compositor> OpenXrData<C> {
             supported_exts.khr_composition_layer_color_scale_bias;
         exts.htc_vive_focus3_controller_interaction =
             supported_exts.htc_vive_focus3_controller_interaction;
+        exts.fb_display_refresh_rate = supported_exts.fb_display_refresh_rate;
 
         // Extension that enables simple full body tracking support via generic tracked devices.
         // Available only in the Monado OpenXR runtime.
@@ -179,7 +182,8 @@ impl<C: Compositor> OpenXrData<C> {
             instance,
             system_id,
             session_data,
-            display_time: AtomicXrTime(display_time.into()),
+            display_time: AtomicXrTime(display_time.into()), // This will get replaced on the first WaitGetPoses
+            display_period_nanos: 11111111.into(), // This will get replaced on the first WaitGetPoses
             enabled_extensions: exts,
             input: injector.inject(),
             compositor: injector.inject(),
@@ -313,6 +317,27 @@ impl<C: Compositor> OpenXrData<C> {
                 xr::ReferenceSpaceType::LOCAL,
             ),
         };
+    }
+
+    pub fn get_refresh_rate(&self) -> f32 {
+        let get_fallback_rate = || {
+            Duration::from_nanos(
+                self.display_period_nanos
+                    .load(Ordering::Relaxed)
+                    .try_into()
+                    .unwrap(),
+            )
+            .as_secs_f32()
+        };
+        if !self.enabled_extensions.fb_display_refresh_rate {
+            return get_fallback_rate();
+        }
+
+        self.session_data
+            .get()
+            .session
+            .get_display_refresh_rate()
+            .unwrap_or_else(|_| get_fallback_rate())
     }
 
     fn end_session(&self, session_data: &mut SessionData) {

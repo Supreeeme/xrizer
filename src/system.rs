@@ -680,7 +680,7 @@ impl vr::IVRSystem023_Interface for System {
                 let views = self.get_views(xr::ReferenceSpaceType::VIEW).views;
                 views[1].pose.position.x - views[0].pose.position.x
             }
-            vr::ETrackedDeviceProperty::DisplayFrequency_Float => 90.0,
+            vr::ETrackedDeviceProperty::DisplayFrequency_Float => self.openxr.get_refresh_rate(),
             _ => {
                 if let Some(error) = unsafe { error.as_mut() } {
                     *error = vr::ETrackedPropertyError::UnknownProperty;
