@@ -14,19 +14,16 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use std::time::Instant;
 
 impl<C: openxr_data::Compositor> Input<C> {
-    /// Returns false if hand tracking data couldn't be generated for some reason.
     pub(super) fn get_bones_from_hand_tracking(
         &self,
         session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
-        hand_tracker: &xr::HandTracker,
         hand: Hand,
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
         use HandSkeletonBone::*;
 
         let pose_data = session_data.input_data.pose_data.get().unwrap();
-        let display_time = self.openxr.display_time.get();
         let devices = session_data.input_data.devices.read().unwrap();
 
         let Some(controller) = devices.get_controller(hand) else {
@@ -43,7 +40,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             return;
         };
 
-        let Some(joints) = raw.locate_hand_joints(hand_tracker, display_time).unwrap() else {
+        let Some(joints) = controller.get_hand_skeleton(&self.openxr, &raw) else {
             self.get_estimated_bones(session_data, space, hand, transforms);
             return;
         };
@@ -165,6 +162,127 @@ impl<C: openxr_data::Compositor> Input<C> {
         *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Full;
     }
 
+    pub(super) fn get_bone_summary_from_hand_tracking(
+        &self,
+        session_data: &SessionData,
+        summary_type: vr::EVRSummaryType,
+        summary_data: &mut vr::VRSkeletalSummaryData_t,
+        hand: Hand,
+    ) {
+        let pose_data = session_data.input_data.pose_data.get().unwrap();
+        let devices = session_data.input_data.devices.read().unwrap();
+
+        let Some(controller) = devices.get_controller(hand) else {
+            self.get_estimated_bone_summary(session_data, summary_type, summary_data, hand);
+            return;
+        };
+
+        let Some(raw) = match hand {
+            Hand::Left => &pose_data.left_space,
+            Hand::Right => &pose_data.right_space,
+        }
+        .try_get_or_init_raw(&controller.interaction_profile, session_data, pose_data) else {
+            self.get_estimated_bone_summary(session_data, summary_type, summary_data, hand);
+            return;
+        };
+
+        let Some(joints) = controller.get_hand_skeleton(&self.openxr, &raw) else {
+            self.get_estimated_bone_summary(session_data, summary_type, summary_data, hand);
+            return;
+        };
+
+        let joints: Box<[_]> = joints
+            .into_iter()
+            .map(|joint_location| {
+                let position = joint_location.pose.position;
+                let orientation = joint_location.pose.orientation;
+                (
+                    Quat::from_xyzw(orientation.x, orientation.y, orientation.z, orientation.w),
+                    Vec3::from_array([position.x, position.y, position.z]),
+                )
+            })
+            .collect();
+
+        // FIXME: calculate splay
+        summary_data.flFingerSplay.fill(0.2);
+
+        for (i, out_curl) in summary_data.flFingerCurl.iter_mut().enumerate() {
+            // For Knuckles, the skeleton thumb tries to accurately match where the physical
+            // thumb is, e.g. the curl depends on which part of the touchpad is being touched,
+            // or how the thumbstick is being pushed, but in GetSkeletalSummaryData with
+            // EVRSummaryType::FromDevice the curl is set to 1 if any of touchpad, A/B,
+            // or thumbstick is being touched, so just use the skeletal input actions to
+            // determine the curl value for the thumb.
+            if i == 0
+                && controller.interaction_profile.is_some_and(|p| {
+                    p.profile_path() == "/interaction_profiles/valve/index_controller"
+                })
+            {
+                *out_curl = self.get_finger_state(session_data, hand).thumb;
+                continue;
+            }
+
+            let (metacarpal, proximal, tip) = match i {
+                0 => (
+                    joints[xr::HandJoint::THUMB_METACARPAL],
+                    joints[xr::HandJoint::THUMB_PROXIMAL],
+                    joints[xr::HandJoint::THUMB_TIP],
+                ),
+                1 => (
+                    joints[xr::HandJoint::INDEX_METACARPAL],
+                    joints[xr::HandJoint::INDEX_PROXIMAL],
+                    joints[xr::HandJoint::INDEX_TIP],
+                ),
+                2 => (
+                    joints[xr::HandJoint::MIDDLE_METACARPAL],
+                    joints[xr::HandJoint::MIDDLE_PROXIMAL],
+                    joints[xr::HandJoint::MIDDLE_TIP],
+                ),
+                3 => (
+                    joints[xr::HandJoint::RING_METACARPAL],
+                    joints[xr::HandJoint::RING_PROXIMAL],
+                    joints[xr::HandJoint::RING_TIP],
+                ),
+                4 => (
+                    joints[xr::HandJoint::LITTLE_METACARPAL],
+                    joints[xr::HandJoint::LITTLE_PROXIMAL],
+                    joints[xr::HandJoint::LITTLE_TIP],
+                ),
+                _ => unreachable!(),
+            };
+
+            // Vector pointing from the knuckle to the metacarpal
+            let proximal_metacarpal_delta = metacarpal.0 - proximal.0;
+            // Vector pointing from the knuckle to the tip of the finger
+            let tip_proximal_delta = tip.0 - proximal.0;
+
+            // The dotproduct will give us the angle between the two vectors
+            let dot = proximal_metacarpal_delta.dot(tip_proximal_delta);
+            let a = proximal_metacarpal_delta.length();
+            let b = tip_proximal_delta.length();
+
+            let curl = if a == 0.0 || b == 0.0 {
+                // If the joints converge, say the finger is fully curled
+                1.0
+            } else {
+                // Isolate cos(angle)
+                let ang_cos = (dot / (a * b)).clamp(-1.0, 1.0);
+                // Convert the angle to radians
+                let ang = ang_cos.acos();
+
+                // When the finger is straight, the angle is 180deg (PI radians)
+                // When the finger is fully curled, the angle is (theoretically) 0
+                1.0 - (ang / PI)
+            };
+
+            // But in the real world, when a finger is curled, an angle of 0 is physically
+            // not possible. The curl maxes out at around 0.8, give or take some depending on
+            // the user's hands. Remap the value so >=0.8 (arbitrary value) means fully curled
+            const MAX_CURL: f32 = 0.8;
+            *out_curl = (curl / MAX_CURL).clamp(0.0, 1.0);
+        }
+    }
+
     pub(super) fn get_estimated_bones(
         &self,
         session_data: &SessionData,
@@ -210,6 +328,27 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         finalize_transforms(bone_it, space, transforms);
         *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
+    }
+
+    pub(super) fn get_estimated_bone_summary(
+        &self,
+        session_data: &SessionData,
+        _: vr::EVRSummaryType,
+        summary_data: &mut vr::VRSkeletalSummaryData_t,
+        hand: Hand,
+    ) {
+        let state = self.get_finger_state(session_data, hand);
+
+        *summary_data = vr::VRSkeletalSummaryData_t {
+            flFingerSplay: [0.2; 4],
+            flFingerCurl: [
+                state.thumb,
+                state.index,
+                state.middle,
+                state.ring,
+                state.pinky,
+            ],
+        };
     }
 
     fn get_finger_state(&self, session_data: &SessionData, hand: Hand) -> FingerState {

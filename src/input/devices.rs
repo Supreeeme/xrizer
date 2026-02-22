@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::sync::Mutex;
 
@@ -19,6 +20,8 @@ pub enum TrackedDeviceType {
     Hmd,
     Controller {
         hand: Hand,
+        hand_tracker: Option<xr::HandTracker>,
+        skeleton_cache: Mutex<HashMap<u64, Option<xr::HandJointLocations>>>,
     },
     #[cfg(feature = "monado")]
     GenericTracker {
@@ -31,7 +34,7 @@ impl std::fmt::Debug for TrackedDeviceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TrackedDeviceType::Hmd => write!(f, "HMD"),
-            TrackedDeviceType::Controller { hand } => write!(f, "Controller ({:?})", hand),
+            TrackedDeviceType::Controller { hand, .. } => write!(f, "Controller ({:?})", hand),
             #[cfg(feature = "monado")]
             TrackedDeviceType::GenericTracker { serial, .. } => {
                 write!(f, "Generic Tracker ({})", serial.to_string_lossy())
@@ -158,8 +161,36 @@ impl TrackedDevice {
         *pose_cache
     }
 
+    pub fn get_hand_skeleton(
+        &self,
+        xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+        base: &xr::Space,
+    ) -> Option<xr::HandJointLocations> {
+        let TrackedDeviceType::Controller {
+            hand_tracker,
+            skeleton_cache,
+            ..
+        } = self.get_type()
+        else {
+            return None;
+        };
+        let mut skeleton_cache = skeleton_cache.lock().unwrap();
+        if let Some(skeleton) = skeleton_cache.get(&base.as_raw().into_raw()) {
+            return *skeleton;
+        }
+
+        let joints = base
+            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.display_time.get())
+            .unwrap_or_default();
+        skeleton_cache.insert(base.as_raw().into_raw(), joints);
+        joints
+    }
+
     pub fn clear_pose_cache(&self) {
         std::mem::take(&mut *self.pose_cache.lock().unwrap());
+        if let TrackedDeviceType::Controller { skeleton_cache, .. } = self.get_type() {
+            skeleton_cache.lock().unwrap().clear();
+        }
     }
 
     pub fn has_connected_changed(&mut self) -> bool {
@@ -184,7 +215,7 @@ impl TrackedDevice {
 
     fn get_string_property(&self, property: vr::ETrackedDeviceProperty) -> Option<&CStr> {
         let hand = match self.device_type {
-            TrackedDeviceType::Controller { hand } => hand,
+            TrackedDeviceType::Controller { hand, .. } => hand,
             _ => Hand::Left,
         };
 
