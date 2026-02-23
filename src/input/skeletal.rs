@@ -40,7 +40,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             return;
         };
 
-        let Some(joints) = controller.get_hand_skeleton(&self.openxr, &raw) else {
+        let Some((joints, data_source)) = controller.get_hand_skeleton(&self.openxr, &raw) else {
             self.get_estimated_bones(session_data, space, hand, transforms);
             return;
         };
@@ -159,8 +159,11 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
         }
 
-        self.skeletal_tracking_level.write().unwrap()[hand as usize - 1] =
-            vr::EVRSkeletalTrackingLevel::Full;
+        self.skeletal_tracking_level.write().unwrap()[hand as usize - 1] = match data_source {
+            xr::HandTrackingDataSourceEXT::CONTROLLER => vr::EVRSkeletalTrackingLevel::Partial,
+            xr::HandTrackingDataSourceEXT::UNOBSTRUCTED => vr::EVRSkeletalTrackingLevel::Full,
+            _ => unreachable!(),
+        };
     }
 
     pub(super) fn get_bone_summary_from_hand_tracking(
@@ -187,7 +190,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             return;
         };
 
-        let Some(joints) = controller.get_hand_skeleton(&self.openxr, &raw) else {
+        let Some((joints, _)) = controller.get_hand_skeleton(&self.openxr, &raw) else {
             self.get_estimated_bone_summary(session_data, summary_type, summary_data, hand);
             return;
         };
