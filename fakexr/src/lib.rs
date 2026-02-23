@@ -84,6 +84,20 @@ pub fn is_haptic_activated(action: xr::Action, hand: UserPath) -> bool {
     state
 }
 
+pub fn set_hand_tracker_data_source(
+    tracker: xr::HandTrackerEXT,
+    data_source: xr::HandTrackingDataSourceEXT,
+) {
+    let tracker = tracker.to_handle().unwrap();
+    assert!(
+        tracker
+            .requested_data_sources
+            .as_ref()
+            .is_some_and(|sources| sources.contains(&data_source))
+    );
+    tracker.current_data_source.store(Some(data_source));
+}
+
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum UserPath {
     /// /user/hand/left
@@ -292,7 +306,7 @@ pub unsafe extern "system" fn get_instance_proc_addr(
                     (ResultToString),
                     (StructureTypeToString),
                     (GetInstanceProperties),
-                    (GetSystemProperties),
+                    GetSystemProperties,
                     CreateSwapchain,
                     DestroySwapchain,
                     EnumerateSwapchainImages,
@@ -330,6 +344,9 @@ pub unsafe extern "system" fn get_instance_proc_addr(
                     SyncActions,
                     (EnumerateBoundSourcesForAction),
                     (GetInputSourceLocalizedName),
+                    CreateHandTrackerEXT,
+                    LocateHandJointsEXT,
+                    DestroyHandTrackerEXT,
                     {mndx::CreateXDevListMNDX},
                     {mndx::GetXDevListGenerationNumberMNDX},
                     {mndx::EnumerateXDevsMNDX},
@@ -357,8 +374,8 @@ extern "system" fn enumerate_instance_extension_properties(
     properties: *mut xr::ExtensionProperties,
 ) -> xr::Result {
     assert!(layer_name.is_null());
-    unsafe { *property_count_output = 4 };
-    if property_capacity_input >= 4 {
+    unsafe { *property_count_output = 6 };
+    if property_capacity_input >= 6 {
         let props =
             unsafe { std::slice::from_raw_parts_mut(properties, property_capacity_input as usize) };
 
@@ -379,7 +396,7 @@ extern "system" fn enumerate_instance_extension_properties(
             extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
             extension_version: 1,
         };
-        let name = openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
+        let name = xr::EXT_HAND_TRACKING_EXTENSION_NAME;
         let name =
             unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
         props[1].extension_name[..name.len()].copy_from_slice(name);
@@ -390,7 +407,7 @@ extern "system" fn enumerate_instance_extension_properties(
             extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
             extension_version: 1,
         };
-        let name = xr::HTC_VIVE_FOCUS3_CONTROLLER_INTERACTION_EXTENSION_NAME;
+        let name = xr::EXT_HAND_TRACKING_DATA_SOURCE_EXTENSION_NAME;
         let name =
             unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
         props[2].extension_name[..name.len()].copy_from_slice(name);
@@ -401,10 +418,32 @@ extern "system" fn enumerate_instance_extension_properties(
             extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
             extension_version: 1,
         };
-        let name = xr::META_TOUCH_CONTROLLER_PLUS_EXTENSION_NAME;
+        let name = openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
         let name =
             unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
         props[3].extension_name[..name.len()].copy_from_slice(name);
+
+        props[4] = xr::ExtensionProperties {
+            ty: xr::ExtensionProperties::TYPE,
+            next: std::ptr::null_mut(),
+            extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
+            extension_version: 1,
+        };
+        let name = xr::HTC_VIVE_FOCUS3_CONTROLLER_INTERACTION_EXTENSION_NAME;
+        let name =
+            unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
+        props[4].extension_name[..name.len()].copy_from_slice(name);
+
+        props[5] = xr::ExtensionProperties {
+            ty: xr::ExtensionProperties::TYPE,
+            next: std::ptr::null_mut(),
+            extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
+            extension_version: 1,
+        };
+        let name = xr::META_TOUCH_CONTROLLER_PLUS_EXTENSION_NAME;
+        let name =
+            unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
+        props[5].extension_name[..name.len()].copy_from_slice(name);
     }
     xr::Result::SUCCESS
 }
@@ -809,12 +848,18 @@ struct Swapchain {
     image_acquired: AtomicBool,
 }
 
+struct HandTracker {
+    requested_data_sources: Option<Vec<xr::HandTrackingDataSourceEXT>>,
+    current_data_source: AtomicCell<Option<xr::HandTrackingDataSourceEXT>>,
+}
+
 impl_handle!(Instance, xr::Instance);
 impl_handle!(Session, xr::Session);
 impl_handle!(ActionSet, xr::ActionSet);
 impl_handle!(Action, xr::Action);
 impl_handle!(Space, xr::Space);
 impl_handle!(Swapchain, xr::Swapchain);
+impl_handle!(HandTracker, xr::HandTrackerEXT);
 
 fn destroy_handle<T: XrType>(xr: T) -> xr::Result {
     T::Handle::instances().remove(DefaultKey::from(KeyData::from_ffi(T::TO_RAW(xr))));
@@ -1223,6 +1268,38 @@ extern "system" fn request_exit_session(session: xr::Session) -> xr::Result {
         },
         None,
     );
+    xr::Result::SUCCESS
+}
+
+extern "system" fn get_system_properties(
+    _: xr::Instance,
+    system_id: xr::SystemId,
+    properties: *mut xr::SystemProperties,
+) -> xr::Result {
+    let Some(properties) =
+        (unsafe { properties.as_mut() }).take_if(|p| p.ty == xr::SystemProperties::TYPE)
+    else {
+        return xr::Result::ERROR_VALIDATION_FAILURE;
+    };
+
+    properties.system_id = system_id;
+
+    properties.system_name.fill(0 as c_char);
+    let name = b"fakexr";
+    let name = unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
+    properties.system_name[..name.len()].copy_from_slice(name);
+
+    unsafe {
+        let mut next = properties.next as *mut xr::BaseOutStructure;
+        while !next.is_null() {
+            if (*next).ty == xr::SystemHandTrackingPropertiesEXT::TYPE {
+                (*next.cast::<xr::SystemHandTrackingPropertiesEXT>()).supports_hand_tracking =
+                    xr::TRUE;
+            }
+            next = (*next).next;
+        }
+    }
+
     xr::Result::SUCCESS
 }
 
@@ -1862,4 +1939,102 @@ extern "system" fn apply_haptic_feedback(
     }
 
     xr::Result::SUCCESS
+}
+
+extern "system" fn create_hand_tracker_e_x_t(
+    session: xr::Session,
+    info: *const xr::HandTrackerCreateInfoEXT,
+    hand_tracker: *mut xr::HandTrackerEXT,
+) -> xr::Result {
+    let _ = get_handle!(session);
+    let Some(info) =
+        (unsafe { info.as_ref() }).take_if(|i| i.ty == xr::HandTrackerCreateInfoEXT::TYPE)
+    else {
+        return xr::Result::ERROR_VALIDATION_FAILURE;
+    };
+
+    if (info.hand != xr::HandEXT::LEFT && info.hand != xr::HandEXT::RIGHT)
+        || info.hand_joint_set != xr::HandJointSetEXT::DEFAULT
+    {
+        return xr::Result::ERROR_VALIDATION_FAILURE;
+    }
+
+    let requested_data_sources = if !info.next.is_null() {
+        let header = info.next as *const xr::BaseInStructure;
+        unsafe {
+            if (*header).ty == xr::HandTrackingDataSourceInfoEXT::TYPE {
+                let data_source_info = header as *const xr::HandTrackingDataSourceInfoEXT;
+                let requested_data_sources = std::slice::from_raw_parts(
+                    (*data_source_info).requested_data_sources,
+                    (*data_source_info).requested_data_source_count as usize,
+                );
+                if requested_data_sources.is_empty() {
+                    return xr::Result::ERROR_VALIDATION_FAILURE;
+                }
+
+                Some(requested_data_sources.to_vec())
+            } else {
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let tracker = Arc::new(HandTracker {
+        requested_data_sources,
+        current_data_source: AtomicCell::new(None),
+    });
+
+    unsafe {
+        *hand_tracker = tracker.to_xr();
+    }
+    xr::Result::SUCCESS
+}
+
+extern "system" fn locate_hand_joints_e_x_t(
+    tracker: xr::HandTrackerEXT,
+    info: *const xr::HandJointsLocateInfoEXT,
+    locations: *mut xr::HandJointLocationsEXT,
+) -> xr::Result {
+    let tracker = get_handle!(tracker);
+    if unsafe { (*info).ty } != xr::HandJointsLocateInfoEXT::TYPE {
+        return xr::Result::ERROR_VALIDATION_FAILURE;
+    }
+    let Some(locations) =
+        (unsafe { locations.as_mut() }).take_if(|l| l.ty == xr::HandJointLocationsEXT::TYPE)
+    else {
+        return xr::Result::ERROR_VALIDATION_FAILURE;
+    };
+    if locations.joint_count != xr::HAND_JOINT_COUNT_EXT as u32 {
+        return xr::Result::ERROR_VALIDATION_FAILURE;
+    }
+
+    locations.is_active = xr::TRUE;
+    unsafe {
+        std::slice::from_raw_parts_mut(locations.joint_locations, locations.joint_count as usize)
+            .fill(Default::default());
+    }
+    if !locations.next.is_null() {
+        let header = locations.next as *mut xr::BaseOutStructure;
+        if unsafe { (*header).ty } == xr::HandTrackingDataSourceStateEXT::TYPE {
+            let data_source_state =
+                unsafe { (header as *mut xr::HandTrackingDataSourceStateEXT).as_mut() }.unwrap();
+            let Some(requested_data_sources) = tracker.requested_data_sources.as_ref() else {
+                return xr::Result::ERROR_VALIDATION_FAILURE;
+            };
+
+            data_source_state.is_active = xr::TRUE;
+            data_source_state.data_source = tracker
+                .current_data_source
+                .load()
+                .unwrap_or(*requested_data_sources.first().unwrap());
+        }
+    }
+
+    xr::Result::SUCCESS
+}
+
+extern "system" fn destroy_hand_tracker_e_x_t(tracker: xr::HandTrackerEXT) -> xr::Result {
+    destroy_handle(tracker)
 }
