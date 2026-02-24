@@ -950,7 +950,8 @@ impl vr::IVROverlay028_Interface for OverlayMan {
         _: u32,
         _: u32,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("SetOverlayIntersectionMask");
+        vr::EVROverlayError::None
     }
     fn IsHoverTargetOverlay(&self, _: vr::VROverlayHandle_t) -> bool {
         todo!()
