@@ -16,6 +16,9 @@ pub(super) struct BindingsLoadContext<'a> {
     pub extra_actions: HashMap<String, ExtraActionData>,
     pub per_profile_bindings: HashMap<xr::Path, HashMap<String, Vec<BindingData>>>,
     pub per_profile_pose_bindings: HashMap<xr::Path, HashMap<String, BoundPose>>,
+    /// Maps each interaction profile path → action name → list of bound input paths.
+    /// Used to implement GetActionBindingInfo without requiring an active session sync.
+    pub per_profile_input_paths: HashMap<xr::Path, HashMap<String, Vec<xr::Path>>>,
     pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
     pub haptic_action: &'a xr::Action<xr::Haptic>,
@@ -37,6 +40,7 @@ impl<'a> BindingsLoadContext<'a> {
             extra_actions: Default::default(),
             per_profile_bindings: Default::default(),
             per_profile_pose_bindings: Default::default(),
+            per_profile_input_paths: Default::default(),
             grip_action,
             info_action,
             haptic_action,
@@ -78,6 +82,10 @@ impl BindingsLoadContext<'_> {
             .per_profile_pose_bindings
             .entry(interaction_profile)
             .or_default();
+        let input_paths_out = self
+            .per_profile_input_paths
+            .entry(interaction_profile)
+            .or_default();
         Some(BindingsProfileLoadContext {
             profile,
             controller_type,
@@ -86,6 +94,7 @@ impl BindingsLoadContext<'_> {
             extra_actions: &mut self.extra_actions,
             bindings_parsed,
             pose_bindings,
+            input_paths_out,
             grip_action: self.grip_action,
             info_action: self.info_action,
             haptic_action: self.haptic_action,
@@ -105,6 +114,8 @@ pub(super) struct BindingsProfileLoadContext<'a> {
     extra_actions: &'a mut HashMap<String, ExtraActionData>,
     bindings_parsed: &'a mut HashMap<String, Vec<BindingData>>,
     pub pose_bindings: &'a mut HashMap<String, BoundPose>,
+    /// Accumulates non-custom input paths per action, keyed by action name.
+    pub input_paths_out: &'a mut HashMap<String, Vec<xr::Path>>,
     pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
     pub haptic_action: &'a xr::Action<xr::Haptic>,
@@ -194,7 +205,12 @@ impl BindingsProfileLoadContext<'_> {
             action_pattern.check_match(&self.actions[&action_path], &action_path);
             trace!("suggesting {input_path} for {action_path}");
             let binding_path = self.instance.string_to_path(&input_path).unwrap();
-            self.bindings.push((action_path, binding_path));
+            self.bindings.push((action_path.clone(), binding_path));
+            // Also record the path so GetActionBindingInfo can return it.
+            self.input_paths_out
+                .entry(action_path)
+                .or_default()
+                .push(binding_path);
         }
     }
 
@@ -218,6 +234,7 @@ impl BindingsProfileLoadContext<'_> {
         &mut self,
         output: &ActionPath,
         hand: xr::Path,
+        input_path: xr::Path,
         action_set_name: &str,
         action_set: &xr::ActionSet,
         params: Option<&T::BindingParams>,
@@ -246,10 +263,22 @@ impl BindingsProfileLoadContext<'_> {
             .or_default()
             .push(BindingData::new(T::create_binding_data(params), hand));
 
+        // Record the input path so GetActionBindingInfo can return it.
+        if input_path != xr::Path::NULL {
+            self.input_paths_out
+                .entry(output.path.clone())
+                .or_default()
+                .push(input_path);
+        }
+
         T::ExtraActions::from_iter(full_names)
     }
 
     pub fn push_binding(&mut self, action: String, path: xr::Path) {
+        self.input_paths_out
+            .entry(action.clone())
+            .or_default()
+            .push(path);
         self.bindings.push((action, path));
     }
 

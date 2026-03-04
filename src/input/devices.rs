@@ -215,6 +215,7 @@ impl TrackedDevice {
                 TrackedDeviceType::Hmd => unreachable!(),
             },
             vr::ETrackedDeviceProperty::ManufacturerName_String => Some(data.manufacturer_name),
+            vr::ETrackedDeviceProperty::InputProfilePath_String => Some(data.input_profile_path),
             _ => None,
         }
     }

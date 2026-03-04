@@ -73,6 +73,9 @@ pub struct ProfileProperties {
     pub tracking_system_name: &'static CStr,
     /// Corresponds to Prop_ManufacturerName_String
     pub manufacturer_name: &'static CStr,
+    /// Corresponds to Prop_InputProfilePath_String
+    /// Path to the input profile JSON, e.g. "{oculus}/input/touch_profile.json"
+    pub input_profile_path: &'static CStr,
     /// Corresponds to Prop_SupportedButtons_Uint64
     /// Can be pulled from a SteamVR System Report
     pub legacy_buttons_mask: u64,

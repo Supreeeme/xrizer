@@ -168,6 +168,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             extra_actions,
             per_profile_bindings,
             per_profile_pose_bindings,
+            per_profile_input_paths,
             ..
         } = binding_context;
 
@@ -239,6 +240,22 @@ impl<C: openxr_data::Compositor> Input<C> {
             .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
             .collect();
 
+        let per_profile_input_paths = per_profile_input_paths
+            .into_iter()
+            .map(|(profile_path, action_map)| {
+                let sec: slotmap::SecondaryMap<_, _> = action_map
+                    .into_iter()
+                    .filter_map(|(name, paths)| {
+                        let key = act_guard.iter().find_map(|(key, super::Action { path })| {
+                            (*path == name).then_some(key)
+                        });
+                        key.map(|k| (k, paths))
+                    })
+                    .collect();
+                (profile_path, sec)
+            })
+            .collect();
+
         let loaded = super::ManifestLoadedActions {
             sets,
             actions,
@@ -246,6 +263,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             extra_actions,
             per_profile_bindings,
             per_profile_pose_bindings,
+            per_profile_input_paths,
             _info_action: info_action,
             info_set,
             haptic_action,
@@ -1109,10 +1127,12 @@ fn handle_dpad_binding(
     );
 
     let hand = helpers::parse_hand_from_path(context.instance, parent_path).unwrap();
+    let dpad_input_path = string_to_path(parent_path).unwrap_or(xr::Path::NULL);
     for (path, direction) in bound_actions {
         context.add_custom_binding::<DpadData>(
             path,
             hand,
+            dpad_input_path,
             action_set_name,
             action_set,
             Some(&DpadBindingParams {
@@ -1184,19 +1204,18 @@ fn handle_sources(
                         continue;
                     }
 
+                    let toggle_input_path = context.instance.string_to_path(&translated).unwrap();
                     let action = context.add_custom_binding::<ToggleData>(
                         output,
                         helpers::parse_hand_from_path(context.instance, &translated).unwrap(),
+                        toggle_input_path,
                         action_set_name,
                         action_set,
                         None,
                     );
 
                     trace!("suggesting {translated} for {} (toggle)", output.path);
-                    context.push_binding(
-                        action,
-                        context.instance.string_to_path(&translated).unwrap(),
-                    );
+                    context.push_binding(action, toggle_input_path);
                 }
             }
             ActionBinding::Button {
@@ -1241,10 +1260,13 @@ fn handle_sources(
                         let params = parameters.map(|b| &b.click_threshold);
                         let hand =
                             helpers::parse_hand_from_path(context.instance, &translated).unwrap();
+                        let threshold_input_path =
+                            context.instance.string_to_path(&translated).unwrap();
                         let float_name_with_as = if binding_to_2d {
                             context.add_custom_binding::<ThresholdBindingVector2>(
                                 output,
                                 hand,
+                                threshold_input_path,
                                 action_set_name,
                                 action_set,
                                 params,
@@ -1253,16 +1275,14 @@ fn handle_sources(
                             context.add_custom_binding::<ThresholdBindingFloat>(
                                 output,
                                 hand,
+                                threshold_input_path,
                                 action_set_name,
                                 action_set,
                                 params,
                             )
                         };
 
-                        context.push_binding(
-                            float_name_with_as,
-                            context.instance.string_to_path(&translated).unwrap(),
-                        );
+                        context.push_binding(float_name_with_as, threshold_input_path);
                     }
                 }
 
@@ -1270,16 +1290,17 @@ fn handle_sources(
                     && let Ok(translated) = path_translator(&format!("{path}/click"))
                         .inspect_err(translate_warn(&output.path))
                 {
+                    let double_input_path = context.instance.string_to_path(&translated).unwrap();
                     let name = context.add_custom_binding::<DoubleTapData>(
                         output,
                         helpers::parse_hand_from_path(context.instance, &translated).unwrap(),
+                        double_input_path,
                         action_set_name,
                         action_set,
                         None,
                     );
 
-                    context
-                        .push_binding(name, context.instance.string_to_path(&translated).unwrap());
+                    context.push_binding(name, double_input_path);
                 }
             }
             ActionBinding::Dpad {
@@ -1333,18 +1354,18 @@ fn handle_sources(
                                     &translated_pull,
                                 )
                                 .unwrap();
+                                let pull_input_path =
+                                    context.instance.string_to_path(&translated_pull).unwrap();
                                 let float_name_with_as = context
                                     .add_custom_binding::<ThresholdBindingFloat>(
                                         output,
                                         hand,
+                                        pull_input_path,
                                         action_set_name,
                                         action_set,
                                         Some(&parameters),
                                     );
-                                context.push_binding(
-                                    float_name_with_as,
-                                    context.instance.string_to_path(&translated_pull).unwrap(),
-                                );
+                                context.push_binding(float_name_with_as, pull_input_path);
                             } else {
                                 warn!(
                                     "Couldn't bind touch to {} as there's neither touch nor pull input available",
@@ -1421,12 +1442,14 @@ fn handle_sources(
                     continue;
                 }
 
+                let grab_input_path = context.instance.string_to_path(&translated_force).unwrap();
                 let GrabActions {
                     force_action,
                     value_action,
                 } = context.add_custom_binding::<GrabBindingData>(
                     output,
                     helpers::parse_hand_from_path(context.instance, &translated_force).unwrap(),
+                    grab_input_path,
                     action_set_name,
                     action_set,
                     parameters.as_ref(),
