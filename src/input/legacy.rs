@@ -47,7 +47,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         );
         let input_data = &session_data.input_data;
 
-        for profile in Profiles::get().profiles_iter() {
+        for profile in Profiles::get()
+            .profiles_iter()
+            .filter(|p| p.has_required_extensions(&self.openxr.enabled_extensions))
+        {
             const fn constrain<F>(f: F) -> F
             where
                 F: for<'a> Fn(&'a str) -> xr::Path,
