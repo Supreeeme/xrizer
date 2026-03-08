@@ -1,10 +1,10 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     ffi::{CStr, CString},
     io::Read,
     ptr,
     str::FromStr,
-    sync::Mutex,
+    sync::{LazyLock, Mutex},
 };
 
 use glam::Vec3;
@@ -26,7 +26,7 @@ struct RenderModelObjLz4 {
     flipped: bool,
 }
 
-static RENDER_MODELS: &[(&str, RenderModelObjLz4)] = {
+static RENDER_MODELS: LazyLock<BTreeMap<&'static str, RenderModelObjLz4>> = LazyLock::new(|| {
     let oculus_quest2_controller_left =
         include_bytes!("../resources/rendermodels/oculus_quest2_controller_left.obj.lz4");
     let oculus_quest_plus_controller_left =
@@ -36,8 +36,7 @@ static RENDER_MODELS: &[(&str, RenderModelObjLz4)] = {
     let vive_focus3_controller_left =
         include_bytes!("../resources/rendermodels/vive_focus3_controller_left.obj.lz4");
 
-    // must be in strict alphabetical order due to binary-search lookup
-    &[
+    [
         (
             "generic_controller",
             RenderModelObjLz4 {
@@ -115,10 +114,10 @@ static RENDER_MODELS: &[(&str, RenderModelObjLz4)] = {
                 flipped: false,
             },
         ),
-    ]
-};
+    ].into_iter().collect()
+});
 
-fn get_render_model_data(render_model_name: &CStr) -> Option<&'static RenderModelObjLz4> {
+fn get_render_model_data(render_model_name: &CStr) -> Option<&RenderModelObjLz4> {
     let name = render_model_name.to_str().ok().or_else(|| {
         warn!(
             "render_model_name is not a valid UTF-8 string: {:?}",
@@ -132,11 +131,7 @@ fn get_render_model_data(render_model_name: &CStr) -> Option<&'static RenderMode
         .and_then(|s| s.split_once('}').map(|(_driver, model)| model))
         .unwrap_or(name);
 
-    if let Ok(found_idx) = RENDER_MODELS.binary_search_by_key(&model_name, |(a, _)| *a) {
-        Some(&RENDER_MODELS[found_idx].1)
-    } else {
-        None
-    }
+    RENDER_MODELS.get(&model_name)
 }
 
 #[derive(Default, macros::InterfaceImpl)]
@@ -326,7 +321,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         render_model_name: *mut std::ffi::c_char,
         render_model_name_len: u32,
     ) -> u32 {
-        let Some((render_model, _)) = RENDER_MODELS.get(index as usize) else {
+        let Some((render_model, _)) = RENDER_MODELS.iter().nth(index as usize) else {
             return 0;
         };
 
@@ -674,30 +669,6 @@ mod tests {
     use vr::IVRRenderModels006_Interface;
 
     #[test]
-    fn render_models_are_strictly_alphabetical() {
-        let keys: Vec<&str> = RENDER_MODELS.iter().map(|(k, _)| *k).collect();
-
-        let mut sorted = keys.clone();
-        sorted.sort_unstable();
-
-        sorted.dedup();
-        assert_eq!(
-            sorted.len(),
-            keys.len(),
-            "Duplicate keys in RENDER_MODELS: {:#?}",
-            keys
-        );
-
-        let mut sorted_no_dedup = keys.clone();
-        sorted_no_dedup.sort_unstable();
-        assert_eq!(
-            keys, sorted_no_dedup,
-            "RENDER_MODELS is not in alphabetical order.\nExpected:\n{:#?}\nGot:\n{:#?}",
-            sorted_no_dedup, keys
-        );
-    }
-
-    #[test]
     fn get_render_model_data_able_to_resolve_all_elements() {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -708,7 +679,7 @@ mod tests {
             h.finish()
         }
 
-        for (name, expected) in RENDER_MODELS {
+        for (name, expected) in RENDER_MODELS.iter() {
             let asset_name = CString::new(*name).unwrap();
             let asset =
                 get_render_model_data(asset_name.as_c_str()).expect("plain name should resolve");
@@ -794,7 +765,7 @@ mod tests {
     #[test]
     fn get_component_count_contract() {
         let rm = RenderModels::default();
-        let some_model = CString::new(RENDER_MODELS[0].0).unwrap();
+        let some_model = CString::new(*RENDER_MODELS.keys().next().unwrap()).unwrap();
 
         // return 0 if render_model_name is null
         assert_eq!(rm.GetComponentCount(ptr::null()), 0);
@@ -811,7 +782,7 @@ mod tests {
     #[test]
     fn get_component_name_contract() {
         let rm = RenderModels::default();
-        let some_model = CString::new(RENDER_MODELS[0].0).unwrap();
+        let some_model = CString::new(*RENDER_MODELS.keys().next().unwrap()).unwrap();
         let mut buf = vec![32];
 
         // return 0 if render_model_name is null
@@ -843,7 +814,7 @@ mod tests {
     #[test]
     fn render_model_has_component_contract() {
         let rm = RenderModels::default();
-        let some_model = CString::new(RENDER_MODELS[0].0).unwrap();
+        let some_model = CString::new(*RENDER_MODELS.keys().next().unwrap()).unwrap();
 
         // true for known model + DEFAULT_COMPONENT
         assert!(rm.RenderModelHasComponent(some_model.as_ptr(), DEFAULT_COMPONENT.as_ptr()));
@@ -858,7 +829,7 @@ mod tests {
     #[test]
     fn component_render_model_name_contract() {
         let rm = RenderModels::default();
-        let some_model = CString::new(RENDER_MODELS[0].0).unwrap();
+        let some_model = CString::new(*RENDER_MODELS.keys().next().unwrap()).unwrap();
         let mut buf = Vec::with_capacity(64);
 
         // return 0 if render_model_name is null
@@ -945,7 +916,7 @@ mod tests {
     #[test]
     fn get_component_state_contract() {
         let rm = RenderModels::default();
-        let some_model = CString::new(RENDER_MODELS[0].0).unwrap();
+        let some_model = CString::new(*RENDER_MODELS.keys().next().unwrap()).unwrap();
 
         // null safety
         let mut state = unsafe { std::mem::zeroed::<vr::RenderModel_ComponentState_t>() };
@@ -1045,7 +1016,7 @@ mod tests {
     #[test]
     fn load_and_free_render_model_contract() {
         let rm = RenderModels::default();
-        let some_model = CString::new(RENDER_MODELS[0].0).unwrap();
+        let some_model = CString::new(*RENDER_MODELS.keys().next().unwrap()).unwrap();
 
         // null out ptr → InvalidArg
         assert_eq!(
@@ -1069,7 +1040,7 @@ mod tests {
         assert!(out.is_null());
 
         // valid
-        let name = RENDER_MODELS[0].0;
+        let name = RENDER_MODELS.keys().next().unwrap();
         let braced = CString::new(format!("{{driver}}{name}")).unwrap();
         let mut out: *mut vr::RenderModel_t = ptr::null_mut();
         assert_eq!(
@@ -1100,7 +1071,7 @@ mod tests {
 
     #[test]
     fn embedded_models_parse_and_have_reasonable_geometry() {
-        for (name, asset) in RENDER_MODELS {
+        for (name, asset) in RENDER_MODELS.iter() {
             let c_name = CString::new(*name).unwrap();
             let model = OwnedRenderModel::load(c_name.as_c_str(), asset)
                 .unwrap_or_else(|e| panic!("failed to load embedded model {name}: {e:?}"));
