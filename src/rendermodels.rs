@@ -114,7 +114,9 @@ static RENDER_MODELS: LazyLock<BTreeMap<&'static str, RenderModelObjLz4>> = Lazy
                 flipped: false,
             },
         ),
-    ].into_iter().collect()
+    ]
+    .into_iter()
+    .collect()
 });
 
 fn get_render_model_data(render_model_name: &CStr) -> Option<&RenderModelObjLz4> {
