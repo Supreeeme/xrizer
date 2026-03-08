@@ -216,12 +216,9 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         }
 
         // all of our models are static and have offsets baked in
-        let identity = xr::Posef::IDENTITY;
-        let identity = vr::HmdMatrix34_t::from(identity);
-
         unsafe {
-            (*state).mTrackingToComponentRenderModel = identity;
-            (*state).mTrackingToComponentLocal = identity;
+            (*state).mTrackingToComponentRenderModel = xr::Posef::IDENTITY.into();
+            (*state).mTrackingToComponentLocal = xr::Posef::IDENTITY.into();
             (*state).uProperties =
                 (vr::EVRComponentProperty::IsVisible | vr::EVRComponentProperty::IsStatic).0;
         }
