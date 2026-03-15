@@ -28,6 +28,8 @@ impl InteractionProfile for ViveFocus3 {
             },
             tracking_system_name: c"htc_eyes",
             manufacturer_name: c"htc_rr",
+            input_profile_path:
+                c"{htc_business_streaming}/input/vive_focus3_controller_profile.json",
             main_axis: MainAxisType::Thumbstick,
             legacy_buttons_mask: button_mask_from_ids!(
                 System,

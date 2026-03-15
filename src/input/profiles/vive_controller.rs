@@ -27,6 +27,7 @@ impl InteractionProfile for ViveWands {
             },
             tracking_system_name: c"lighthouse",
             manufacturer_name: c"HTC",
+            input_profile_path: c"{htc}/input/vive_controller_profile.json",
             legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, Axis0, Axis1),
         };
         &DEVICE_PROPERTIES
