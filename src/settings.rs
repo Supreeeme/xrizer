@@ -6,7 +6,7 @@ use std::os::raw::c_char;
 
 #[derive(Default, macros::InterfaceImpl)]
 #[interface = "IVRSettings"]
-#[versions(003, 002)]
+#[versions(003, 002, 001)]
 pub struct Settings {
     vtables: Vtables,
 }
@@ -183,5 +183,56 @@ impl vr::IVRSettings002On003 for Settings {
             *error = EVRSettingsError::None;
         }
         false
+    }
+}
+
+impl vr::IVRSettings001On002 for Settings {
+    fn GetBool(
+        &self,
+        section: *const c_char,
+        settings_key: *const c_char,
+        _default_value: bool,
+        error: *mut EVRSettingsError,
+    ) -> bool {
+        vr::IVRSettings003_Interface::GetBool(self, section, settings_key, error)
+    }
+
+    fn GetInt32(
+        &self,
+        section: *const c_char,
+        settings_key: *const c_char,
+        _default_value: i32,
+        error: *mut EVRSettingsError,
+    ) -> i32 {
+        vr::IVRSettings003_Interface::GetInt32(self, section, settings_key, error)
+    }
+
+    fn GetFloat(
+        &self,
+        section: *const c_char,
+        settings_key: *const c_char,
+        _default_value: f32,
+        error: *mut EVRSettingsError,
+    ) -> f32 {
+        vr::IVRSettings003_Interface::GetFloat(self, section, settings_key, error)
+    }
+
+    fn GetString(
+        &self,
+        section: *const c_char,
+        settings_key: *const c_char,
+        value: *mut c_char,
+        value_len: u32,
+        _default_value: *const c_char,
+        error: *mut EVRSettingsError,
+    ) {
+        vr::IVRSettings003_Interface::GetString(
+            self,
+            section,
+            settings_key,
+            value,
+            value_len,
+            error,
+        )
     }
 }
