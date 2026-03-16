@@ -1,5 +1,6 @@
 pub mod knuckles;
 pub mod oculus_touch;
+pub mod oculus_touch_plus;
 pub mod simple_controller;
 pub mod vive_controller;
 pub mod vive_focus3;
@@ -12,6 +13,7 @@ use crate::openxr_data::Hand;
 use glam::Mat4;
 use knuckles::Knuckles;
 use oculus_touch::Touch;
+use oculus_touch_plus::TouchPlus;
 use openxr as xr;
 use simple_controller::SimpleController;
 use std::ffi::CStr;
@@ -115,6 +117,7 @@ impl Profiles {
             list: &[
                 (ControllerType::ViveController, &ViveWands),
                 (ControllerType::Knuckles, &Knuckles),
+                (ControllerType::OculusTouch, &TouchPlus),
                 (ControllerType::OculusTouch, &Touch),
                 (ControllerType::ViveController, &SimpleController),
                 (ControllerType::ViveFocus3, &ViveFocus3),
