@@ -289,6 +289,10 @@ pub(super) enum ControllerType {
     ViveFocus3,
     Knuckles,
     OculusTouch,
+    HolographicController,
+    SamsungOdysseyController,
+    #[serde(rename = "hpmotioncontroller")]
+    HPMotionController,
     #[serde(untagged)]
     Unknown(String),
 }

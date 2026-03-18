@@ -130,6 +130,8 @@ impl<C: Compositor> OpenXrData<C> {
             supported_exts.khr_composition_layer_color_scale_bias;
         exts.htc_vive_focus3_controller_interaction =
             supported_exts.htc_vive_focus3_controller_interaction;
+        exts.ext_samsung_odyssey_controller = supported_exts.ext_samsung_odyssey_controller;
+        exts.ext_hp_mixed_reality_controller = supported_exts.ext_hp_mixed_reality_controller;
         exts.fb_display_refresh_rate = supported_exts.fb_display_refresh_rate;
 
         // Extension that enables simple full body tracking support via generic tracked devices.
