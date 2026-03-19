@@ -1269,7 +1269,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
     }
     fn GetBoneCount(&self, handle: vr::VRActionHandle_t, count: *mut u32) -> vr::EVRInputError {
         get_action_from_handle!(self, handle, session_data, action);
-        if !matches!(action, ActionData::Skeleton { .. }) {
+        if !matches!(action, ActionData::Skeleton(..)) {
             return vr::EVRInputError::WrongType;
         }
 
