@@ -87,6 +87,14 @@
 			"controller_type": "oculus_touch"
 		},
 		{
+			"binding_url": "hpmotioncontroller.json",
+			"controller_type": "hpmotioncontroller"
+		},
+		{
+			"binding_url": "holographiccontroller.json",
+			"controller_type": "holographic_controller"
+		},
+		{
 			"binding_url": "focus3.json",
 			"controller_type": "vive_focus3_controller"
 		},
@@ -97,10 +105,6 @@
 		{
 			"binding_url": "holographiccontroller.json",
 			"controller_type": "holographic_controller"
-		},
-		{
-			"binding_url": "holographiccontroller.json",
-			"controller_type": "samsung_odyssey_controller"
 		}
 	],
 	"localization": []
