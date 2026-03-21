@@ -175,7 +175,29 @@
 						}
 					},
 					"mode": "trigger",
+					"path": "/user/hand/right/input/trigger"
+				},
+				{
+					"inputs": {
+						"pull": {
+							"output": "/actions/set1/in/vec1act"
+						}
+					},
+					"mode": "trigger",
 					"path": "/user/hand/right/input/trigger",
+					"parameters": {
+						"click_activate_threshold": "0.75",
+						"click_deactivate_threshold": "0.72"
+					}
+				},
+				{
+					"inputs": {
+						"pull": {
+							"output": "/actions/set1/in/vec1act"
+						}
+					},
+					"mode": "trigger",
+					"path": "/user/hand/left/input/trigger",
 					"parameters": {
 						"click_activate_threshold": "0.75",
 						"click_deactivate_threshold": "0.72"

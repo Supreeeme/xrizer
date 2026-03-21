@@ -60,13 +60,13 @@ impl InteractionProfile for ReverbG2Controller {
                 stop: false,
             },
             PathTranslation {
-                from: "input/grip",
-                to: "input/squeeze",
-                stop: false,
+                from: "grip/click",
+                to: "squeeze/value",
+                stop: true,
             },
             PathTranslation {
-                from: "squeeze/value",
-                to: "squeeze/click",
+                from: "grip/pull",
+                to: "squeeze/value",
                 stop: true,
             },
             PathTranslation {
@@ -100,8 +100,8 @@ impl InteractionProfile for ReverbG2Controller {
                 stp("/user/hand/left/input/x/click"),
                 stp("/user/hand/right/input/a/click"),
             ],
-            squeeze: stp.leftright("input/squeeze/click"),
-            squeeze_click: stp.leftright("input/squeeze/click"),
+            squeeze: stp.leftright("input/squeeze/value"),
+            squeeze_click: stp.leftright("input/squeeze/value"),
             main_xy: stp.leftright("input/thumbstick"),
             main_xy_click: stp.leftright("input/thumbstick/click"),
             main_xy_touch: vec![],
@@ -121,7 +121,7 @@ impl InteractionProfile for ReverbG2Controller {
                 .collect(),
             index_touch: stp.leftright("input/trigger/value"),
             index_curl: stp.leftright("input/trigger/value"),
-            rest_curl: stp.leftright("input/squeeze/click"),
+            rest_curl: stp.leftright("input/squeeze/value"),
         }
     }
 
@@ -135,7 +135,7 @@ impl InteractionProfile for ReverbG2Controller {
 
         let both = [
             "input/menu/click",
-            "input/squeeze/click",
+            "input/squeeze/value",
             "input/trigger/value",
             "input/thumbstick/x",
             "input/thumbstick/y",
@@ -197,8 +197,6 @@ pub(super) mod tests {
                 [
                     "/user/hand/left/input/thumbstick/click".into(),
                     "/user/hand/right/input/thumbstick/click".into(),
-                    "/user/hand/left/input/squeeze/click".into(),
-                    "/user/hand/right/input/squeeze/click".into(),
                     "/user/hand/left/input/menu/click".into(),
                     "/user/hand/right/input/menu/click".into(),
                     "/user/hand/left/input/x/click".into(),
@@ -212,6 +210,8 @@ pub(super) mod tests {
                 path,
                 c"/actions/set1/boolact_asfloat",
                 [
+                    "/user/hand/left/input/squeeze/value".into(),
+                    "/user/hand/right/input/squeeze/value".into(),
                     "/user/hand/left/input/trigger/value".into(),
                     "/user/hand/right/input/trigger/value".into(),
                 ],
