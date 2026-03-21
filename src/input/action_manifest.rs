@@ -289,8 +289,7 @@ pub(super) enum ControllerType {
     ViveFocus3,
     Knuckles,
     OculusTouch,
-    HolographicController,
-    SamsungOdysseyController, // FIXME: This should also show up as a "holographic_controller" to OpenVR...
+    HolographicController, // Also for SamsungOdysseyController
     #[serde(rename = "hpmotioncontroller")]
     HPMotionController,
     #[serde(untagged)]
