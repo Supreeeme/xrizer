@@ -1,8 +1,10 @@
 mod gl;
+mod headless;
 mod vulkan;
 
 use derive_more::{From, TryInto};
 pub use gl::GlData;
+pub use headless::HeadlessData;
 use openvr as vr;
 use openxr as xr;
 use std::fmt::Debug;
@@ -62,6 +64,7 @@ pub trait GraphicsBackend: Into<SupportedBackend> {
 pub enum SupportedBackend {
     Vulkan(VulkanData),
     OpenGL(GlData),
+    Headless(HeadlessData),
     #[cfg(test)]
     Fake(crate::compositor::FakeGraphicsData),
 }
@@ -130,6 +133,8 @@ impl SupportedBackend {
                 Some(Self::Vulkan(VulkanData::new(vk_texture)))
             }
             vr::ETextureType::OpenGL => GlData::new().map(Self::OpenGL),
+            #[cfg(not(test))]
+            vr::ETextureType::Reserved => Some(Self::Headless(HeadlessData::new())),
             #[cfg(test)]
             vr::ETextureType::Reserved => Some(Self::Fake(
                 crate::compositor::FakeGraphicsData::new(texture),

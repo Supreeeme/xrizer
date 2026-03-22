@@ -1017,7 +1017,8 @@ mod tests {
 
     #[test]
     fn unity_required_properties() {
-        let xr = Arc::new(OpenXrData::new(&Injector::default()).unwrap());
+        let xr =
+            Arc::new(OpenXrData::new(&Injector::default(), vr::EVRApplicationType::Other).unwrap());
         let injector = Injector::default();
         let input = Arc::new(Input::new(xr.clone()));
         let system = System::new(xr, &injector);

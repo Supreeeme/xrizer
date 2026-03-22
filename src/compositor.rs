@@ -1568,7 +1568,9 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let xr = Arc::new(OpenXrData::new(&Injector::default()).unwrap());
+            let xr = Arc::new(
+                OpenXrData::new(&Injector::default(), vr::EVRApplicationType::Other).unwrap(),
+            );
             let vk = Arc::new(VulkanData::new_temporary(&xr.instance, xr.system_id));
             let comp = Arc::new(Compositor::new(xr.clone(), &Injector::default()));
             xr.compositor.set(Arc::downgrade(&comp));
