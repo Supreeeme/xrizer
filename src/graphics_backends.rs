@@ -5,14 +5,20 @@ use derive_more::{From, TryInto};
 pub use gl::GlData;
 use openvr as vr;
 use openxr as xr;
+use std::fmt::Debug;
 pub use vulkan::VulkanData;
 
 pub trait GraphicsBackend: Into<SupportedBackend> {
     type Api: xr::Graphics + 'static;
     type OpenVrTexture: Copy;
-    type NiceFormat: std::fmt::Debug;
+    type Format: Copy + PartialEq + Debug;
+    type NiceFormat: Debug;
 
-    fn to_nice_format(format: <Self::Api as xr::Graphics>::Format) -> Self::NiceFormat;
+    fn from_openxr_format(format: <Self::Api as xr::Graphics>::Format) -> Self::Format;
+
+    fn to_openxr_format(format: Self::Format) -> <Self::Api as xr::Graphics>::Format;
+
+    fn to_nice_format(format: Self::Format) -> Self::NiceFormat;
 
     fn session_create_info(&self) -> <Self::Api as xr::Graphics>::SessionCreateInfo;
 
@@ -29,7 +35,7 @@ pub trait GraphicsBackend: Into<SupportedBackend> {
     fn store_swapchain_images(
         &mut self,
         images: Vec<<Self::Api as xr::Graphics>::SwapchainImage>,
-        format: <Self::Api as xr::Graphics>::Format,
+        format: Self::Format,
     );
 
     fn copy_texture_to_swapchain(

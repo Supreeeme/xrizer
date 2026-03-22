@@ -596,9 +596,9 @@ impl SessionData {
     pub fn check_format<G: GraphicsBackend>(&self, info: &mut xr::SwapchainCreateInfo<G::Api>)
     where
         for<'a> &'a GraphicalSession: TryInto<&'a Session<G::Api>, Error: std::fmt::Display>,
-        <G::Api as xr::Graphics>::Format: PartialEq,
+        G::Format: PartialEq,
     {
-        let formats = &(&self.session_graphics)
+        let formats: Vec<G::Format> = (&self.session_graphics)
             .try_into()
             .unwrap_or_else(|_| {
                 panic!(
@@ -607,16 +607,20 @@ impl SessionData {
                     self.session_graphics,
                 )
             })
-            .swapchain_formats;
+            .swapchain_formats
+            .clone()
+            .into_iter()
+            .map(G::from_openxr_format)
+            .collect();
 
-        if !formats.contains(&info.format) {
+        if !formats.contains(&G::from_openxr_format(info.format)) {
             let new_format = formats[0];
             warn!(
                 "Requested to init swapchain with unsupported format {:?} - instead using {:?}",
-                G::to_nice_format(info.format),
+                G::to_nice_format(G::from_openxr_format(info.format)),
                 G::to_nice_format(new_format)
             );
-            info.format = new_format;
+            info.format = G::to_openxr_format(new_format);
         }
     }
 
