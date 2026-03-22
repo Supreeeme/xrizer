@@ -62,7 +62,7 @@ fn get_hmd_pose(
             .view_space
             .relate(
                 session_data.get_space_for_origin(origin),
-                xr_data.display_time.get(),
+                xr_data.get_display_time(),
             )
             .ok()?
     };
@@ -88,7 +88,7 @@ fn get_controller_pose(
     {
         raw.relate(
             session_data.get_space_for_origin(origin),
-            xr_data.display_time.get(),
+            xr_data.get_display_time(),
         )
         .ok()?
     } else {
@@ -113,7 +113,7 @@ fn get_generic_tracker_pose(
     let (location, velocity) = space
         .relate(
             session_data.get_space_for_origin(origin),
-            xr_data.display_time.get(),
+            xr_data.get_display_time(),
         )
         .ok()?;
 
@@ -180,7 +180,7 @@ impl TrackedDevice {
         }
 
         let joints = base
-            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.display_time.get())
+            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.get_display_time())
             .unwrap_or_default();
         skeleton_cache.insert(base.as_raw().into_raw(), joints);
         joints

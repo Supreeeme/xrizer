@@ -257,6 +257,10 @@ impl<C: Compositor> OpenXrData<C> {
         self.session_data.get().current_origin
     }
 
+    pub fn get_display_time(&self) -> xr::Time {
+        self.display_time.get()
+    }
+
     pub fn reset_tracking_space(&self, origin: vr::ETrackingUniverseOrigin) {
         let mut guard = self.session_data.0.write().unwrap();
         let SessionData {
@@ -274,7 +278,7 @@ impl<C: Compositor> OpenXrData<C> {
                 position,
                 orientation,
             } = view_space
-                .locate(ref_space, self.display_time.get())
+                .locate(ref_space, self.get_display_time())
                 .unwrap()
                 .pose;
 

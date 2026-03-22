@@ -176,7 +176,7 @@ impl System {
     pub fn reset_views(&self) {
         std::mem::take(&mut *self.views.lock().unwrap());
         let session = self.openxr.session_data.get();
-        let display_time = self.openxr.display_time.get();
+        let display_time = self.openxr.get_display_time();
         let mut views = self.views.lock().unwrap();
         views.get_views(&session, display_time, xr::ReferenceSpaceType::VIEW);
         views.get_views(
@@ -190,7 +190,7 @@ impl System {
         tracy_span!();
         let session = self.openxr.session_data.get();
         let mut views = self.views.lock().unwrap();
-        views.get_views(&session, self.openxr.display_time.get(), ty)
+        views.get_views(&session, self.openxr.get_display_time(), ty)
     }
 }
 
