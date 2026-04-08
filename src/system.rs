@@ -544,10 +544,25 @@ impl vr::IVRSystem023_Interface for System {
                 // The Unity OpenVR sample appears to have a hard requirement on these first three properties returning
                 // something to even get the game to recognize the HMD's location. However, the value
                 // itself doesn't appear to be that important.
-                vr::ETrackedDeviceProperty::SerialNumber_String
-                | vr::ETrackedDeviceProperty::ManufacturerName_String
-                | vr::ETrackedDeviceProperty::ControllerType_String => {
+                // vr::ETrackedDeviceProperty::SerialNumber_String
+                // | vr::ETrackedDeviceProperty::ManufacturerName_String
+                // | vr::ETrackedDeviceProperty::ControllerType_String => {
+                //     Some(CString::new("<unknown>").unwrap())
+                // }
+                vr::ETrackedDeviceProperty::SerialNumber_String => {
+                    Some(CString::new("oculus/WMHD315M3010GV").unwrap())
+                }
+                vr::ETrackedDeviceProperty::ManufacturerName_String => {
+                    Some(CString::new("Oculus").unwrap())
+                }
+                vr::ETrackedDeviceProperty::ModelNumber_String => {
+                    Some(CString::new("Miramar").unwrap())
+                }
+                vr::ETrackedDeviceProperty::ControllerType_String => {
                     Some(CString::new("<unknown>").unwrap())
+                }
+                vr::ETrackedDeviceProperty::TrackingSystemName_String => {
+                    Some(CString::new("oculus").unwrap())
                 }
                 _ => None,
             },
@@ -559,6 +574,10 @@ impl vr::IVRSystem023_Interface for System {
 
         let Some(data) = data else {
             if let Some(error) = unsafe { error.as_mut() } {
+                warn!(
+                    target: log_tags::TRACKED_PROP,
+                    "unknown property requested: {prop:?} ({device_index})"
+                );
                 *error = vr::ETrackedPropertyError::UnknownProperty;
             }
             return 0;
