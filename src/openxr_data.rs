@@ -305,7 +305,9 @@ impl<C: Compositor> OpenXrData<C> {
         };
 
         match origin {
-            vr::ETrackingUniverseOrigin::RawAndUncalibrated => unimplemented!(),
+            vr::ETrackingUniverseOrigin::RawAndUncalibrated => {
+                // RawAndUncalibrated has no calibration to reset
+            }
             vr::ETrackingUniverseOrigin::Standing => reset_space(
                 stage_space_reference,
                 stage_space_adjusted,
@@ -629,7 +631,10 @@ impl SessionData {
         match origin {
             vr::ETrackingUniverseOrigin::Seated => &self.local_space_adjusted,
             vr::ETrackingUniverseOrigin::Standing => &self.stage_space_adjusted,
-            vr::ETrackingUniverseOrigin::RawAndUncalibrated => unreachable!(),
+            vr::ETrackingUniverseOrigin::RawAndUncalibrated => {
+                crate::warn_unimplemented!("RawAndUncalibrated tracking space");
+                &self.stage_space_reference
+            }
         }
     }
 
@@ -648,7 +653,10 @@ impl SessionData {
         match self.current_origin {
             vr::ETrackingUniverseOrigin::Seated => xr::ReferenceSpaceType::LOCAL,
             vr::ETrackingUniverseOrigin::Standing => xr::ReferenceSpaceType::STAGE,
-            vr::ETrackingUniverseOrigin::RawAndUncalibrated => unreachable!(),
+            vr::ETrackingUniverseOrigin::RawAndUncalibrated => {
+                crate::warn_unimplemented!("RawAndUncalibrated tracking space");
+                xr::ReferenceSpaceType::STAGE
+            }
         }
     }
 
