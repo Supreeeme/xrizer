@@ -54,10 +54,19 @@ impl Drop for VulkanData {
 impl GraphicsBackend for VulkanData {
     type Api = xr::Vulkan;
     type OpenVrTexture = *const vr::VRVulkanTextureData_t;
+    type Format = u32;
     type NiceFormat = vk::Format;
 
+    fn from_openxr_format(format: u32) -> Self::Format {
+        format as _
+    }
+
+    fn to_openxr_format(format: Self::Format) -> <Self::Api as xr::Graphics>::Format {
+        format as _
+    }
+
     #[inline]
-    fn to_nice_format(format: u32) -> Self::NiceFormat {
+    fn to_nice_format(format: Self::Format) -> Self::NiceFormat {
         vk::Format::from_raw(format as _)
     }
 
@@ -95,7 +104,7 @@ impl GraphicsBackend for VulkanData {
             None
         }
     }
-    fn store_swapchain_images(&mut self, images: Vec<u64>, format: u32) {
+    fn store_swapchain_images(&mut self, images: Vec<u64>, format: Self::Format) {
         let images: Vec<vk::Image> = images.into_iter().map(vk::Image::from_raw).collect();
         let pool = unsafe {
             self.device

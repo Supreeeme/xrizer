@@ -168,9 +168,12 @@ impl IVRClientCore003_Interface for ClientCore {
             return vr::EVRInitError::None;
         }
 
-        match OpenXrData::new(&Injector {
-            store: self.interface_store.clone(),
-        }) {
+        match OpenXrData::new(
+            &Injector {
+                store: self.interface_store.clone(),
+            },
+            application_type,
+        ) {
             Ok(data) => {
                 let data = Arc::new(data);
                 if let Some(path) = manifest_path {

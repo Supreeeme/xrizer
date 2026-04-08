@@ -62,7 +62,7 @@ fn get_hmd_pose(
             .view_space
             .relate(
                 session_data.get_space_for_origin(origin),
-                xr_data.display_time.get(),
+                xr_data.get_display_time(),
             )
             .ok()?
     };
@@ -88,7 +88,7 @@ fn get_controller_pose(
     {
         raw.relate(
             session_data.get_space_for_origin(origin),
-            xr_data.display_time.get(),
+            xr_data.get_display_time(),
         )
         .ok()?
     } else {
@@ -113,7 +113,7 @@ fn get_generic_tracker_pose(
     let (location, velocity) = space
         .relate(
             session_data.get_space_for_origin(origin),
-            xr_data.display_time.get(),
+            xr_data.get_display_time(),
         )
         .ok()?;
 
@@ -136,18 +136,13 @@ impl TrackedDevice {
         }
     }
 
-    pub fn get_pose(
+    fn get_pose_nocache(
         &self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         session_data: &SessionData,
         origin: vr::ETrackingUniverseOrigin,
     ) -> Option<vr::TrackedDevicePose_t> {
-        let mut pose_cache = self.pose_cache.lock().unwrap();
-        if let Some(pose) = *pose_cache {
-            return Some(pose);
-        }
-
-        *pose_cache = match self.device_type {
+        match self.device_type {
             TrackedDeviceType::Hmd => get_hmd_pose(xr_data, session_data, origin),
             TrackedDeviceType::Controller { .. } => {
                 get_controller_pose(xr_data, session_data, self, origin)
@@ -156,9 +151,26 @@ impl TrackedDevice {
             TrackedDeviceType::GenericTracker { .. } => {
                 get_generic_tracker_pose(xr_data, session_data, self, origin)
             }
-        };
+        }
+    }
 
-        *pose_cache
+    pub fn get_pose(
+        &self,
+        xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+        session_data: &SessionData,
+        origin: vr::ETrackingUniverseOrigin,
+    ) -> Option<vr::TrackedDevicePose_t> {
+        if !xr_data.headless {
+            let mut pose_cache = self.pose_cache.lock().unwrap();
+            if let Some(pose) = *pose_cache {
+                return Some(pose);
+            }
+            let pose = self.get_pose_nocache(xr_data, session_data, origin);
+            *pose_cache = pose;
+            pose
+        } else {
+            self.get_pose_nocache(xr_data, session_data, origin)
+        }
     }
 
     pub fn get_hand_skeleton(
@@ -180,7 +192,7 @@ impl TrackedDevice {
         }
 
         let joints = base
-            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.display_time.get())
+            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.get_display_time())
             .unwrap_or_default();
         skeleton_cache.insert(base.as_raw().into_raw(), joints);
         joints
