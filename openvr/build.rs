@@ -110,6 +110,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version!(1, 0, 3),
         version!(1, 0, 1),
         version!(0, 9, 20),
+        version!(0, 9, 19),
         version!(0, 9, 17),
         version!(0, 9, 15),
         version!(0, 9, 12),
@@ -765,6 +766,10 @@ fn process_vr_namespace_content(
                     ),
                     (
                         "vr_0_9_17",
+                        &["VREvent_Reserved_t", "Compositor_FrameTiming"],
+                    ),
+                    (
+                        "vr_0_9_19",
                         &["VREvent_Reserved_t", "Compositor_FrameTiming"],
                     ),
                     (
