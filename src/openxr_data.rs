@@ -1,6 +1,7 @@
 use crate::{
     clientcore::{Injected, Injector},
     graphics_backends::{GraphicsBackend, VulkanData, supported_apis_enum},
+    input::InputSessionData,
 };
 use derive_more::Deref;
 use glam::f32::{Quat, Vec3};
@@ -431,7 +432,7 @@ pub struct SessionData {
     stage_space_adjusted: xr::Space,
     pub current_origin: vr::ETrackingUniverseOrigin,
 
-    pub input_data: crate::input::InputSessionData,
+    pub input_data: InputSessionData,
     pub comp_data: crate::compositor::CompositorSessionData,
     pub overlay_data: crate::overlay::OverlaySessionData,
     /// OpenXR requires graphics information before creating a session, but OpenVR clients don't
@@ -555,6 +556,8 @@ impl SessionData {
             .map_err(SessionCreationError::BeginSessionFailed)?;
         info!("Began OpenXR session.");
 
+        let input_data = InputSessionData::new(&session);
+
         Ok((
             SessionData {
                 temp_vulkan,
@@ -566,7 +569,7 @@ impl SessionData {
                 local_space_adjusted,
                 stage_space_reference,
                 stage_space_adjusted,
-                input_data: Default::default(),
+                input_data,
                 comp_data: Default::default(),
                 overlay_data: Default::default(),
                 current_origin,

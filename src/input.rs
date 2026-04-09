@@ -11,8 +11,9 @@ mod tests;
 pub use devices::TrackedDeviceType;
 pub use profiles::{InteractionProfile, Profiles};
 
-use devices::{SubactionPaths, TrackedDevice, TrackedDeviceList};
+use devices::{ControllerData, SubactionPaths, TrackedDevice, TrackedDeviceList};
 use skeletal::FingerState;
+use skeletal::HandSkeletonBone;
 use skeletal::SkeletalInputActionData;
 
 use crate::{
@@ -55,7 +56,9 @@ pub struct Input<C: openxr_data::Compositor> {
     set_map: RwLock<SlotMap<ActionSetKey, String>>,
     loaded_actions_path: OnceLock<PathBuf>,
     legacy_state: legacy::LegacyState,
-    skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
+    skeletal_tracking_level: RwLock<[vr::EVRSkeletalTrackingLevel; 2]>,
+    skeletal_bone_cache:
+        [Mutex<Option<[vr::VRBoneTransform_t; HandSkeletonBone::Count as usize]>>; 2],
     estimated_finger_state: [Mutex<FingerState>; 2],
     subaction_paths: SubactionPaths,
     events: Mutex<VecDeque<InputEvent>>,
@@ -125,7 +128,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             left_hand_key,
             right_hand_key,
             legacy_state: Default::default(),
-            skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
+            skeletal_tracking_level: RwLock::new([vr::EVRSkeletalTrackingLevel::Estimated; 2]),
+            skeletal_bone_cache: Default::default(),
             estimated_finger_state: [
                 Mutex::new(FingerState::new()),
                 Mutex::new(FingerState::new()),
@@ -232,7 +236,6 @@ impl<C: openxr_data::Compositor> Input<C> {
     }
 }
 
-#[derive(Default)]
 pub struct InputSessionData {
     actions: OnceLock<LoadedActions>,
     estimated_skeleton_actions: OnceLock<SkeletalInputActionData>,
@@ -241,6 +244,15 @@ pub struct InputSessionData {
 }
 
 impl InputSessionData {
+    pub(crate) fn new(session: &xr::Session<xr::AnyGraphics>) -> Self {
+        Self {
+            actions: OnceLock::new(),
+            estimated_skeleton_actions: OnceLock::new(),
+            pose_data: OnceLock::new(),
+            devices: RwLock::new(TrackedDeviceList::new(session)),
+        }
+    }
+
     #[inline]
     fn get_loaded_actions(&self) -> Option<&ManifestLoadedActions> {
         match self.actions.get()? {
@@ -555,7 +567,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         if transform_array_count < skeletal::HandSkeletonBone::Count as u32 {
             return vr::EVRInputError::BufferTooSmall;
         }
-        let transforms = unsafe {
+        let out_transforms = unsafe {
             std::slice::from_raw_parts_mut(transform_array, transform_array_count as usize)
         };
 
@@ -564,7 +576,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             return vr::EVRInputError::WrongType;
         };
 
-        self.get_bones_from_hand_tracking(&session_data, transform_space, *hand, transforms);
+        let Some(transforms) =
+            self.get_bones_from_hand_tracking(&session_data, transform_space, *hand)
+        else {
+            return vr::EVRInputError::NoData;
+        };
+        out_transforms.copy_from_slice(&transforms[0..out_transforms.len()]);
         vr::EVRInputError::None
     }
     fn GetSkeletalTrackingLevel(
@@ -592,7 +609,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             if controller_type.as_deref() == Some(c"knuckles") {
                 *level = vr::EVRSkeletalTrackingLevel::Partial;
             } else {
-                *level = *self.skeletal_tracking_level.read().unwrap();
+                *level = self.skeletal_tracking_level.read().unwrap()[*hand as usize - 1];
             }
         }
         vr::EVRInputError::None
@@ -673,25 +690,23 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         //    std::mem::size_of::<vr::InputSkeletalActionData_t>()
         //);
 
-        let data = self.openxr.session_data.get();
-        let Some(loaded) = data.input_data.get_loaded_actions() else {
-            return vr::EVRInputError::InvalidHandle;
+        get_action_from_handle!(self, action, session_data, action);
+        let ActionData::Skeleton(hand) = action else {
+            return vr::EVRInputError::WrongType;
         };
-        let origin = match loaded.try_get_action(action) {
-            Ok(ActionData::Skeleton(hand)) => match hand {
-                Hand::Left => self.left_hand_key.data().as_ffi(),
-                Hand::Right => self.right_hand_key.data().as_ffi(),
-            },
-            Ok(_) => return vr::EVRInputError::WrongType,
-            Err(e) => return e,
+
+        let origin = match hand {
+            Hand::Left => self.left_hand_key.data().as_ffi(),
+            Hand::Right => self.right_hand_key.data().as_ffi(),
         };
-        let pose_data = data.input_data.pose_data.get().unwrap();
         unsafe {
             std::ptr::addr_of_mut!((*action_data).bActive).write(
-                pose_data
-                    .grip
-                    .is_active(&data.session, xr::Path::NULL)
-                    .unwrap(),
+                self.get_bones_from_hand_tracking(
+                    &session_data,
+                    vr::EVRSkeletalTransformSpace::Parent,
+                    *hand,
+                )
+                .is_some(),
             );
             std::ptr::addr_of_mut!((*action_data).activeOrigin).write(origin);
         }
@@ -777,7 +792,25 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                         }
                     }
 
-                    no_data!()
+                    // We may have no interaction profile with hand tracking, try to get synthesised pose
+                    let pose = hand.and_then(|hand| {
+                        devices
+                            .get_controller(hand)
+                            .and_then(|d| d.get_pose(&self.openxr, &data, origin))
+                    });
+
+                    if let Some(pose) = pose {
+                        unsafe {
+                            action_data.write(vr::InputPoseActionData_t {
+                                bActive: true,
+                                activeOrigin: 0,
+                                pose,
+                            });
+                        }
+                        return vr::EVRInputError::None;
+                    } else {
+                        no_data!()
+                    }
                 };
 
                 let origin = hand.is_some().then_some(restrict_to_device);
@@ -1371,16 +1404,17 @@ impl<C: openxr_data::Compositor> Input<C> {
                                 xr::sys::Result::ERROR_EXTENSION_NOT_PRESENT
                                     | xr::sys::Result::ERROR_FEATURE_UNSUPPORTED
                             ) {
-                                log::warn!("Failed to create hand tracker for hand {hand:?}: {e}");
+                                log::debug!("Failed to create hand tracker for hand {hand:?}: {e}");
                             }
                         })
                         .ok();
                     devices_to_create.push((
-                        TrackedDeviceType::Controller {
+                        TrackedDeviceType::Controller(ControllerData {
                             hand,
                             hand_tracker,
                             skeleton_cache: Mutex::new(Default::default()),
-                        },
+                            pose_is_synthesised: false.into(),
+                        }),
                         Some(profile_path),
                         Some(p),
                     ));
@@ -1419,6 +1453,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         let data = self.openxr.session_data.get();
         let devices = data.input_data.devices.read().unwrap();
 
+        for cache in self.skeletal_bone_cache.as_ref() {
+            std::mem::take(&mut *cache.lock().unwrap());
+        }
+
         for device in devices.iter() {
             device.clear_pose_cache();
         }
@@ -1433,8 +1471,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             // don't actually call UpdateActionState if no controllers are reported as connected,
             // and interaction profiles are only updated after xrSyncActions is called. So here, we
             // do an action sync to try and get the runtime to update the interaction profile.
-            if (left_hand.is_none_or(|hand| !hand.connected))
-                && (right_hand.is_none_or(|hand| !hand.connected))
+            if (left_hand.is_none_or(|hand| !hand.is_connected(&self.openxr, &data)))
+                && (right_hand.is_none_or(|hand| !hand.is_connected(&self.openxr, &data)))
             {
                 debug!("no controllers connected - syncing info set");
                 data.session
