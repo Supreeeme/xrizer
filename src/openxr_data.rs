@@ -123,6 +123,7 @@ impl<C: Compositor> OpenXrData<C> {
         exts.khr_opengl_enable = supported_exts.khr_opengl_enable;
         exts.khr_convert_timespec_time = supported_exts.khr_convert_timespec_time;
         exts.ext_hand_tracking = supported_exts.ext_hand_tracking;
+        exts.ext_hand_tracking_data_source = supported_exts.ext_hand_tracking_data_source;
         exts.khr_visibility_mask = supported_exts.khr_visibility_mask;
         exts.khr_composition_layer_cylinder = supported_exts.khr_composition_layer_cylinder;
         exts.khr_composition_layer_equirect2 = supported_exts.khr_composition_layer_equirect2;

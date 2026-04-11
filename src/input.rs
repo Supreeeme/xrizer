@@ -55,7 +55,7 @@ pub struct Input<C: openxr_data::Compositor> {
     set_map: RwLock<SlotMap<ActionSetKey, String>>,
     loaded_actions_path: OnceLock<PathBuf>,
     legacy_state: legacy::LegacyState,
-    skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
+    skeletal_tracking_level: RwLock<[vr::EVRSkeletalTrackingLevel; 2]>,
     estimated_finger_state: [Mutex<FingerState>; 2],
     subaction_paths: SubactionPaths,
     events: Mutex<VecDeque<InputEvent>>,
@@ -125,7 +125,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             left_hand_key,
             right_hand_key,
             legacy_state: Default::default(),
-            skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
+            skeletal_tracking_level: RwLock::new([vr::EVRSkeletalTrackingLevel::Estimated; 2]),
             estimated_finger_state: [
                 Mutex::new(FingerState::new()),
                 Mutex::new(FingerState::new()),
@@ -576,25 +576,11 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         let ActionData::Skeleton(hand) = action else {
             return vr::EVRInputError::WrongType;
         };
-
-        let Some(index) = self.get_controller_device_index(*hand) else {
-            return vr::EVRInputError::InvalidDevice;
+        let Some(level) = (unsafe { level.as_mut() }) else {
+            return vr::EVRInputError::InvalidParam;
         };
 
-        let controller_type = self.get_device_string_tracked_property(
-            index,
-            vr::ETrackedDeviceProperty::ControllerType_String,
-        );
-
-        unsafe {
-            // Make sure knuckles are always Partial
-            // TODO: Remove in favor of using XR_EXT_hand_tracking_data_source
-            if controller_type.as_deref() == Some(c"knuckles") {
-                *level = vr::EVRSkeletalTrackingLevel::Partial;
-            } else {
-                *level = *self.skeletal_tracking_level.read().unwrap();
-            }
-        }
+        *level = self.skeletal_tracking_level.read().unwrap()[*hand as usize - 1];
         vr::EVRInputError::None
     }
     fn GetSkeletalReferenceTransforms(

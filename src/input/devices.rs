@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
+use std::mem::MaybeUninit;
 use std::sync::Mutex;
 
 use openvr as vr;
@@ -21,7 +22,8 @@ pub enum TrackedDeviceType {
     Controller {
         hand: Hand,
         hand_tracker: Option<xr::HandTracker>,
-        skeleton_cache: Mutex<HashMap<u64, Option<xr::HandJointLocations>>>,
+        skeleton_cache:
+            Mutex<HashMap<u64, Option<(xr::HandJointLocations, xr::HandTrackingDataSourceEXT)>>>,
     },
     #[cfg(feature = "monado")]
     GenericTracker {
@@ -165,7 +167,7 @@ impl TrackedDevice {
         &self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         base: &xr::Space,
-    ) -> Option<xr::HandJointLocations> {
+    ) -> Option<(xr::HandJointLocations, xr::HandTrackingDataSourceEXT)> {
         let TrackedDeviceType::Controller {
             hand_tracker,
             skeleton_cache,
@@ -179,11 +181,58 @@ impl TrackedDevice {
             return *skeleton;
         }
 
-        let joints = base
-            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.display_time.get())
-            .unwrap_or_default();
-        skeleton_cache.insert(base.as_raw().into_raw(), joints);
-        joints
+        fn get_joints_with_data_source(
+            base: &xr::Space,
+            tracker: &xr::HandTracker,
+            time: xr::Time,
+        ) -> xr::Result<Option<(xr::HandJointLocations, xr::HandTrackingDataSourceEXT)>> {
+            let ext = base.instance().exts().ext_hand_tracking.unwrap();
+            unsafe {
+                let locate_info = xr::sys::HandJointsLocateInfoEXT {
+                    ty: xr::sys::HandJointsLocateInfoEXT::TYPE,
+                    next: std::ptr::null(),
+                    base_space: base.as_raw(),
+                    time,
+                };
+                let mut source_state = xr::sys::HandTrackingDataSourceStateEXT {
+                    ty: xr::sys::HandTrackingDataSourceStateEXT::TYPE,
+                    next: std::ptr::null_mut(),
+                    ..{ std::mem::zeroed() }
+                };
+                let mut locations =
+                    MaybeUninit::<[xr::HandJointLocation; xr::HAND_JOINT_COUNT]>::uninit();
+                let mut location_info = xr::sys::HandJointLocationsEXT {
+                    ty: xr::sys::HandJointLocationsEXT::TYPE,
+                    next: &mut source_state as *mut _ as _,
+                    joint_count: xr::HAND_JOINT_COUNT as u32,
+                    joint_locations: locations.as_mut_ptr() as _,
+                    ..{ std::mem::zeroed() }
+                };
+                let r =
+                    (ext.locate_hand_joints)(tracker.as_raw(), &locate_info, &mut location_info);
+                if r.into_raw() < 0 {
+                    return Err(r);
+                }
+                Ok(if location_info.is_active.into() {
+                    Some((locations.assume_init(), source_state.data_source))
+                } else {
+                    None
+                })
+            }
+        }
+
+        let display_time = xr_data.display_time.get();
+        let r = if xr_data.enabled_extensions.ext_hand_tracking_data_source {
+            get_joints_with_data_source(base, hand_tracker.as_ref()?, display_time)
+                .unwrap_or_default()
+        } else {
+            base.locate_hand_joints(hand_tracker.as_ref()?, display_time)
+                .unwrap_or_default()
+                .map(|j| (j, xr::HandTrackingDataSourceEXT::UNOBSTRUCTED))
+        };
+
+        skeleton_cache.insert(base.as_raw().into_raw(), r);
+        r
     }
 
     pub fn clear_pose_cache(&self) {
