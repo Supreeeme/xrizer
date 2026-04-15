@@ -149,7 +149,7 @@ impl ViewCache {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRSystem"]
-#[versions(023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 011, 009)]
+#[versions(026, 023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 011, 009)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
     input: Injected<Input<crate::compositor::Compositor>>,
@@ -194,7 +194,7 @@ impl System {
     }
 }
 
-impl vr::IVRSystem023_Interface for System {
+impl vr::IVRSystem026_Interface for System {
     fn GetRecommendedRenderTargetSize(&self, width: *mut u32, height: *mut u32) {
         let views = self
             .openxr
@@ -266,6 +266,18 @@ impl vr::IVRSystem023_Interface for System {
         crate::warn_unimplemented!("ComputeDistortion");
         false
     }
+    fn ComputeDistortionSet(
+        &self,
+        _: openvr::EVREye,
+        _: openvr::EVRDistortionChannel,
+        _: bool,
+        _: u32,
+        _: *const openvr::DistortionCoordinate_t,
+        _: *mut openvr::DistortionCoordinate_t,
+    ) -> bool {
+        crate::warn_unimplemented!("ComputeDistortionSet");
+        false
+    }
     fn GetEyeToHeadTransform(&self, eye: vr::EVREye) -> vr::HmdMatrix34_t {
         let views = self.get_views(xr::ReferenceSpaceType::VIEW).views;
         let view = views[eye as usize];
@@ -295,8 +307,11 @@ impl vr::IVRSystem023_Interface for System {
         false
     }
     fn GetRuntimeVersion(&self) -> *const std::os::raw::c_char {
-        static VERSION: &CStr = c"2.5.1";
+        static VERSION: &CStr = c"2.15.6";
         VERSION.as_ptr()
+    }
+    fn SetSDKVersion(&self, _: u32, _: u32, _: u32) -> vr::EVRInitError {
+        vr::EVRInitError::None
     }
     fn GetAppContainerFilePaths(&self, _: *mut std::os::raw::c_char, _: u32) -> u32 {
         todo!()
@@ -445,6 +460,24 @@ impl vr::IVRSystem023_Interface for System {
             unTriangleCount: count as u32,
         }
     }
+
+    fn GetEyeTrackedFoveationCenter(
+        &self,
+        _: *mut openvr::HmdVector2_t,
+        _: *mut openvr::HmdVector2_t,
+    ) -> bool {
+        crate::warn_unimplemented!("GetEyeTrackedFoveationCenter");
+        false
+    }
+    fn GetEyeTrackedFoveationCenterForProjection(
+        &self,
+        _: *const openvr::HmdMatrix44_t,
+        _: *mut openvr::HmdVector2_t,
+    ) -> bool {
+        crate::warn_unimplemented!("GetEyeTrackedFoveationCenterForProjection");
+        false
+    }
+
     fn GetEventTypeNameFromEnum(&self, _: vr::EVREventType) -> *const std::os::raw::c_char {
         todo!()
     }

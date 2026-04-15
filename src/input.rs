@@ -44,7 +44,7 @@ new_key_type! {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRInput"]
-#[versions(010, 007, 006, 005, 004)]
+#[versions(011, 010, 007, 006, 005, 004)]
 pub struct Input<C: openxr_data::Compositor> {
     openxr: Arc<OpenXrData<C>>,
     vtables: Vtables<C>,
@@ -341,7 +341,7 @@ macro_rules! get_subaction_path {
     };
 }
 
-impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
+impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
     fn GetBindingVariant(
         &self,
         _: vr::VRInputValueHandle_t,
@@ -982,6 +982,28 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         };
 
         vr::EVRInputError::None
+    }
+
+    fn GetEyeTrackingDataRelativeToNow(
+        &self,
+        _: openvr::VRActionHandle_t,
+        _: openvr::ETrackingUniverseOrigin,
+        _: f32,
+        _: *mut openvr::VREyeTrackingData_t,
+        _: u32,
+    ) -> openvr::EVRInputError {
+        crate::warn_unimplemented!("GetEyeTrackingDataRelativeToNow");
+        vr::EVRInputError::NoData
+    }
+    fn GetEyeTrackingDataForNextFrame(
+        &self,
+        _: openvr::VRActionHandle_t,
+        _: openvr::ETrackingUniverseOrigin,
+        _: *mut openvr::VREyeTrackingData_t,
+        _: u32,
+    ) -> openvr::EVRInputError {
+        crate::warn_unimplemented!("GetEyeTrackingDataForNextFrame");
+        vr::EVRInputError::NoData
     }
 
     fn UpdateActionState(
