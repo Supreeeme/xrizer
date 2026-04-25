@@ -149,7 +149,7 @@ impl ViewCache {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRSystem"]
-#[versions(023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 011, 009)]
+#[versions(026, 023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 011, 009)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
     input: Injected<Input<crate::compositor::Compositor>>,
@@ -194,7 +194,7 @@ impl System {
     }
 }
 
-impl vr::IVRSystem023_Interface for System {
+impl vr::IVRSystem026_Interface for System {
     fn GetRecommendedRenderTargetSize(&self, width: *mut u32, height: *mut u32) {
         let views = self
             .openxr
@@ -266,6 +266,18 @@ impl vr::IVRSystem023_Interface for System {
         crate::warn_unimplemented!("ComputeDistortion");
         false
     }
+    fn ComputeDistortionSet(
+        &self,
+        _eye: vr::EVREye,
+        _channel: vr::EVRDistortionChannel,
+        _as_ndc: bool,
+        _num_coords: u32,
+        _input: *const vr::DistortionCoordinate_t,
+        _output: *mut vr::DistortionCoordinate_t,
+    ) -> bool {
+        crate::warn_unimplemented!("ComputeDistortionSet");
+        false
+    }
     fn GetEyeToHeadTransform(&self, eye: vr::EVREye) -> vr::HmdMatrix34_t {
         let views = self.get_views(xr::ReferenceSpaceType::VIEW).views;
         let view = views[eye as usize];
@@ -294,8 +306,24 @@ impl vr::IVRSystem023_Interface for System {
         crate::warn_unimplemented!("GetTimeSinceLastVsync");
         false
     }
+    fn GetEyeTrackedFoveationCenter(
+        &self,
+        _p_ndc_left: *mut vr::HmdVector2_t,
+        _p_ndc_right: *mut vr::HmdVector2_t,
+    ) -> bool {
+        // No eye tracker available
+        false
+    }
+    fn GetEyeTrackedFoveationCenterForProjection(
+        &self,
+        _p_proj_mat: *const vr::HmdMatrix44_t,
+        _p_ndc: *mut vr::HmdVector2_t,
+    ) -> bool {
+        // No eye tracker available
+        false
+    }
     fn GetRuntimeVersion(&self) -> *const std::os::raw::c_char {
-        static VERSION: &CStr = c"2.5.1";
+        static VERSION: &CStr = c"2.15.6";
         VERSION.as_ptr()
     }
     fn GetAppContainerFilePaths(&self, _: *mut std::os::raw::c_char, _: u32) -> u32 {
@@ -840,6 +868,9 @@ impl vr::IVRSystem023_Interface for System {
     }
     fn GetD3D9AdapterIndex(&self) -> i32 {
         todo!()
+    }
+    fn SetSDKVersion(&self, _major: u32, _minor: u32, _build: u32) -> vr::EVRInitError {
+        vr::EVRInitError::None
     }
 }
 

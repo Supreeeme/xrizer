@@ -44,7 +44,7 @@ new_key_type! {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRInput"]
-#[versions(010, 007, 006, 005, 004)]
+#[versions(011, 010, 007, 006, 005, 004)]
 pub struct Input<C: openxr_data::Compositor> {
     openxr: Arc<OpenXrData<C>>,
     vtables: Vtables<C>,
@@ -341,7 +341,7 @@ macro_rules! get_subaction_path {
     };
 }
 
-impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
+impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
     fn GetBindingVariant(
         &self,
         _: vr::VRInputValueHandle_t,
@@ -1192,6 +1192,27 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         self.loading_actions.store(false, Ordering::Relaxed);
         ret
+    }
+    fn GetEyeTrackingDataRelativeToNow(
+        &self,
+        _action: vr::VRActionHandle_t,
+        _e_origin: vr::ETrackingUniverseOrigin,
+        _f_predicted_seconds_from_now: f32,
+        _p_eye_tracking_data: *mut vr::VREyeTrackingData_t,
+        _ul_eye_tracking_data_size: u32,
+    ) -> vr::EVRInputError {
+        // No eye tracker available
+        vr::EVRInputError::InvalidHandle
+    }
+    fn GetEyeTrackingDataForNextFrame(
+        &self,
+        _action: vr::VRActionHandle_t,
+        _e_origin: vr::ETrackingUniverseOrigin,
+        _p_eye_tracking_data: *mut vr::VREyeTrackingData_t,
+        _ul_eye_tracking_data_size: u32,
+    ) -> vr::EVRInputError {
+        // No eye tracker available
+        vr::EVRInputError::InvalidHandle
     }
 }
 
