@@ -35,7 +35,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             Hand::Left => &pose_data.left_space,
             Hand::Right => &pose_data.right_space,
         }
-        .try_get_or_init_raw(&controller.interaction_profile, session_data, pose_data) else {
+        .try_get_or_init_raw(&controller.profile_data, session_data, pose_data) else {
             self.get_estimated_bones(session_data, space, hand, transforms);
             return;
         };
@@ -181,7 +181,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             Hand::Left => &pose_data.left_space,
             Hand::Right => &pose_data.right_space,
         }
-        .try_get_or_init_raw(&controller.interaction_profile, session_data, pose_data) else {
+        .try_get_or_init_raw(&controller.profile_data, session_data, pose_data) else {
             self.get_estimated_bone_summary(session_data, summary_type, summary_data, hand);
             return;
         };
@@ -207,16 +207,11 @@ impl<C: openxr_data::Compositor> Input<C> {
         summary_data.flFingerSplay.fill(0.2);
 
         for (i, out_curl) in summary_data.flFingerCurl.iter_mut().enumerate() {
-            // For Knuckles, the skeleton thumb tries to accurately match where the physical
-            // thumb is, e.g. the curl depends on which part of the touchpad is being touched,
-            // or how the thumbstick is being pushed, but in GetSkeletalSummaryData with
-            // EVRSummaryType::FromDevice the curl is set to 1 if any of touchpad, A/B,
-            // or thumbstick is being touched, so just use the skeletal input actions to
-            // determine the curl value for the thumb.
             if i == 0
-                && controller.interaction_profile.is_some_and(|p| {
-                    p.profile_path() == "/interaction_profiles/valve/index_controller"
-                })
+                && controller
+                    .profile_data
+                    .as_ref()
+                    .is_some_and(|p| p.force_estimated_thumb)
             {
                 *out_curl = self.get_finger_state(session_data, hand).thumb;
                 continue;

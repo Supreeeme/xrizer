@@ -5,15 +5,15 @@ mod context;
 pub(super) use actions::ControllerType;
 pub(super) use bindings::{ClickThresholdParams, GrabParameters};
 
-use crate::input::{
-    ActionKey, Input, profiles::PathTranslation, skeletal::SkeletalInputActionData,
-};
+use crate::input::InteractionProfile;
+use crate::input::action_manifest::context::BindingsLoadContext;
+use crate::input::profiles::LegalPathsT;
+use crate::input::{ActionKey, Input, profiles::RunWithProfile, skeletal::SkeletalInputActionData};
 use crate::openxr_data::{self, Hand, SessionData};
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 use openvr as vr;
 use openxr as xr;
 use slotmap::{SecondaryMap, SlotMap};
-use std::cell::LazyCell;
 use std::collections::{HashMap, HashSet};
 use std::env::current_dir;
 use std::path::{Path, PathBuf};
@@ -92,7 +92,6 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let actions = actions::load_actions(
             &self.openxr.instance,
-            &session_data.session,
             english.as_ref(),
             &mut sets,
             manifest.actions,
@@ -256,114 +255,98 @@ impl<C: openxr_data::Compositor> Input<C> {
         bindings: Vec<actions::DefaultBindings>,
         context: &mut context::BindingsLoadContext,
     ) {
-        let mut it: Box<dyn Iterator<Item = actions::DefaultBindings>> =
-            Box::new(bindings.into_iter());
+        let mut it = bindings.into_iter().peekable();
         while let Some(actions::DefaultBindings {
             binding_url,
             controller_type,
         }) = it.next()
         {
-            let load_bindings = || {
-                let custom_path =
-                    if let Ok(custom_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
-                        PathBuf::from(custom_dir)
-                    } else {
-                        current_dir().unwrap().join("xrizer")
-                    }
-                    .join(format!("{controller_type:?}.json").to_lowercase());
-                let bindings_path = match custom_path.exists() {
-                    true => custom_path,
-                    false => parent_path.join(binding_url),
-                };
-                debug!(
-                    "Reading bindings for {controller_type:?} (at {})",
-                    bindings_path.display()
-                );
-
-                let data = std::fs::read(bindings_path)
-                    .inspect_err(|e| error!("Couldn't load bindings for {controller_type:?}: {e}"))
-                    .ok()?;
-
-                let bindings::Bindings { bindings } = serde_json::from_slice(&data)
-                    .inspect_err(|e| {
-                        error!("Failed to parse bindings for {controller_type:?}: {e}")
-                    })
-                    .ok()?;
-
-                Some(bindings)
+            let custom_path = if let Ok(custom_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
+                PathBuf::from(custom_dir)
+            } else {
+                current_dir().unwrap().join("xrizer")
+            }
+            .join(format!("{controller_type:?}.json").to_lowercase());
+            let bindings_path = match custom_path.exists() {
+                true => custom_path,
+                false => parent_path.join(binding_url),
             };
+            debug!(
+                "Reading bindings for {controller_type:?} (at {})",
+                bindings_path.display()
+            );
+
+            let data = match std::fs::read(bindings_path) {
+                Ok(data) => data,
+                Err(e) => {
+                    error!("Couldn't load bindings for {controller_type:?}: {e}");
+                    continue;
+                }
+            };
+
+            let bindings = match serde_json::from_slice(&data) {
+                Ok(bindings) => bindings,
+                Err(e) => {
+                    error!("Failed to parse bindings for {controller_type:?}: {e}");
+                    continue;
+                }
+            };
+
             match controller_type {
                 actions::ControllerType::Unknown(ref other) => {
                     info!("Ignoring bindings for unknown profile {other}")
                 }
                 ref other => {
-                    let profiles = super::Profiles::get()
-                        .list
-                        .iter()
-                        .filter_map(|(ty, p)| (*ty == *other).then_some(*p));
-                    let bindings = LazyCell::new(load_bindings);
-                    for profile in profiles {
-                        if let Some(bindings) = bindings.as_ref()
-                            && let Some(mut context) =
-                                context.for_profile(self, &self.openxr, profile, other)
-                        {
-                            self.load_bindings_for_profile(bindings, &mut context);
+                    let mut runner = Runner(self, context, bindings);
+                    other.run_for_profile(&mut runner);
+
+                    // lifetime moment
+                    struct Runner<'a, 'b, 'c, C: openxr_data::Compositor>(
+                        &'a Input<C>,
+                        &'b mut BindingsLoadContext<'c>,
+                        bindings::Bindings,
+                    );
+                    impl<C: openxr_data::Compositor> RunWithProfile for Runner<'_, '_, '_, C> {
+                        fn run<P: super::InteractionProfile>(&mut self) {
+                            if let Some(mut context) = self.1.for_profile::<C, P>(self.0) {
+                                self.0
+                                    .load_bindings_for_profile::<P>(&self.2.bindings, &mut context);
+                            } else {
+                                warn!(
+                                    "Couldn't create context for profile {}?",
+                                    std::any::type_name::<P>()
+                                );
+                            }
                         }
                     }
                 }
             }
 
-            it = Box::new(it.skip_while(move |b| {
-                if b.controller_type == controller_type {
-                    info!("skipping bindings in {:?}", b.binding_url);
-                    true
-                } else {
-                    false
-                }
-            }));
+            while let Some(b) = it.next_if(|b| b.controller_type == controller_type) {
+                info!("skipping bindings in {:?}", b.binding_url);
+            }
         }
     }
 
-    fn load_bindings_for_profile(
+    fn load_bindings_for_profile<P: InteractionProfile>(
         &self,
         bindings: &HashMap<String, bindings::ActionSetBinding>,
-        context: &mut context::BindingsProfileLoadContext,
+        context: &mut context::BindingsProfileLoadContext<'_>,
     ) {
-        let profile = context.profile;
-        info!("loading bindings for {}", profile.profile_path());
+        info!("loading bindings for {}", P::profile_path());
 
-        // Workaround weird closure lifetime quirks.
-        const fn constrain<F>(f: F) -> F
-        where
-            F: for<'a> Fn(&'a str) -> openxr::Path,
-        {
-            f
-        }
-        let stp = constrain(|s| self.openxr.instance.string_to_path(s).unwrap());
-        let legacy_bindings = profile.legacy_bindings(&stp);
-        let skeletal_bindings = profile.skeletal_input_bindings(&stp);
-        let profile_path = stp(profile.profile_path());
-        let legal_paths = profile.legal_paths();
-        let translate_map = profile.translate_map();
-        let path_translator = |path: &str| {
-            let mut translated = path.to_string();
-            for PathTranslation { from, to, stop } in translate_map {
-                if translated.contains(from) {
-                    translated = translated.replace(from, to);
-                    if *stop {
-                        break;
-                    }
-                }
-            }
-            trace!("translated {path} to {translated}");
-            if !legal_paths.contains(&translated) {
-                Err(bindings::InvalidActionPath(format!(
-                    "Action for invalid path {translated} for {}, ignoring",
-                    profile.profile_path()
-                )))
-            } else {
-                Ok(translated)
-            }
+        let conv = super::profiles::InputToXrPath::new(&self.openxr.instance);
+        let legacy_bindings = P::legacy_bindings(&conv);
+        let skeletal_bindings = P::skeletal_input_bindings(&conv);
+        let profile_path = self
+            .openxr
+            .instance
+            .string_to_path(P::profile_path())
+            .unwrap();
+        let path_validator = |path| {
+            <P::LegalPaths as LegalPathsT>::is_legal(path)
+                .then_some(path)
+                .or_else(|| P::translate_path(path))
         };
 
         for (action_set_name, bindings) in bindings.iter() {
@@ -375,12 +358,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             let set = set.clone();
 
             if let Some(bindings) = &bindings.haptics {
-                bindings::handle_haptic_bindings(
-                    &self.openxr.instance,
-                    path_translator,
-                    context,
-                    bindings,
-                );
+                bindings::handle_haptic_bindings(&self.openxr.instance, context, bindings);
             }
 
             if let Some(bindings) = &bindings.poses {
@@ -392,7 +370,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
 
             bindings::handle_sources(
-                path_translator,
+                &path_validator,
                 context,
                 action_set_name,
                 &set,
@@ -400,12 +378,10 @@ impl<C: openxr_data::Compositor> Input<C> {
             );
         }
 
-        let info_action_binding = *legacy_bindings.trigger_click.first().unwrap_or_else(|| {
-            panic!(
-                "Missing trigger_click binding for {}",
-                profile.profile_path()
-            )
-        });
+        let info_action_binding = *legacy_bindings
+            .trigger_click
+            .first()
+            .unwrap_or_else(|| panic!("Missing trigger_click binding for {}", P::profile_path()));
         let bindings: Vec<xr::Binding<'_>> = context
             .bindings
             .iter()
@@ -451,7 +427,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         debug!(
             "suggested {} bindings for {}",
             bindings.len(),
-            profile.profile_path()
+            P::profile_path()
         );
     }
 }

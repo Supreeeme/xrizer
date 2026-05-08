@@ -1,9 +1,10 @@
 use super::{
-    InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
-    SkeletalInputBindings, StringToPath,
+    InteractionProfile, MainAxisType, ProfileProperties, Property, SkeletalInputBindings,
+    legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
+use crate::input::profiles::DynInputPath;
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
 use openvr::EVRButtonId;
@@ -12,13 +13,33 @@ use std::iter::Iterator;
 pub struct Knuckles;
 
 impl InteractionProfile for Knuckles {
-    fn profile_path(&self) -> &'static str {
+    type LegalPaths = legal_paths![
+        Both::<
+            (A, Click),
+            (A, Touch),
+            (B, Click),
+            (B, Touch),
+            (Trigger, Click),
+            (Trigger, Touch),
+            (Trigger, Value),
+            (Squeeze, Value),
+            (Squeeze, Force),
+            (Thumbstick, Click),
+            (Thumbstick, Touch),
+            (Thumbstick, ()),
+            (Trackpad, Force),
+            (Trackpad, Touch),
+            (Trackpad, ()),
+        >
+    ];
+
+    fn profile_path() -> &'static str {
         "/interaction_profiles/valve/index_controller"
     }
-    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+    fn has_required_extensions(_: &openxr::ExtensionSet) -> bool {
         true
     }
-    fn properties(&self) -> &'static ProfileProperties {
+    fn properties() -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::PerHand {
                 left: c"Knuckles Left",
@@ -52,108 +73,51 @@ impl InteractionProfile for Knuckles {
         };
         &DEVICE_PROPERTIES
     }
-    fn translate_map(&self) -> &'static [PathTranslation] {
-        &[
-            PathTranslation {
-                from: "pull",
-                to: "value",
-                stop: false,
-            },
-            PathTranslation {
-                from: "input/grip",
-                to: "input/squeeze",
-                stop: false,
-            },
-            PathTranslation {
-                from: "squeeze/click",
-                to: "squeeze/value",
-                stop: true,
-            },
-            PathTranslation {
-                // button bindings
-                from: "squeeze/touch",
-                to: "squeeze/value",
-                stop: true,
-            },
-            PathTranslation {
-                from: "squeeze/grab",
-                to: "squeeze/force",
-                stop: true,
-            },
-            PathTranslation {
-                from: "trackpad/click",
-                to: "trackpad/force",
-                stop: true,
-            },
-        ]
+    fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
+        match path {
+            p @ DynInputPath {
+                subpath: DynSubpath::Trackpad,
+                component: Some(DynComponent::Click),
+                ..
+            } => Some(p.with_component(DynComponent::Force)),
+            _ => None,
+        }
     }
 
-    fn legal_paths(&self) -> Box<[String]> {
-        let click_and_touch = ["input/a", "input/b", "input/trigger", "input/thumbstick"]
-            .iter()
-            .flat_map(|p| [format!("{p}/click"), format!("{p}/touch")]);
-        let x_and_y = ["input/thumbstick", "input/trackpad"]
-            .iter()
-            .flat_map(|p| [format!("{p}/x"), format!("{p}/y"), p.to_string()]);
-        let misc = [
-            "input/squeeze/value",
-            "input/squeeze/force",
-            "input/trigger/value",
-            "input/trackpad/force",
-            "input/trackpad/touch",
-            "input/grip/pose",
-            "input/aim/pose",
-            "output/haptic",
-        ]
-        .into_iter()
-        .map(String::from);
-
-        click_and_touch
-            .chain(x_and_y)
-            .chain(misc)
-            .flat_map(|p| {
-                [
-                    format!("/user/hand/left/{p}"),
-                    format!("/user/hand/right/{p}"),
-                ]
-            })
-            .collect()
-    }
-
-    fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
+    fn legacy_bindings(c: &super::InputToXrPath<Self>) -> LegacyBindings {
         LegacyBindings {
             extra: legacy::Bindings {
-                grip_pose: stp.leftright("input/grip/pose"),
+                grip_pose: c.pose(),
             },
-            app_menu: stp.leftright("input/b/click"),
-            a: stp.leftright("input/a/click"),
-            trigger: stp.leftright("input/trigger/value"),
-            trigger_click: stp.leftright("input/trigger/click"),
-            squeeze: stp.leftright("input/squeeze/value"),
-            squeeze_click: stp.leftright("input/squeeze/value"),
-            main_xy: stp.leftright("input/thumbstick"),
-            main_xy_click: stp.leftright("input/thumbstick/click"),
-            main_xy_touch: stp.leftright("input/thumbstick/touch"),
-            haptic: stp.leftright("output/haptic"),
+            app_menu: c.leftright::<B, Click, _, _>(),
+            a: c.leftright::<A, Click, _, _>(),
+            trigger: c.leftright::<Trigger, Value, _, _>(),
+            trigger_click: c.leftright::<Trigger, Click, _, _>(),
+            squeeze: c.leftright::<Squeeze, Value, _, _>(),
+            squeeze_click: c.leftright::<Squeeze, Value, _, _>(),
+            main_xy: c.leftright::<Thumbstick, (), _, _>(),
+            main_xy_click: c.leftright::<Thumbstick, Click, _, _>(),
+            main_xy_touch: c.leftright::<Thumbstick, Touch, _, _>(),
+            haptic: c.haptics(),
         }
     }
 
-    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+    fn skeletal_input_bindings(c: &super::InputToXrPath<Self>) -> SkeletalInputBindings {
         SkeletalInputBindings {
-            thumb_touch: stp
-                .leftright("input/thumbstick/touch")
+            thumb_touch: c
+                .leftright::<Thumbstick, Touch, _, _>()
                 .into_iter()
-                .chain(stp.leftright("input/trackpad/touch"))
-                .chain(stp.leftright("input/a/touch"))
-                .chain(stp.leftright("input/b/touch"))
+                .chain(c.leftright::<Trackpad, Touch, _, _>())
+                .chain(c.leftright::<A, Touch, _, _>())
+                .chain(c.leftright::<B, Touch, _, _>())
                 .collect(),
-            index_touch: stp.leftright("input/trigger/touch"),
-            index_curl: stp.leftright("input/trigger/value"),
-            rest_curl: stp.leftright("input/squeeze/value"),
+            index_touch: c.leftright::<Trigger, Touch, _, _>(),
+            index_curl: c.leftright::<Trigger, Value, _, _>(),
+            rest_curl: c.leftright::<Squeeze, Value, _, _>(),
         }
     }
 
-    fn offset_grip_pose(&self, hand: Hand) -> Mat4 {
+    fn offset_grip_pose(hand: Hand) -> Mat4 {
         match hand {
             Hand::Left => Mat4::from_rotation_translation(
                 Quat::from_euler(
@@ -190,7 +154,7 @@ mod tests {
         let f = Fixture::new();
         f.load_actions(c"actions.json");
 
-        let path = Knuckles.profile_path();
+        let path = Knuckles::profile_path();
         f.verify_bindings::<bool>(
             path,
             c"/actions/set1/in/boolact",
@@ -206,6 +170,8 @@ mod tests {
                 "/user/hand/left/input/thumbstick/touch".into(),
                 "/user/hand/right/input/thumbstick/touch".into(),
                 "/user/hand/right/input/trackpad/touch".into(),
+                "/user/hand/left/input/trackpad/force".into(),
+                "/user/hand/right/input/trackpad/force".into(),
             ],
         );
 
@@ -216,8 +182,6 @@ mod tests {
                 "/user/hand/left/input/trigger/value".into(),
                 "/user/hand/right/input/trigger/value".into(),
                 "/user/hand/left/input/squeeze/value".into(),
-                "/user/hand/left/input/trackpad/force".into(),
-                "/user/hand/right/input/trackpad/force".into(),
             ],
         );
 

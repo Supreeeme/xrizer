@@ -27,7 +27,7 @@ pub struct ActionManifest {
     // localization_files
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct DefaultBindings {
     pub binding_url: PathBuf,
     pub controller_type: ControllerType,
@@ -192,7 +192,6 @@ fn create_action<T: xr::ActionTy>(
 pub type LoadedActionDataMap = HashMap<String, crate::input::ActionData>;
 pub fn load_actions(
     instance: &xr::Instance,
-    session: &xr::Session<xr::AnyGraphics>,
     english: Option<&Localization>,
     sets: &mut HashMap<String, xr::ActionSet>,
     actions: Vec<ActionType>,

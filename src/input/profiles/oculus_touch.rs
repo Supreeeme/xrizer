@@ -1,17 +1,31 @@
 use super::{
-    InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
-    SkeletalInputBindings, StringToPath,
+    InteractionProfile, Left, MainAxisType, ProfileProperties, Property, Right,
+    SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
+use crate::input::profiles::InputToXrPath;
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
-use openvr::EVRButtonId::{A, ApplicationMenu, Axis0, Axis1, Axis2, Grip, System};
 
-pub struct Touch;
+pub struct OculusTouch;
 
-impl InteractionProfile for Touch {
-    fn properties(&self) -> &'static ProfileProperties {
+impl InteractionProfile for OculusTouch {
+    type LegalPaths = legal_paths![
+        Both::<
+            (Squeeze, Value),
+            (Trigger, Value),
+            (Trigger, Touch),
+            (Thumbstick, ()),
+            (Thumbstick, Click),
+            (Thumbstick, Touch),
+            (Thumbrest, Touch),
+        >,
+        Left::<(X, Click), (X, Touch), (Y, Click), (Y, Touch), (Menu, Click)>,
+        Right::<(A, Click), (A, Touch), (B, Click), (B, Touch)>
+    ];
+    fn properties() -> &'static ProfileProperties {
+        use openvr::EVRButtonId::*;
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::PerHand {
                 left: c"Oculus Quest2 (Left Controller)",
@@ -45,133 +59,57 @@ impl InteractionProfile for Touch {
         };
         &DEVICE_PROPERTIES
     }
-    fn profile_path(&self) -> &'static str {
+    fn profile_path() -> &'static str {
         "/interaction_profiles/oculus/touch_controller"
     }
-    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+    fn has_required_extensions(_: &openxr::ExtensionSet) -> bool {
         true
     }
-    fn translate_map(&self) -> &'static [PathTranslation] {
-        &[
-            PathTranslation {
-                from: "grip/click",
-                to: "squeeze/value",
-                stop: true,
-            },
-            PathTranslation {
-                from: "grip/pull",
-                to: "squeeze/value",
-                stop: true,
-            },
-            PathTranslation {
-                from: "trigger/pull",
-                to: "trigger/value",
-                stop: true,
-            },
-            PathTranslation {
-                from: "trigger/click",
-                to: "trigger/value",
-                stop: true,
-            },
-            PathTranslation {
-                from: "application_menu",
-                to: "menu",
-                stop: true,
-            },
-            PathTranslation {
-                from: "joystick",
-                to: "thumbstick",
-                stop: true,
-            },
-        ]
-    }
 
-    fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
+    fn legacy_bindings(c: &InputToXrPath<Self>) -> LegacyBindings {
         LegacyBindings {
             extra: legacy::Bindings {
-                grip_pose: stp.leftright("input/grip/pose"),
+                grip_pose: c.pose(),
             },
-            trigger: stp.leftright("input/trigger/value"),
-            trigger_click: stp.leftright("input/trigger/value"),
-            app_menu: vec![
-                stp("/user/hand/left/input/y/click"),
-                stp("/user/hand/right/input/b/click"),
-            ],
-            a: vec![
-                stp("/user/hand/left/input/x/click"),
-                stp("/user/hand/right/input/a/click"),
-            ],
-            squeeze_click: stp.leftright("input/squeeze/value"),
-            squeeze: stp.leftright("input/squeeze/value"),
-            main_xy: stp.leftright("input/thumbstick"),
-            main_xy_click: stp.leftright("input/thumbstick/click"),
-            main_xy_touch: stp.leftright("input/thumbstick/touch"),
-            haptic: stp.leftright("output/haptic"),
-        }
-    }
-
-    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
-        SkeletalInputBindings {
-            thumb_touch: stp
-                .leftright("input/thumbstick/touch")
-                .into_iter()
-                .chain(stp.left("input/x/touch"))
-                .chain(stp.left("input/y/touch"))
-                .chain(stp.right("input/a/touch"))
-                .chain(stp.right("input/b/touch"))
-                .chain(stp.leftright("input/thumbrest/touch"))
-                .collect(),
-            index_touch: stp.leftright("input/trigger/touch"),
-            index_curl: stp.leftright("input/trigger/value"),
-            rest_curl: stp.leftright("input/squeeze/value"),
-        }
-    }
-
-    fn legal_paths(&self) -> Box<[String]> {
-        let left_only = [
-            "input/x/click",
-            "input/x/touch",
-            "input/y/click",
-            "input/y/touch",
-            "input/menu/click",
-        ]
-        .iter()
-        .map(|p| format!("/user/hand/left/{p}"));
-        let right_only = [
-            "input/a/click",
-            "input/a/touch",
-            "input/b/click",
-            "input/b/touch",
-        ]
-        .iter()
-        .map(|p| format!("/user/hand/right/{p}"));
-
-        let both = [
-            "input/squeeze/value",
-            "input/trigger/value",
-            "input/trigger/touch",
-            "input/thumbstick",
-            "input/thumbstick/x",
-            "input/thumbstick/y",
-            "input/thumbstick/click",
-            "input/thumbstick/touch",
-            "input/thumbrest/touch",
-            "input/grip/pose",
-            "input/aim/pose",
-            "output/haptic",
-        ]
-        .iter()
-        .flat_map(|p| {
-            [
-                format!("/user/hand/left/{p}"),
-                format!("/user/hand/right/{p}"),
+            trigger: c.leftright::<Trigger, Value, _, _>(),
+            trigger_click: c.leftright::<Trigger, Value, _, _>(),
+            app_menu: [
+                c.into::<Left<Y, Click>, _>(),
+                c.into::<Right<B, Click>, _>(),
             ]
-        });
-
-        left_only.chain(right_only).chain(both).collect()
+            .concat(),
+            a: [
+                c.into::<Left<X, Click>, _>(),
+                c.into::<Right<A, Click>, _>(),
+            ]
+            .concat(),
+            squeeze_click: c.leftright::<Squeeze, Value, _, _>(),
+            squeeze: c.leftright::<Squeeze, Value, _, _>(),
+            main_xy: c.leftright::<Thumbstick, (), _, _>(),
+            main_xy_click: c.leftright::<Thumbstick, Click, _, _>(),
+            main_xy_touch: c.leftright::<Thumbstick, Touch, _, _>(),
+            haptic: c.haptics(),
+        }
     }
 
-    fn offset_grip_pose(&self, hand: Hand) -> Mat4 {
+    fn skeletal_input_bindings(c: &InputToXrPath<Self>) -> SkeletalInputBindings {
+        SkeletalInputBindings {
+            thumb_touch: [
+                c.leftright::<Thumbstick, Touch, _, _>(),
+                c.into::<Left<X, Touch>, _>(),
+                c.into::<Left<Y, Touch>, _>(),
+                c.into::<Right<A, Touch>, _>(),
+                c.into::<Right<B, Touch>, _>(),
+                c.leftright::<Thumbrest, Touch, _, _>(),
+            ]
+            .concat(),
+            index_touch: c.leftright::<Trigger, Touch, _, _>(),
+            index_curl: c.leftright::<Trigger, Value, _, _>(),
+            rest_curl: c.leftright::<Squeeze, Value, _, _>(),
+        }
+    }
+
+    fn offset_grip_pose(hand: Hand) -> Mat4 {
         match hand {
             Hand::Left => Mat4::from_rotation_translation(
                 Quat::from_euler(
@@ -199,7 +137,7 @@ impl InteractionProfile for Touch {
 
 #[cfg(test)]
 mod tests {
-    use super::{InteractionProfile, Touch};
+    use super::{InteractionProfile, OculusTouch};
     use crate::input::tests::Fixture;
     use openxr as xr;
 
@@ -208,7 +146,7 @@ mod tests {
         let f = Fixture::new();
         f.load_actions(c"actions.json");
 
-        let path = Touch.profile_path();
+        let path = OculusTouch::profile_path();
         f.verify_bindings::<bool>(
             path,
             c"/actions/set1/in/boolact",

@@ -1,17 +1,18 @@
 use super::{
-    InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
-    SkeletalInputBindings, StringToPath,
+    DynInputPath, InteractionProfile, MainAxisType, ProfileProperties, Property,
+    SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{Bindings, LegacyBindings, button_mask_from_id};
 use crate::openxr_data::Hand;
 use glam::Mat4;
-use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};
+use openvr::EVRButtonId as btn;
 
 pub struct SimpleController;
 
 impl InteractionProfile for SimpleController {
-    fn properties(&self) -> &'static ProfileProperties {
+    type LegalPaths = legal_paths![Both::<(Select, Click), (Menu, Click)>];
+    fn properties() -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::BothHands(c"generic"),
             openvr_controller_type: c"<unknown>",
@@ -28,77 +29,60 @@ impl InteractionProfile for SimpleController {
             },
             tracking_system_name: c"lighthouse",
             manufacturer_name: c"HTC",
-            legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, Axis0, Axis1),
+            legacy_buttons_mask: button_mask_from_ids!(
+                btn::System,
+                btn::ApplicationMenu,
+                btn::Grip,
+                btn::Axis0,
+                btn::Axis1
+            ),
         };
         &DEVICE_PROPERTIES
     }
-    fn profile_path(&self) -> &'static str {
+    fn profile_path() -> &'static str {
         "/interaction_profiles/khr/simple_controller"
     }
-    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+    fn has_required_extensions(_: &openxr::ExtensionSet) -> bool {
         true
     }
-    fn translate_map(&self) -> &'static [PathTranslation] {
-        &[
-            PathTranslation {
-                from: "trigger",
-                to: "select",
-                stop: true,
-            },
-            PathTranslation {
-                from: "application_menu",
-                to: "menu",
-                stop: true,
-            },
-        ]
+    fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
+        match path.subpath {
+            DynSubpath::Trigger => Some(DynInputPath {
+                subpath: DynSubpath::Select,
+                ..path
+            }),
+            _ => None,
+        }
     }
 
-    fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
+    fn legacy_bindings(c: &super::InputToXrPath<Self>) -> LegacyBindings {
         LegacyBindings {
             extra: Bindings {
-                grip_pose: stp.leftright("input/grip/pose"),
+                grip_pose: c.pose(),
             },
-            trigger: stp.leftright("input/select/click"),
-            trigger_click: stp.leftright("input/select/click"),
-            app_menu: stp.leftright("input/menu/click"),
+            trigger: c.leftright::<Select, Click, _, _>(),
+            trigger_click: c.leftright::<Select, Click, _, _>(),
+            app_menu: c.leftright::<Menu, Click, _, _>(),
             a: vec![],
-            squeeze: stp.leftright("input/menu/click"),
-            squeeze_click: stp.leftright("input/menu/click"),
+            squeeze: c.leftright::<Menu, Click, _, _>(),
+            squeeze_click: c.leftright::<Menu, Click, _, _>(),
             main_xy: vec![],
             main_xy_click: vec![],
             main_xy_touch: vec![],
-            haptic: stp.leftright("output/haptic"),
+            haptic: c.haptics(),
         }
     }
 
-    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+    fn skeletal_input_bindings(c: &super::InputToXrPath<Self>) -> SkeletalInputBindings {
         SkeletalInputBindings {
             thumb_touch: Vec::new(),
-            index_touch: stp.leftright("input/select/click"),
-            index_curl: stp.leftright("input/select/click"),
-            rest_curl: stp.leftright("input/menu/click"),
+            index_touch: c.leftright::<Select, Click, _, _>(),
+            index_curl: c.leftright::<Select, Click, _, _>(),
+            rest_curl: c.leftright::<Menu, Click, _, _>(),
         }
     }
 
-    fn legal_paths(&self) -> Box<[String]> {
-        [
-            "input/select/click",
-            "input/menu/click",
-            "input/grip/pose",
-            "input/aim/pose",
-            "output/haptic",
-        ]
-        .iter()
-        .flat_map(|s| {
-            [
-                format!("/user/hand/left/{s}"),
-                format!("/user/hand/right/{s}"),
-            ]
-        })
-        .collect()
-    }
-
-    fn offset_grip_pose(&self, _: Hand) -> Mat4 {
+    fn offset_grip_pose(_: Hand) -> Mat4 {
         Mat4::IDENTITY
     }
 }

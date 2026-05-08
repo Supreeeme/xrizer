@@ -85,7 +85,8 @@ impl AsIter for () {
 }
 
 pub(super) trait CustomBindingHelper:
-    BoolCustomBinding<ExtraActions<Actions>: AsActionData> + BoolCustomBinding<ExtraActions<Names>: AsIter>
+    BoolCustomBinding<ExtraActions<Actions>: AsActionData>
+    + BoolCustomBinding<ExtraActions<Names>: AsIter>
 {
 }
 
@@ -867,7 +868,7 @@ mod tests {
     use super::*;
     use crate::input::InteractionProfile;
     use crate::input::profiles::knuckles::Knuckles;
-    use crate::input::profiles::oculus_touch::Touch;
+    use crate::input::profiles::oculus_touch::OculusTouch;
     use crate::input::profiles::vive_controller::ViveWands;
     use crate::input::tests::{ExtraActionType, Fixture};
     use crate::openxr_data::Hand;
@@ -907,7 +908,7 @@ mod tests {
                 .input
                 .openxr
                 .instance
-                .string_to_path($profile.profile_path())
+                .string_to_path($profile::profile_path())
                 .unwrap();
             let bindings = actions.try_get_bindings($handle, path).unwrap();
 
@@ -1007,7 +1008,7 @@ mod tests {
 
         get_dpad_action!(f, boolact, dpad_data, ViveWands);
 
-        f.set_interaction_profile(&ViveWands, LeftHand);
+        f.set_interaction_profile::<ViveWands>(LeftHand);
         fakexr::set_action_state(
             dpad_data.xy.as_raw(),
             fakexr::ActionState::Vector2(0.0, 0.55),
@@ -1122,7 +1123,7 @@ mod tests {
         // These bindings are on different dpads (trackpad vs thumbstick)
         assert_ne!(dpad_data_vive.xy.as_raw(), dpad_data_knuckles.xy.as_raw());
 
-        f.set_interaction_profile(&ViveWands, LeftHand);
+        f.set_interaction_profile::<ViveWands>(LeftHand);
         fakexr::set_action_state(
             dpad_data_vive.xy.as_raw(),
             fakexr::ActionState::Vector2(0.0, 0.55),
@@ -1144,7 +1145,7 @@ mod tests {
         assert!(state.bState);
         assert!(state.bChanged);
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
         fakexr::set_action_state(
             dpad_data_knuckles.xy.as_raw(),
             fakexr::ActionState::Vector2(0.0, 0.0),
@@ -1177,7 +1178,7 @@ mod tests {
         assert!(state.bState);
         assert!(state.bChanged);
 
-        f.set_interaction_profile(&ViveWands, LeftHand);
+        f.set_interaction_profile::<ViveWands>(LeftHand);
         f.sync(vr::VRActiveActionSet_t {
             ulActionSet: set1,
             ..Default::default()
@@ -1214,7 +1215,7 @@ mod tests {
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
         f.load_actions(c"actions_dpad_two_inputs.json");
 
-        f.set_interaction_profile(&Touch, LeftHand);
+        f.set_interaction_profile::<OculusTouch>(LeftHand);
         let input = f.input.clone();
         let data = input.openxr.session_data.get();
         let actions = data.input_data.get_loaded_actions().unwrap();
@@ -1222,7 +1223,7 @@ mod tests {
             .input
             .openxr
             .instance
-            .string_to_path(Touch.profile_path())
+            .string_to_path(OculusTouch::profile_path())
             .unwrap();
         let bindings = actions.try_get_bindings(boolact, path).unwrap();
 
@@ -1309,7 +1310,7 @@ mod tests {
         f.load_actions(c"actions.json");
         get_grab_action!(f, boolact, grab_data);
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
         let mut value_state_check = |force, value, state, changed, line| {
             fakexr::set_action_state(
                 grab_data.force_action.as_raw(),
@@ -1355,8 +1356,8 @@ mod tests {
 
         get_grab_action!(f, set1, grab_data);
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
-        f.set_interaction_profile(&Knuckles, RightHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
+        f.set_interaction_profile::<Knuckles>(RightHand);
 
         let mut value_state_check = |force, value, hand, state, changed, line| {
             fakexr::set_action_state(
@@ -1404,7 +1405,7 @@ mod tests {
         f.load_actions(c"actions.json");
         get_grab_action!(f, boolact, grab_data);
 
-        f.set_interaction_profile(&Knuckles, RightHand);
+        f.set_interaction_profile::<Knuckles>(RightHand);
         let mut value_state_check = |force, value, state, changed, line| {
             fakexr::set_action_state(
                 grab_data.force_action.as_raw(),
@@ -1445,7 +1446,7 @@ mod tests {
 
         get_toggle_action!(f, boolact, toggle_data);
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
         fakexr::set_action_state(
             toggle_data.as_raw(),
             fakexr::ActionState::Bool(true),
@@ -1519,8 +1520,8 @@ mod tests {
 
         let act = toggle_data.as_raw();
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
-        f.set_interaction_profile(&Knuckles, RightHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
+        f.set_interaction_profile::<Knuckles>(RightHand);
         fakexr::set_action_state(act, false.into(), LeftHand);
         fakexr::set_action_state(act, false.into(), RightHand);
         f.sync(vr::VRActiveActionSet_t {
@@ -1580,17 +1581,17 @@ mod tests {
         let left = f.get_input_source_handle(c"/user/hand/left");
 
         f.load_actions(c"actions.json");
-        get_analog_action!(f, boolact, analog_data);
-
-        let act = analog_data.as_raw();
         f.verify_extra_bindings(
-            Touch.profile_path(),
+            OculusTouch::profile_path(),
             c"/actions/set1/in/boolact2",
             ExtraActionType::Analog,
             ["/user/hand/left/input/squeeze/value".into()],
         );
+        get_analog_action!(f, boolact, analog_data);
 
-        f.set_interaction_profile(&Touch, LeftHand);
+        let act = analog_data.as_raw();
+
+        f.set_interaction_profile::<OculusTouch>(LeftHand);
         fakexr::set_action_state(act, ActionState::Float(0.0), LeftHand);
         f.sync(vr::VRActiveActionSet_t {
             ulActionSet: set1,
@@ -1631,7 +1632,7 @@ mod tests {
 
         f.load_actions(c"actions.json");
         f.verify_no_extra_bindings(
-            Touch.profile_path(),
+            OculusTouch::profile_path(),
             c"/actions/set1/in/boolact3",
             ExtraActionType::Analog,
         );
@@ -1656,7 +1657,7 @@ mod tests {
             );
         };
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
         set_action(false);
         f.sync(active_set);
         let inactive_state = BoolState::default().set_active();
@@ -1708,7 +1709,7 @@ mod tests {
             );
         };
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
 
         set_action(false);
         f.sync(active_set);
@@ -1755,7 +1756,7 @@ mod tests {
         let f = Fixture::new();
         f.load_actions(c"actions.json");
         f.verify_extra_bindings(
-            Knuckles.profile_path(),
+            Knuckles::profile_path(),
             c"/actions/set1/in/boolact3",
             ExtraActionType::Double,
             ["/user/hand/left/input/a/click".to_string()],

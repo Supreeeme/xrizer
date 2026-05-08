@@ -1,11 +1,12 @@
-use super::actions::{ControllerType, LoadedActionDataMap};
+use super::actions::LoadedActionDataMap;
 use super::bindings::{ActionPath, DpadParameters, DpadSubMode};
 use crate::input::custom_bindings::{
-    AsActionData, AsIter, BindingData, CustomBindingHelper, Names,
+    AsActionData, AsIter, BoolBindingData, CustomBindingHelper, Names,
 };
+use crate::input::profiles::{DynInputPath, paths};
 use crate::input::skeletal::SkeletalInputActionData;
 use crate::input::{ActionData, BoundPose, ExtraActionData, Input, InteractionProfile};
-use crate::openxr_data::{self, Hand, OpenXrData};
+use crate::openxr_data::{self, Hand};
 use log::{info, trace, warn};
 use openxr as xr;
 use std::collections::HashMap;
@@ -14,7 +15,7 @@ pub(super) struct BindingsLoadContext<'a> {
     pub action_sets: &'a HashMap<String, xr::ActionSet>,
     pub actions: LoadedActionDataMap,
     pub extra_actions: HashMap<String, ExtraActionData>,
-    pub per_profile_bindings: HashMap<xr::Path, HashMap<String, Vec<BindingData>>>,
+    pub per_profile_bindings: HashMap<xr::Path, HashMap<String, Vec<BoolBindingData>>>,
     pub per_profile_pose_bindings: HashMap<xr::Path, HashMap<String, BoundPose>>,
     pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
@@ -46,21 +47,22 @@ impl<'a> BindingsLoadContext<'a> {
 }
 
 impl BindingsLoadContext<'_> {
-    pub fn for_profile<'a, 'b: 'a, C: openxr_data::Compositor>(
+    pub fn for_profile<'a, 'b: 'a, C: openxr_data::Compositor, P: InteractionProfile>(
         &'b mut self,
         input: &'a Input<C>,
-        openxr: &'a OpenXrData<C>,
-        profile: &'a dyn InteractionProfile,
-        controller_type: &'a ControllerType,
     ) -> Option<BindingsProfileLoadContext<'a>> {
-        let instance = &openxr.instance;
-        let Ok(interaction_profile) = instance.string_to_path(profile.profile_path()) else {
-            warn!("Controller type {controller_type:?} has no OpenXR path supported?");
+        let instance = &input.openxr.instance;
+        let Ok(interaction_profile) = instance.string_to_path(P::profile_path()) else {
+            warn!(
+                "Controller type {} has no OpenXR path supported?",
+                std::any::type_name::<P>()
+            );
             return None;
         };
-        if !profile.has_required_extensions(&openxr.enabled_extensions) {
+        if !P::has_required_extensions(&input.openxr.enabled_extensions) {
             info!(
-                "Not loading bindings for {controller_type:?} because required extensions are not supported"
+                "Not loading bindings for {:?} because required extensions are not supported",
+                std::any::type_name::<P>(),
             );
             return None;
         }
@@ -79,8 +81,6 @@ impl BindingsLoadContext<'_> {
             .entry(interaction_profile)
             .or_default();
         Some(BindingsProfileLoadContext {
-            profile,
-            controller_type,
             action_sets: self.action_sets,
             actions: &mut self.actions,
             extra_actions: &mut self.extra_actions,
@@ -93,17 +93,16 @@ impl BindingsLoadContext<'_> {
             instance,
             hands,
             bindings: Vec::new(),
+            use_force_for_dpad: P::USE_FORCE_DPAD,
         })
     }
 }
 
 pub(super) struct BindingsProfileLoadContext<'a> {
-    pub profile: &'a dyn InteractionProfile,
-    pub controller_type: &'a ControllerType,
     pub action_sets: &'a HashMap<String, xr::ActionSet>,
     pub actions: &'a mut LoadedActionDataMap,
     extra_actions: &'a mut HashMap<String, ExtraActionData>,
-    bindings_parsed: &'a mut HashMap<String, Vec<BindingData>>,
+    bindings_parsed: &'a mut HashMap<String, Vec<BoolBindingData>>,
     pub pose_bindings: &'a mut HashMap<String, BoundPose>,
     pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
@@ -112,6 +111,7 @@ pub(super) struct BindingsProfileLoadContext<'a> {
     pub instance: &'a xr::Instance,
     pub hands: [xr::Path; 2],
     pub bindings: Vec<(String, xr::Path)>,
+    use_force_for_dpad: bool,
 }
 
 pub(super) struct DpadActivatorData {
@@ -126,44 +126,33 @@ pub(super) struct DpadHapticData {
     pub binding: xr::Path,
 }
 
-fn get_hand_prefix(path: &str) -> Option<&str> {
-    if path.starts_with("/user/hand/left") {
-        Some("/user/hand/left")
-    } else if path.starts_with("/user/hand/right") {
-        Some("/user/hand/right")
-    } else {
-        None
-    }
+pub trait WithActionPattern {
+    fn check_match(data: &ActionData, name: &str);
 }
 
-pub(super) fn parse_hand_from_path(instance: &xr::Instance, path: &str) -> Option<xr::Path> {
-    let hand_prefix = get_hand_prefix(path)?;
-
-    let path = instance.string_to_path(hand_prefix).ok();
-    path.and_then(|x| if x == xr::Path::NULL { None } else { Some(x) })
-}
-
-trait ActionPattern {
-    fn check_match(&self, data: &ActionData, name: &str);
-}
 macro_rules! action_match {
-    ($pat:pat, $extra:literal) => {{
-        struct S;
-        impl ActionPattern for S {
-            fn check_match(&self, data: &ActionData, name: &str) {
+    ($ty:ty, $pat:pat) => {
+        impl WithActionPattern for $ty {
+            fn check_match(data: &ActionData, name: &str) {
                 assert!(
                     matches!(data, $pat),
-                    "Data for action {name} didn't match pattern {} ({})",
+                    "Data for action {name} didn't match pattern {}",
                     stringify!($pat),
-                    $extra
                 );
             }
         }
-        &S
-    }};
-    ($pat:pat) => {
-        action_match!($pat, "")
     };
+}
+
+action_match!(bool, ActionData::Bool(_) | ActionData::Vector1 { .. });
+action_match!(f32, ActionData::Vector1 { .. });
+action_match!(xr::Vector2f, ActionData::Vector2 { .. });
+
+fn hand_to_path(hand: Hand) -> &'static str {
+    match hand {
+        Hand::Left => "/user/hand/left",
+        Hand::Right => "/user/hand/right",
+    }
 }
 
 impl BindingsProfileLoadContext<'_> {
@@ -184,48 +173,26 @@ impl BindingsProfileLoadContext<'_> {
         ret
     }
 
-    fn try_get_binding(
+    pub fn try_suggest_binding<T: WithActionPattern>(
         &mut self,
         action_path: String,
-        input_path: String,
-        action_pattern: &dyn ActionPattern,
+        input_path: DynInputPath,
     ) {
         if self.find_action(&action_path) {
-            action_pattern.check_match(&self.actions[&action_path], &action_path);
+            T::check_match(&self.actions[&action_path], &action_path);
             trace!("suggesting {input_path} for {action_path}");
-            let binding_path = self.instance.string_to_path(&input_path).unwrap();
+            let binding_path = self
+                .instance
+                .string_to_path(&input_path.to_string())
+                .unwrap();
             self.bindings.push((action_path, binding_path));
         }
-    }
-
-    pub fn try_get_bool_binding(&mut self, action_path: String, input_path: String) {
-        self.try_get_binding(
-            action_path,
-            input_path,
-            action_match!(ActionData::Bool(_) | ActionData::Vector1 { .. }),
-        );
-    }
-
-    pub fn try_get_float_binding(&mut self, action_path: String, input_path: String) {
-        self.try_get_binding(
-            action_path,
-            input_path,
-            action_match!(ActionData::Vector1 { .. }),
-        );
-    }
-
-    pub fn try_get_v2_binding(&mut self, action_path: String, input_path: String) {
-        self.try_get_binding(
-            action_path,
-            input_path,
-            action_match!(ActionData::Vector2 { .. }),
-        );
     }
 
     pub fn add_custom_binding<T: CustomBindingHelper>(
         &mut self,
         output: &ActionPath,
-        hand: xr::Path,
+        hand: openxr_data::Hand,
         action_set_name: &str,
         action_set: &xr::ActionSet,
         params: Option<&T::BindingParams>,
@@ -249,10 +216,14 @@ impl BindingsProfileLoadContext<'_> {
             *actions = Some(extra_actions);
         }
 
+        let hand_path = self.instance.string_to_path(hand_to_path(hand)).unwrap();
         self.bindings_parsed
             .entry(output.path.clone())
             .or_default()
-            .push(BindingData::new(T::create_binding_data(params), hand));
+            .push(BoolBindingData::new(
+                T::create_binding_data(params),
+                hand_path,
+            ));
 
         T::ExtraActions::from_iter(full_names)
     }
@@ -264,7 +235,7 @@ impl BindingsProfileLoadContext<'_> {
     pub fn get_dpad_parent(
         &mut self,
         string_to_path: &impl Fn(&str) -> Option<xr::Path>,
-        parent_path: &str,
+        parent_path: DynInputPath,
         parent_action_key: &str,
         action_set_name: &str,
         action_set: &xr::ActionSet,
@@ -279,7 +250,7 @@ impl BindingsProfileLoadContext<'_> {
             .actions
             .entry(parent_action_key.to_string())
             .or_insert_with(|| {
-                let clean_parent_path = parent_path.replace("/", "_");
+                let clean_parent_path = parent_path.to_string().replace("/", "_");
                 let parent_action_name = format!("xrizer-dpad-parent-{clean_parent_path}");
                 let localized = format!("XRizer dpad parent ({parent_path})");
                 let action = action_set
@@ -302,8 +273,8 @@ impl BindingsProfileLoadContext<'_> {
         };
         // Remove lifetime
         let parent_action = parent_action.clone();
-        let use_force = matches!(self.controller_type, ControllerType::Knuckles)
-            && parent_path.ends_with("trackpad");
+        let use_force =
+            self.use_force_for_dpad && matches!(parent_path.subpath, paths::DynSubpath::Trackpad);
 
         // Create our path to our parent click/touch, if such a path exists
         let (activator_binding_str, activator_binding_path) = parameters
@@ -353,8 +324,8 @@ impl BindingsProfileLoadContext<'_> {
 
         let haptic_data = if use_force {
             // the need for haptic coincides with force-using dpads for now
-            let hand_path = get_hand_prefix(parent_path)
-                .and_then(|x| string_to_path(&format!("{x}/output/haptic")));
+            let hand_path =
+                string_to_path(&format!("{}/output/haptic", hand_to_path(parent_path.hand)));
             let haptic_key = format!("{parent_path}-{action_set_name}-haptic");
             hand_path.map(|hand_path| {
                 let action = self.actions.entry(haptic_key.clone()).or_insert_with(|| {

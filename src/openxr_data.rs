@@ -668,7 +668,7 @@ impl SessionData {
 }
 
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Hand {
     Left = 1,
     Right,

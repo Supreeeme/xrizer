@@ -1,9 +1,10 @@
 use super::{
-    InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
-    SkeletalInputBindings, StringToPath,
+    DynInputPath, InteractionProfile, MainAxisType, ProfileProperties, Property,
+    SkeletalInputBindings,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
+use crate::input::profiles::{legal_paths, paths::*};
 use crate::openxr_data::Hand;
 use glam::Mat4;
 use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};
@@ -11,7 +12,21 @@ use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};
 pub struct ViveWands;
 
 impl InteractionProfile for ViveWands {
-    fn properties(&self) -> &'static ProfileProperties {
+    type LegalPaths = legal_paths![
+        Both::<
+            (Squeeze, Click),
+            (Menu, Click),
+            (Trigger, Click),
+            (Trigger, Value),
+            (Trackpad, Click),
+            (Trackpad, Touch),
+            (Trackpad, ()),
+            (Trackpad, Vec2X),
+            (Trackpad, Vec2Y),
+        >
+    ];
+
+    fn properties() -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::BothHands(c"Vive. MV"),
             openvr_controller_type: c"vive_controller",
@@ -31,94 +46,68 @@ impl InteractionProfile for ViveWands {
         };
         &DEVICE_PROPERTIES
     }
-    fn profile_path(&self) -> &'static str {
+    fn profile_path() -> &'static str {
         "/interaction_profiles/htc/vive_controller"
     }
-    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+    fn has_required_extensions(_: &openxr::ExtensionSet) -> bool {
         true
     }
-    fn translate_map(&self) -> &'static [PathTranslation] {
-        &[
-            PathTranslation {
-                from: "grip",
-                to: "squeeze",
-                stop: true,
-            },
-            PathTranslation {
-                from: "trigger/pull",
-                to: "trigger/value",
-                stop: true,
-            },
-            PathTranslation {
-                from: "trigger/click",
-                to: "trigger/value",
-                stop: true,
-            },
-            PathTranslation {
-                from: "application_menu",
-                to: "menu",
-                stop: true,
-            },
-        ]
+    fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
+        match path {
+            DynInputPath {
+                hand,
+                subpath: subpath @ DynSubpath::Trigger,
+                component: Some(DynComponent::Click),
+            } => Some(DynInputPath {
+                hand,
+                subpath,
+                component: Some(DynComponent::Value),
+            }),
+            DynInputPath {
+                hand,
+                subpath: subpath @ DynSubpath::Squeeze,
+                component: Some(DynComponent::Value),
+            } => Some(DynInputPath {
+                hand,
+                subpath,
+                component: Some(DynComponent::Click),
+            }),
+            _ => None,
+        }
     }
-
-    fn legal_paths(&self) -> Box<[String]> {
-        [
-            "input/squeeze/click",
-            "input/menu/click",
-            "input/trigger/click",
-            "input/trigger/value",
-            "input/trackpad",
-            "input/trackpad/x",
-            "input/trackpad/y",
-            "input/trackpad/click",
-            "input/trackpad/touch",
-            "input/grip/pose",
-            "input/aim/pose",
-            "output/haptic",
-        ]
-        .iter()
-        .flat_map(|s| {
-            [
-                format!("/user/hand/left/{s}"),
-                format!("/user/hand/right/{s}"),
-            ]
-        })
-        .collect()
-    }
-
-    fn legacy_bindings(&self, stp: &dyn StringToPath) -> LegacyBindings {
+    fn legacy_bindings(c: &super::InputToXrPath<Self>) -> LegacyBindings {
         LegacyBindings {
             extra: legacy::Bindings {
-                grip_pose: stp.leftright("input/grip/pose"),
+                grip_pose: c.pose(),
             },
-            trigger: stp.leftright("input/trigger/value"),
-            trigger_click: stp.leftright("input/trigger/click"),
-            app_menu: stp.leftright("input/menu/click"),
+            trigger: c.leftright::<Trigger, Value, _, _>(),
+
+            trigger_click: c.leftright::<Trigger, Click, _, _>(),
+            app_menu: c.leftright::<Menu, Click, _, _>(),
             a: vec![],
-            squeeze: stp.leftright("input/squeeze/click"),
-            squeeze_click: stp.leftright("input/squeeze/click"),
-            main_xy: stp.leftright("input/trackpad"),
-            main_xy_click: stp.leftright("input/trackpad/click"),
-            main_xy_touch: stp.leftright("input/trackpad/touch"),
-            haptic: stp.leftright("output/haptic"),
+            squeeze: c.leftright::<Squeeze, Click, _, _>(),
+            squeeze_click: c.leftright::<Squeeze, Click, _, _>(),
+            main_xy: c.leftright::<Trackpad, (), _, _>(),
+            main_xy_click: c.leftright::<Trackpad, Click, _, _>(),
+            main_xy_touch: c.leftright::<Trackpad, Touch, _, _>(),
+            haptic: c.haptics(),
         }
     }
 
-    fn skeletal_input_bindings(&self, stp: &dyn StringToPath) -> SkeletalInputBindings {
+    fn skeletal_input_bindings(c: &super::InputToXrPath<Self>) -> SkeletalInputBindings {
         SkeletalInputBindings {
-            thumb_touch: stp
-                .leftright("input/trackpad/click")
+            thumb_touch: c
+                .leftright::<Trackpad, Click, _, _>()
                 .into_iter()
-                .chain(stp.leftright("input/trackpad/touch"))
+                .chain(c.leftright::<Trackpad, Touch, _, _>())
                 .collect(),
-            index_touch: stp.leftright("input/trigger/click"),
-            index_curl: stp.leftright("input/trigger/value"),
-            rest_curl: stp.leftright("input/squeeze/click"),
+            index_touch: c.leftright::<Trigger, Click, _, _>(),
+            index_curl: c.leftright::<Trigger, Value, _, _>(),
+            rest_curl: c.leftright::<Squeeze, Click, _, _>(),
         }
     }
 
-    fn offset_grip_pose(&self, _: Hand) -> Mat4 {
+    fn offset_grip_pose(_: Hand) -> Mat4 {
         Mat4::IDENTITY
     }
 }
@@ -132,7 +121,7 @@ mod tests {
     #[test]
     fn verify_bindings() {
         let f = Fixture::new();
-        let path = ViveWands.profile_path();
+        let path = ViveWands::profile_path();
         f.load_actions(c"actions.json");
         f.verify_bindings::<bool>(
             path,
@@ -142,7 +131,6 @@ mod tests {
                 "/user/hand/right/input/squeeze/click".into(),
                 "/user/hand/left/input/menu/click".into(),
                 "/user/hand/right/input/menu/click".into(),
-                // Suggesting float paths for boolean inputs is legal
                 "/user/hand/left/input/trackpad/click".into(),
                 "/user/hand/left/input/trackpad/touch".into(),
             ],

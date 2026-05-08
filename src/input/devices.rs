@@ -1,15 +1,19 @@
+use std::any::TypeId;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::sync::Mutex;
 
+use glam::Mat4;
 use openvr as vr;
 use openxr as xr;
 
+use crate::input::profiles::knuckles::Knuckles;
 #[cfg(feature = "monado")]
 use crate::input::profiles::vive_tracker::ViveTracker;
 #[cfg(feature = "monado")]
 use openxr_mndx_xdev_space::{SessionXDevExtensionMNDX, XDev, XR_MNDX_XDEV_SPACE_EXTENSION_NAME};
 
+use crate::input::profiles::ProfileProperties;
 use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use crate::tracy_span;
 use log::trace;
@@ -43,9 +47,36 @@ impl std::fmt::Debug for TrackedDeviceType {
     }
 }
 
+pub struct ProfileData {
+    properties: &'static ProfileProperties,
+    get_hand_offset: fn(Hand) -> Mat4,
+    /// For Knuckles, the skeleton thumb tries to accurately match where the physical
+    /// thumb is, e.g. the curl depends on which part of the touchpad is being touched,
+    /// or how the thumbstick is being pushed, but in GetSkeletalSummaryData with
+    /// EVRSummaryType::FromDevice the curl is set to 1 if any of touchpad, A/B,
+    /// or thumbstick is being touched, so just use the skeletal input actions to
+    /// determine the curl value for the thumb.
+    pub force_estimated_thumb: bool,
+}
+
+impl ProfileData {
+    pub fn new<P: InteractionProfile>() -> Self {
+        Self {
+            properties: P::properties(),
+            get_hand_offset: P::offset_grip_pose,
+            force_estimated_thumb: TypeId::of::<P>() == TypeId::of::<Knuckles>(),
+        }
+    }
+
+    #[inline]
+    pub fn hand_offset(&self, hand: Hand) -> Mat4 {
+        (self.get_hand_offset)(hand)
+    }
+}
+
 pub struct TrackedDevice {
     device_type: TrackedDeviceType,
-    pub interaction_profile: Option<&'static dyn InteractionProfile>,
+    pub profile_data: Option<ProfileData>,
     pub profile_path: xr::Path,
     pub connected: bool,
     pub previous_connected: bool,
@@ -84,7 +115,7 @@ fn get_controller_pose(
     };
 
     let (location, velocity) = if let Some(raw) =
-        spaces.try_get_or_init_raw(&controller.interaction_profile, session_data, pose_data)
+        spaces.try_get_or_init_raw(&controller.profile_data, session_data, pose_data)
     {
         raw.relate(
             session_data.get_space_for_origin(origin),
@@ -124,10 +155,10 @@ impl TrackedDevice {
     pub(super) fn new(
         device_type: TrackedDeviceType,
         profile_path: Option<xr::Path>,
-        interaction_profile: Option<&'static dyn InteractionProfile>,
+        profile_data: Option<ProfileData>,
     ) -> Self {
         Self {
-            interaction_profile,
+            profile_data,
             profile_path: profile_path.unwrap_or(xr::Path::NULL),
             connected: matches!(device_type, TrackedDeviceType::Hmd),
             device_type,
@@ -219,7 +250,7 @@ impl TrackedDevice {
             _ => Hand::Left,
         };
 
-        let data = self.interaction_profile?.properties();
+        let data = self.profile_data.as_ref()?.properties;
 
         match property {
             // Audica likes to apply controller specific tweaks via this property
@@ -253,7 +284,7 @@ impl TrackedDevice {
     fn get_int_property(&self, property: vr::ETrackedDeviceProperty) -> Option<i32> {
         match self.device_type {
             TrackedDeviceType::Controller { .. } => {
-                let data = self.interaction_profile?.properties();
+                let data = self.profile_data.as_ref()?.properties;
 
                 match property {
                     vr::ETrackedDeviceProperty::Axis0Type_Int32 => match data.main_axis {
@@ -282,7 +313,7 @@ impl TrackedDevice {
     fn get_uint_property(&self, property: vr::ETrackedDeviceProperty) -> Option<u64> {
         match self.device_type {
             TrackedDeviceType::Controller { .. } => {
-                let data = self.interaction_profile?.properties();
+                let data = self.profile_data.as_ref()?.properties;
 
                 match property {
                     vr::ETrackedDeviceProperty::SupportedButtons_Uint64 => {
@@ -418,7 +449,7 @@ impl TrackedDeviceList {
             let mut tracker = TrackedDevice::new(
                 TrackedDeviceType::GenericTracker { serial, space },
                 None,
-                Some(&ViveTracker),
+                Some(ProfileData::new::<ViveTracker>()),
             );
             tracker.connected = true;
             tracker
@@ -581,7 +612,7 @@ mod tests {
     fn get_tracker_pose() {
         let mut f = Fixture::new();
         f.load_actions(c"actions.json");
-        f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
+        f.set_interaction_profile::<Knuckles>(fakexr::UserPath::LeftHand);
         fakexr::add_trackers(f.input.openxr.session_data.get().session.as_raw());
 
         let frame = || {
@@ -609,7 +640,7 @@ mod tests {
     fn get_tracker_serial() {
         let mut f = Fixture::new();
         f.load_actions(c"actions.json");
-        f.set_interaction_profile(&Knuckles, fakexr::UserPath::LeftHand);
+        f.set_interaction_profile::<Knuckles>(fakexr::UserPath::LeftHand);
         fakexr::add_trackers(f.input.openxr.session_data.get().session.as_raw());
 
         let frame = || {

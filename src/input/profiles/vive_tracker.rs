@@ -1,20 +1,18 @@
-use super::{
-    InteractionProfile, MainAxisType, PathTranslation, ProfileProperties, Property,
-    SkeletalInputBindings, StringToPath,
-};
+use super::{InteractionProfile, MainAxisType, ProfileProperties, Property, SkeletalInputBindings};
 use crate::{input::legacy::LegacyBindings, openxr_data::Hand};
 use glam::Mat4;
 
 pub struct ViveTracker;
 
 impl InteractionProfile for ViveTracker {
-    fn profile_path(&self) -> &'static str {
+    type LegalPaths = ();
+    fn profile_path() -> &'static str {
         "/interaction_profiles/htc/vive_tracker_htcx"
     }
-    fn has_required_extensions(&self, _: &openxr::ExtensionSet) -> bool {
+    fn has_required_extensions(_: &openxr::ExtensionSet) -> bool {
         true
     }
-    fn properties(&self) -> &'static ProfileProperties {
+    fn properties() -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::BothHands(c"Vive Tracker Handheld Object"),
             openvr_controller_type: c"vive_tracker_handheld_object",
@@ -29,28 +27,16 @@ impl InteractionProfile for ViveTracker {
 
         &DEVICE_PROPERTIES
     }
-    fn translate_map(&self) -> &'static [PathTranslation] {
-        &[]
+
+    fn legacy_bindings(_: &super::InputToXrPath<Self>) -> LegacyBindings {
+        unimplemented!()
     }
 
-    fn legal_paths(&self) -> Box<[String]> {
-        [].into()
+    fn skeletal_input_bindings(_: &super::InputToXrPath<Self>) -> SkeletalInputBindings {
+        unimplemented!()
     }
 
-    fn legacy_bindings(&self, _: &dyn StringToPath) -> LegacyBindings {
-        todo!()
-    }
-
-    fn skeletal_input_bindings(&self, _: &dyn StringToPath) -> SkeletalInputBindings {
-        SkeletalInputBindings {
-            thumb_touch: Vec::new(),
-            index_touch: Vec::new(),
-            index_curl: Vec::new(),
-            rest_curl: Vec::new(),
-        }
-    }
-
-    fn offset_grip_pose(&self, _: Hand) -> Mat4 {
+    fn offset_grip_pose(_: Hand) -> Mat4 {
         Mat4::IDENTITY
     }
 }

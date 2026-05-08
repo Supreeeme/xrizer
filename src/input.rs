@@ -9,12 +9,14 @@ mod skeletal;
 mod tests;
 
 pub use devices::TrackedDeviceType;
-pub use profiles::{InteractionProfile, Profiles};
+pub use profiles::InteractionProfile;
 
 use devices::{SubactionPaths, TrackedDevice, TrackedDeviceList};
 use skeletal::FingerState;
 use skeletal::SkeletalInputActionData;
 
+use crate::input::devices::ProfileData;
+use crate::input::profiles::RunWithProfile;
 use crate::{
     AtomicF32,
     openxr_data::{self, Hand, OpenXrData, SessionData},
@@ -1356,11 +1358,33 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
             };
 
-            let profile = Profiles::get().profile_from_name(&profile_name);
+            struct Data<'a> {
+                profile_name: &'a str,
+                data: Option<ProfileData>,
+            }
+            impl RunWithProfile for Data<'_> {
+                fn run<P: InteractionProfile>(&mut self) {
+                    if P::profile_path() == self.profile_name {
+                        self.data = Some(ProfileData::new::<P>())
+                    }
+                }
 
-            if let Some(p) = profile {
+                #[inline]
+                fn keep_running(&self) -> bool {
+                    self.data.is_none()
+                }
+            }
+
+            let mut data = Data {
+                profile_name: &profile_name,
+                data: None,
+            };
+
+            profiles::run_for_all_profiles(&mut data);
+
+            if let Some(data) = data.data {
                 if let Some(controller) = controller.as_mut() {
-                    controller.interaction_profile = Some(p);
+                    controller.profile_data = Some(data);
                 } else {
                     let hand_tracker = session_data
                         .session
@@ -1382,7 +1406,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                             skeleton_cache: Mutex::new(Default::default()),
                         },
                         Some(profile_path),
-                        Some(p),
+                        Some(data),
                     ));
                 }
             };
@@ -1399,8 +1423,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             )
         }
 
-        for (device_type, profile_path, interaction_profile) in devices_to_create {
-            let mut device = TrackedDevice::new(device_type, profile_path, interaction_profile);
+        for (device_type, profile_path, profile_data) in devices_to_create {
+            let mut device = TrackedDevice::new(device_type, profile_path, profile_data);
             device.connected = true;
 
             devices.push_device(device).unwrap_or_else(|e| {
@@ -1679,7 +1703,7 @@ impl Deref for SpaceReadGuard<'_> {
 impl HandSpace {
     pub fn try_get_or_init_raw(
         &self,
-        hand_profile: &Option<&dyn InteractionProfile>,
+        hand_profile: &Option<ProfileData>,
         session_data: &SessionData,
         pose_data: &PoseData,
     ) -> Option<SpaceReadGuard<'_>> {
@@ -1695,7 +1719,7 @@ impl HandSpace {
                 return None;
             };
 
-            let offset = profile.offset_grip_pose(self.hand);
+            let offset = profile.hand_offset(self.hand);
             let translation = offset.w_axis.truncate();
             let rotation = Quat::from_mat4(&offset);
 
