@@ -157,8 +157,8 @@ pub enum ActionBinding {
     ForceSensor(ActionBindingData<ForceSensorInput, ForceSensorParameters>),
     Grab(ActionBindingData<GrabInput, GrabParameters>),
     Scroll(ActionBindingData<ScrollInput, ScrollParameters>),
-    Trackpad(ActionBindingData<Vector2Input>),
-    Joystick(ActionBindingData<Vector2Input>),
+    Trackpad(ActionBindingData<Vector2Input, Vector2Parameters>),
+    Joystick(ActionBindingData<Vector2Input, Vector2Parameters>),
 }
 
 #[derive(Deserialize)]
@@ -402,6 +402,16 @@ struct Vector2Input {
     position: Option<ActionBindingOutput<()>>,
     click: Option<ActionBindingOutput<paths::Click>>,
     touch: Option<ActionBindingOutput<paths::Touch>>,
+}
+
+#[derive(Deserialize)]
+struct Vector2Parameters {
+    #[allow(unused)]
+    deadzone_pct: Option<FromString<u8>>,
+    #[allow(unused)]
+    maxzone_pct: Option<FromString<u8>>,
+    #[allow(unused)]
+    sticky_click: Option<FromString<bool>>,
 }
 
 pub fn handle_dpad_binding(
