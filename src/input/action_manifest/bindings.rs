@@ -17,6 +17,7 @@ use crate::{
 };
 use log::{debug, trace, warn};
 use openxr as xr;
+use serde::de::value::StringDeserializer;
 use serde::{
     Deserialize,
     de::{Error, IgnoredAny, Unexpected},
@@ -300,6 +301,7 @@ struct ScalarConstantParameters {
 
 #[derive(Deserialize)]
 struct ButtonParameters {
+    #[serde(default, deserialize_with = "ButtonForceInput::default_deserialize")]
     force_input: Option<ButtonForceInput>,
     #[serde(flatten)]
     click_threshold: ClickThresholdParams,
@@ -312,6 +314,22 @@ enum ButtonForceInput {
     Value,
     Force,
     Position,
+}
+
+impl ButtonForceInput {
+    fn default_deserialize<'de, D: serde::Deserializer<'de>>(
+        d: D,
+    ) -> Result<Option<ButtonForceInput>, D::Error> {
+        let s: Option<String> = Deserialize::deserialize(d)?;
+        let Some(s) = s else {
+            return Ok(None);
+        };
+        if s.is_empty() {
+            Ok(Some(Self::Click))
+        } else {
+            Self::deserialize(StringDeserializer::new(s)).map(Some)
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
