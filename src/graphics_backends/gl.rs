@@ -142,9 +142,18 @@ impl GlData {
 impl GraphicsBackend for GlData {
     type Api = xr::OpenGL;
     type OpenVrTexture = gl::types::GLuint;
+    type Format = u32;
     type NiceFormat = u32;
 
-    fn to_nice_format(format: u32) -> Self::NiceFormat {
+    fn from_openxr_format(format: u32) -> Self::Format {
+        format as _
+    }
+
+    fn to_openxr_format(format: Self::Format) -> <Self::Api as xr::Graphics>::Format {
+        format as _
+    }
+
+    fn to_nice_format(format: Self::Format) -> Self::NiceFormat {
         format
     }
 
@@ -163,7 +172,7 @@ impl GraphicsBackend for GlData {
     fn store_swapchain_images(
         &mut self,
         images: Vec<<Self::Api as xr::Graphics>::SwapchainImage>,
-        format: u32,
+        format: Self::Format,
     ) {
         self.images = images;
         self.format = format;

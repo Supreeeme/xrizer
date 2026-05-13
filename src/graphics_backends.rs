@@ -1,18 +1,26 @@
 mod gl;
+mod headless;
 mod vulkan;
 
 use derive_more::{From, TryInto};
 pub use gl::GlData;
+pub use headless::HeadlessData;
 use openvr as vr;
 use openxr as xr;
+use std::fmt::Debug;
 pub use vulkan::VulkanData;
 
 pub trait GraphicsBackend: Into<SupportedBackend> {
     type Api: xr::Graphics + 'static;
     type OpenVrTexture: Copy;
-    type NiceFormat: std::fmt::Debug;
+    type Format: Copy + PartialEq + Debug;
+    type NiceFormat: Debug;
 
-    fn to_nice_format(format: <Self::Api as xr::Graphics>::Format) -> Self::NiceFormat;
+    fn from_openxr_format(format: <Self::Api as xr::Graphics>::Format) -> Self::Format;
+
+    fn to_openxr_format(format: Self::Format) -> <Self::Api as xr::Graphics>::Format;
+
+    fn to_nice_format(format: Self::Format) -> Self::NiceFormat;
 
     fn session_create_info(&self) -> <Self::Api as xr::Graphics>::SessionCreateInfo;
 
@@ -29,7 +37,7 @@ pub trait GraphicsBackend: Into<SupportedBackend> {
     fn store_swapchain_images(
         &mut self,
         images: Vec<<Self::Api as xr::Graphics>::SwapchainImage>,
-        format: <Self::Api as xr::Graphics>::Format,
+        format: Self::Format,
     );
 
     fn copy_texture_to_swapchain(
@@ -56,6 +64,7 @@ pub trait GraphicsBackend: Into<SupportedBackend> {
 pub enum SupportedBackend {
     Vulkan(VulkanData),
     OpenGL(GlData),
+    Headless(HeadlessData),
     #[cfg(test)]
     Fake(crate::compositor::FakeGraphicsData),
 }
@@ -124,6 +133,8 @@ impl SupportedBackend {
                 Some(Self::Vulkan(VulkanData::new(vk_texture)))
             }
             vr::ETextureType::OpenGL => GlData::new().map(Self::OpenGL),
+            #[cfg(not(test))]
+            vr::ETextureType::Reserved => Some(Self::Headless(HeadlessData::new())),
             #[cfg(test)]
             vr::ETextureType::Reserved => Some(Self::Fake(
                 crate::compositor::FakeGraphicsData::new(texture),

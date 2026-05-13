@@ -541,7 +541,7 @@ impl Overlay {
             for<'a> &'a mut SwapchainMap<G::Api>:
                 TryFrom<&'a mut AnySwapchainMap, Error: std::fmt::Display>,
             for<'a> &'a GraphicalSession: TryInto<&'a Session<G::Api>, Error: std::fmt::Display>,
-            <G::Api as xr::Graphics>::Format: Eq,
+            G::Format: Eq,
         {
             let map: &mut SwapchainMap<G::Api> = map.try_into().unwrap_or_else(|e| {
                 panic!(
@@ -567,7 +567,7 @@ impl Overlay {
                 let images = swapchain
                     .enumerate_images()
                     .expect("Couldn't enumerate swapchain images");
-                backend.store_swapchain_images(images, info.format);
+                backend.store_swapchain_images(images, G::from_openxr_format(info.format));
                 SwapchainData {
                     swapchain,
                     info,
@@ -579,7 +579,12 @@ impl Overlay {
                     .entry(key)
                     .unwrap()
                     .or_insert_with(&mut create_swapchain);
-                if !is_usable_swapchain(&data.info, data.initial_format, &tex_swapchain_info) {
+                if !is_usable_swapchain(
+                    &data.info,
+                    G::from_openxr_format(data.initial_format),
+                    &tex_swapchain_info,
+                    G::from_openxr_format(tex_swapchain_info.format),
+                ) {
                     *data = create_swapchain();
                 }
                 &mut data.swapchain

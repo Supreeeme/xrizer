@@ -81,7 +81,13 @@ pub enum ExtraActionType {
 impl Fixture {
     pub fn new() -> Self {
         crate::init_logging();
-        let xr = Arc::new(OpenXrData::new(&crate::clientcore::Injector::default()).unwrap());
+        let xr = Arc::new(
+            OpenXrData::new(
+                &crate::clientcore::Injector::default(),
+                vr::EVRApplicationType::Other,
+            )
+            .unwrap(),
+        );
         let comp = Arc::new(FakeCompositor::new(&xr));
         xr.compositor.set(Arc::downgrade(&comp));
         let ret = Self {
