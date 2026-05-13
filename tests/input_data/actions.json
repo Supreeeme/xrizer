@@ -41,6 +41,10 @@
 			"type": "vector3"
 		},
 		{
+			"name": "/actions/set1/in/ScrollAct",
+			"type": "vector2"
+		},
+		{
 			"name": "/actions/set1/in/Pose",
 			"requirement": "optional",
 			"type": "pose"

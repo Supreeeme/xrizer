@@ -404,7 +404,7 @@ pub struct GrabParameters {
 
 #[derive(Deserialize)]
 struct ScrollInput {
-    scroll: ActionBindingOutput<Custom>,
+    scroll: ActionBindingOutput<()>,
 }
 
 #[derive(Deserialize)]
@@ -887,13 +887,19 @@ pub fn handle_sources(
                 );
             }
             ActionBinding::Scroll(data) => {
-                let Some(ValidActionBindingData { inputs, .. }) = data.validate_path() else {
+                let Some(ValidActionBindingData {
+                    inputs,
+                    path,
+                    parameters: _,
+                }) = data.validate_path()
+                else {
                     continue;
                 };
-                warn!(
-                    "Got scroll binding for input {}, but these are currently unimplemented, skipping",
-                    inputs.scroll.output.path
-                );
+                let ScrollInput { scroll } = inputs;
+                // TODO: custom scrolling for trackpads
+                let _ = scroll
+                    .try_bind_with_component(path, context, validate_path)
+                    .inspect_err(InvalidActionPath::warn);
             }
             ActionBinding::Trackpad(data) | ActionBinding::Joystick(data) => {
                 let Some(ValidActionBindingData { path, inputs, .. }) = data.validate_path() else {

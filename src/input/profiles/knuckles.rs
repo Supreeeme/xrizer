@@ -222,6 +222,12 @@ mod tests {
             ],
         );
 
+        f.verify_bindings::<xr::Vector2f>(
+            path,
+            c"/actions/set1/in/scrollact",
+            ["/user/hand/left/input/trackpad".into()],
+        );
+
         f.verify_bindings::<xr::Haptic>(
             path,
             c"/actions/set1/in/vib",
