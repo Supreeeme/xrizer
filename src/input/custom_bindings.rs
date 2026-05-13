@@ -85,17 +85,18 @@ impl AsIter for () {
 }
 
 pub(super) trait CustomBindingHelper:
-    CustomBinding<ExtraActions<Actions>: AsActionData> + CustomBinding<ExtraActions<Names>: AsIter>
+    BoolCustomBinding<ExtraActions<Actions>: AsActionData>
+    + BoolCustomBinding<ExtraActions<Names>: AsIter>
 {
 }
 
 impl<T> CustomBindingHelper for T where
-    T: CustomBinding<ExtraActions<Actions>: AsActionData>
-        + CustomBinding<ExtraActions<Names>: AsIter>
+    T: BoolCustomBinding<ExtraActions<Actions>: AsActionData>
+        + BoolCustomBinding<ExtraActions<Names>: AsIter>
 {
 }
 
-pub(super) trait CustomBinding: Sized {
+pub(super) trait BoolCustomBinding: Sized {
     type ExtraActions<M: ActionsMarker>;
     type BindingParams;
 
@@ -108,7 +109,7 @@ pub(super) trait CustomBinding: Sized {
         action_set: &xr::ActionSet,
         subaction_paths: &[xr::Path],
     ) -> Self::ExtraActions<Actions>;
-    fn create_binding_data(params: Option<&Self::BindingParams>) -> BindingType;
+    fn create_binding_data(params: Option<&Self::BindingParams>) -> BoolBindingType;
 
     fn state(
         &self,
@@ -155,7 +156,7 @@ impl DpadData {
     const DPAD_RELEASE_THRESHOLD: f32 = 0.2;
 }
 
-impl CustomBinding for DpadData {
+impl BoolCustomBinding for DpadData {
     // The extra actions for the dpad are shared across all directions,
     // so we pass them in via the BindingParams.
     type ExtraActions<M: ActionsMarker> = ();
@@ -170,9 +171,9 @@ impl CustomBinding for DpadData {
         _: &[xr::Path],
     ) -> Self::ExtraActions<Actions> {
     }
-    fn create_binding_data(params: Option<&Self::BindingParams>) -> BindingType {
+    fn create_binding_data(params: Option<&Self::BindingParams>) -> BoolBindingType {
         let DpadBindingParams { actions, direction } = params.unwrap();
-        BindingType::Dpad(DpadData {
+        BoolBindingType::Dpad(DpadData {
             actions: actions.clone(),
             direction: *direction,
             last_state: false.into(),
@@ -333,7 +334,7 @@ impl AsIter for GrabActions<Names> {
     }
 }
 
-impl CustomBinding for GrabBindingData {
+impl BoolCustomBinding for GrabBindingData {
     type ExtraActions<M: ActionsMarker> = GrabActions<M>;
     type BindingParams = GrabParameters;
 
@@ -374,8 +375,8 @@ impl CustomBinding for GrabBindingData {
         }
     }
 
-    fn create_binding_data(params: Option<&Self::BindingParams>) -> BindingType {
-        BindingType::Grab(GrabBindingData::new(
+    fn create_binding_data(params: Option<&Self::BindingParams>) -> BoolBindingType {
+        BoolBindingType::Grab(GrabBindingData::new(
             params
                 .and_then(|x| x.value_hold_threshold.as_deref())
                 .copied(),
@@ -425,7 +426,7 @@ pub(super) struct ToggleData {
     last_state: AtomicBool,
 }
 
-impl CustomBinding for ToggleData {
+impl BoolCustomBinding for ToggleData {
     type ExtraActions<M: ActionsMarker> = Action<bool, M>;
     type BindingParams = ();
 
@@ -453,8 +454,8 @@ impl CustomBinding for ToggleData {
             .unwrap()
     }
 
-    fn create_binding_data(_: Option<&()>) -> BindingType {
-        BindingType::Toggle(ToggleData::default())
+    fn create_binding_data(_: Option<&()>) -> BoolBindingType {
+        BoolBindingType::Toggle(ToggleData::default())
     }
 
     fn state(
@@ -505,7 +506,7 @@ pub(super) trait ThresholdType: Sized {
     type T: xr::ActionTy;
     const SUFFIX: &str;
     fn action(actions: &mut ExtraActionData) -> &mut Option<xr::Action<Self::T>>;
-    fn binding_data(data: ThresholdBindingData<Self>) -> BindingType;
+    fn binding_data(data: ThresholdBindingData<Self>) -> BoolBindingType;
     fn state(
         action: &xr::Action<Self::T>,
         session: &xr::Session<xr::AnyGraphics>,
@@ -521,8 +522,8 @@ impl ThresholdType for Vector2 {
     fn action(actions: &mut ExtraActionData) -> &mut Option<xr::Action<Self::T>> {
         &mut actions.vector2_action
     }
-    fn binding_data(data: ThresholdBindingData<Self>) -> BindingType {
-        BindingType::ThresholdVec2(data)
+    fn binding_data(data: ThresholdBindingData<Self>) -> BoolBindingType {
+        BoolBindingType::ThresholdVec2(data)
     }
     fn state(
         action: &xr::Action<Self::T>,
@@ -545,8 +546,8 @@ impl ThresholdType for Float {
     fn action(actions: &mut ExtraActionData) -> &mut Option<xr::Action<Self::T>> {
         &mut actions.analog_action
     }
-    fn binding_data(data: ThresholdBindingData<Self>) -> BindingType {
-        BindingType::ThresholdFloat(data)
+    fn binding_data(data: ThresholdBindingData<Self>) -> BoolBindingType {
+        BoolBindingType::ThresholdFloat(data)
     }
     fn state(
         action: &xr::Action<Self::T>,
@@ -576,7 +577,7 @@ impl<T: ThresholdType> ThresholdBindingData<T> {
     }
 }
 
-impl<T: ThresholdType> CustomBinding for ThresholdBindingData<T> {
+impl<T: ThresholdType> BoolCustomBinding for ThresholdBindingData<T> {
     type ExtraActions<M: ActionsMarker> = ThresholdAction<T, M>;
     type BindingParams = ClickThresholdParams;
 
@@ -604,7 +605,7 @@ impl<T: ThresholdType> CustomBinding for ThresholdBindingData<T> {
             .unwrap()
     }
 
-    fn create_binding_data(params: Option<&Self::BindingParams>) -> BindingType {
+    fn create_binding_data(params: Option<&Self::BindingParams>) -> BoolBindingType {
         T::binding_data(ThresholdBindingData::new(
             params
                 .and_then(|x| x.click_activate_threshold.as_deref())
@@ -685,7 +686,7 @@ impl DoubleTapData {
     const TIMEOUT_MS: u128 = 300;
 }
 
-impl CustomBinding for DoubleTapData {
+impl BoolCustomBinding for DoubleTapData {
     type ExtraActions<M: ActionsMarker> = Action<bool, M>;
     type BindingParams = ();
 
@@ -713,8 +714,8 @@ impl CustomBinding for DoubleTapData {
             .unwrap()
     }
 
-    fn create_binding_data(_: Option<&Self::BindingParams>) -> BindingType {
-        BindingType::DoubleTap(DoubleTapData {
+    fn create_binding_data(_: Option<&Self::BindingParams>) -> BoolBindingType {
+        BoolBindingType::DoubleTap(DoubleTapData {
             clicked_once: false.into(),
             active: false.into(),
             first_release_time: AtomicTime::new(0),
@@ -780,14 +781,14 @@ enum BindingState {
     Synced(Option<xr::ActionState<bool>>),
 }
 
-pub struct BindingData {
-    pub ty: BindingType,
+pub struct BoolBindingData {
+    pub ty: BoolBindingType,
     pub hand: xr::Path,
     last_state: Mutex<BindingState>,
 }
 
-impl BindingData {
-    pub fn new(ty: BindingType, hand: xr::Path) -> Self {
+impl BoolBindingData {
+    pub fn new(ty: BoolBindingType, hand: xr::Path) -> Self {
         Self {
             ty,
             hand,
@@ -796,7 +797,7 @@ impl BindingData {
     }
 }
 
-pub enum BindingType {
+pub enum BoolBindingType {
     // For all cases where the action can be read directly, such as matching type or bool-to-float conversion,
     //  the xr::Action is read from ActionData
     // This can include actions where behavior is customized via OXR extensions
@@ -808,7 +809,7 @@ pub enum BindingType {
     ThresholdVec2(ThresholdBindingVector2),
 }
 
-impl BindingData {
+impl BoolBindingData {
     pub fn unsync(&self) {
         *self.last_state.lock().unwrap() = BindingState::Unsynced;
     }
@@ -839,20 +840,20 @@ impl BindingData {
         }
 
         let state = match &self.ty {
-            BindingType::Dpad(dpad) => dpad.state(&(), &session.session, subaction_path),
-            BindingType::Toggle(toggle) => {
+            BoolBindingType::Dpad(dpad) => dpad.state(&(), &session.session, subaction_path),
+            BoolBindingType::Toggle(toggle) => {
                 get_state!(toggle, toggle_action)
             }
-            BindingType::Grab(grab) => {
+            BoolBindingType::Grab(grab) => {
                 get_state!(grab, grab_actions)
             }
-            BindingType::ThresholdFloat(threshold) => {
+            BoolBindingType::ThresholdFloat(threshold) => {
                 get_state!(threshold, analog_action)
             }
-            BindingType::ThresholdVec2(threshold) => {
+            BoolBindingType::ThresholdVec2(threshold) => {
                 get_state!(threshold, vector2_action)
             }
-            BindingType::DoubleTap(double) => {
+            BoolBindingType::DoubleTap(double) => {
                 get_state!(double, double_action)
             }
         }?;
@@ -867,7 +868,7 @@ mod tests {
     use super::*;
     use crate::input::InteractionProfile;
     use crate::input::profiles::knuckles::Knuckles;
-    use crate::input::profiles::oculus_touch::Touch;
+    use crate::input::profiles::oculus_touch::OculusTouch;
     use crate::input::profiles::vive_controller::ViveWands;
     use crate::input::tests::{ExtraActionType, Fixture};
     use crate::openxr_data::Hand;
@@ -907,15 +908,15 @@ mod tests {
                 .input
                 .openxr
                 .instance
-                .string_to_path($profile.profile_path())
+                .string_to_path($profile::profile_path())
                 .unwrap();
             let bindings = actions.try_get_bindings($handle, path).unwrap();
 
             let bindings: Vec<&DpadData> = bindings
                 .iter()
                 .filter_map(|x| match x {
-                    BindingData {
-                        ty: BindingType::Dpad(a),
+                    BoolBindingData {
+                        ty: BoolBindingType::Dpad(a),
                         ..
                     } => Some(a),
                     _ => None,
@@ -1007,7 +1008,7 @@ mod tests {
 
         get_dpad_action!(f, boolact, dpad_data, ViveWands);
 
-        f.set_interaction_profile(&ViveWands, LeftHand);
+        f.set_interaction_profile::<ViveWands>(LeftHand);
         fakexr::set_action_state(
             dpad_data.xy.as_raw(),
             fakexr::ActionState::Vector2(0.0, 0.55),
@@ -1122,7 +1123,7 @@ mod tests {
         // These bindings are on different dpads (trackpad vs thumbstick)
         assert_ne!(dpad_data_vive.xy.as_raw(), dpad_data_knuckles.xy.as_raw());
 
-        f.set_interaction_profile(&ViveWands, LeftHand);
+        f.set_interaction_profile::<ViveWands>(LeftHand);
         fakexr::set_action_state(
             dpad_data_vive.xy.as_raw(),
             fakexr::ActionState::Vector2(0.0, 0.55),
@@ -1144,7 +1145,7 @@ mod tests {
         assert!(state.bState);
         assert!(state.bChanged);
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
         fakexr::set_action_state(
             dpad_data_knuckles.xy.as_raw(),
             fakexr::ActionState::Vector2(0.0, 0.0),
@@ -1177,7 +1178,7 @@ mod tests {
         assert!(state.bState);
         assert!(state.bChanged);
 
-        f.set_interaction_profile(&ViveWands, LeftHand);
+        f.set_interaction_profile::<ViveWands>(LeftHand);
         f.sync(vr::VRActiveActionSet_t {
             ulActionSet: set1,
             ..Default::default()
@@ -1214,7 +1215,7 @@ mod tests {
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
         f.load_actions(c"actions_dpad_two_inputs.json");
 
-        f.set_interaction_profile(&Touch, LeftHand);
+        f.set_interaction_profile::<OculusTouch>(LeftHand);
         let input = f.input.clone();
         let data = input.openxr.session_data.get();
         let actions = data.input_data.get_loaded_actions().unwrap();
@@ -1222,16 +1223,16 @@ mod tests {
             .input
             .openxr
             .instance
-            .string_to_path(Touch.profile_path())
+            .string_to_path(OculusTouch::profile_path())
             .unwrap();
         let bindings = actions.try_get_bindings(boolact, path).unwrap();
 
         let bindings: Vec<(&DpadData, xr::Path)> = bindings
             .iter()
             .filter_map(|x| match x {
-                BindingData {
+                BoolBindingData {
                     hand,
-                    ty: BindingType::Dpad(a),
+                    ty: BoolBindingType::Dpad(a),
                     ..
                 } => Some((a, *hand)),
                 _ => None,
@@ -1309,7 +1310,7 @@ mod tests {
         f.load_actions(c"actions.json");
         get_grab_action!(f, boolact, grab_data);
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
         let mut value_state_check = |force, value, state, changed, line| {
             fakexr::set_action_state(
                 grab_data.force_action.as_raw(),
@@ -1355,8 +1356,8 @@ mod tests {
 
         get_grab_action!(f, set1, grab_data);
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
-        f.set_interaction_profile(&Knuckles, RightHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
+        f.set_interaction_profile::<Knuckles>(RightHand);
 
         let mut value_state_check = |force, value, hand, state, changed, line| {
             fakexr::set_action_state(
@@ -1404,7 +1405,7 @@ mod tests {
         f.load_actions(c"actions.json");
         get_grab_action!(f, boolact, grab_data);
 
-        f.set_interaction_profile(&Knuckles, RightHand);
+        f.set_interaction_profile::<Knuckles>(RightHand);
         let mut value_state_check = |force, value, state, changed, line| {
             fakexr::set_action_state(
                 grab_data.force_action.as_raw(),
@@ -1445,7 +1446,7 @@ mod tests {
 
         get_toggle_action!(f, boolact, toggle_data);
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
         fakexr::set_action_state(
             toggle_data.as_raw(),
             fakexr::ActionState::Bool(true),
@@ -1519,8 +1520,8 @@ mod tests {
 
         let act = toggle_data.as_raw();
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
-        f.set_interaction_profile(&Knuckles, RightHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
+        f.set_interaction_profile::<Knuckles>(RightHand);
         fakexr::set_action_state(act, false.into(), LeftHand);
         fakexr::set_action_state(act, false.into(), RightHand);
         f.sync(vr::VRActiveActionSet_t {
@@ -1580,17 +1581,17 @@ mod tests {
         let left = f.get_input_source_handle(c"/user/hand/left");
 
         f.load_actions(c"actions.json");
-        get_analog_action!(f, boolact, analog_data);
-
-        let act = analog_data.as_raw();
         f.verify_extra_bindings(
-            Touch.profile_path(),
+            OculusTouch::profile_path(),
             c"/actions/set1/in/boolact2",
             ExtraActionType::Analog,
             ["/user/hand/left/input/squeeze/value".into()],
         );
+        get_analog_action!(f, boolact, analog_data);
 
-        f.set_interaction_profile(&Touch, LeftHand);
+        let act = analog_data.as_raw();
+
+        f.set_interaction_profile::<OculusTouch>(LeftHand);
         fakexr::set_action_state(act, ActionState::Float(0.0), LeftHand);
         f.sync(vr::VRActiveActionSet_t {
             ulActionSet: set1,
@@ -1631,7 +1632,7 @@ mod tests {
 
         f.load_actions(c"actions.json");
         f.verify_no_extra_bindings(
-            Touch.profile_path(),
+            OculusTouch::profile_path(),
             c"/actions/set1/in/boolact3",
             ExtraActionType::Analog,
         );
@@ -1656,7 +1657,7 @@ mod tests {
             );
         };
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
         set_action(false);
         f.sync(active_set);
         let inactive_state = BoolState::default().set_active();
@@ -1708,7 +1709,7 @@ mod tests {
             );
         };
 
-        f.set_interaction_profile(&Knuckles, LeftHand);
+        f.set_interaction_profile::<Knuckles>(LeftHand);
 
         set_action(false);
         f.sync(active_set);
@@ -1755,7 +1756,7 @@ mod tests {
         let f = Fixture::new();
         f.load_actions(c"actions.json");
         f.verify_extra_bindings(
-            Knuckles.profile_path(),
+            Knuckles::profile_path(),
             c"/actions/set1/in/boolact3",
             ExtraActionType::Double,
             ["/user/hand/left/input/a/click".to_string()],

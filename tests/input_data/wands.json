@@ -65,6 +65,9 @@
 						}
 					},
 					"mode": "button",
+					"parameters": {
+						"force_input": ""
+					},
 					"path": "/user/hand/left/input/application_menu"
 				},
 				{

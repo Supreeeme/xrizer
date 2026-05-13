@@ -129,6 +129,14 @@ pub fn set_aim(session: xr::Session, path: UserPath, pose: xr::Posef) {
 }
 
 #[track_caller]
+pub fn check_no_suggested_bindings(action: xr::Action, profile: xr::Path) -> bool {
+    let action = xr::Action::to_handle(action).unwrap();
+    let suggested = action.suggested.lock().unwrap();
+
+    suggested.get(&profile).is_none()
+}
+
+#[track_caller]
 pub fn get_suggested_bindings(action: xr::Action, profile: xr::Path) -> Vec<String> {
     let action = xr::Action::to_handle(action).unwrap();
     let instance = action.instance.upgrade().unwrap();
