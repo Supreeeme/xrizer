@@ -46,8 +46,12 @@ impl InteractionProfile for SimpleController {
         true
     }
     fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
-        match path.subpath {
-            DynSubpath::Trigger => Some(DynInputPath {
+        match path {
+            DynInputPath {
+                subpath: DynSubpath::Trigger,
+                component: Some(DynComponent::Click),
+                ..
+            } => Some(DynInputPath {
                 subpath: DynSubpath::Select,
                 ..path
             }),
@@ -84,5 +88,64 @@ impl InteractionProfile for SimpleController {
 
     fn offset_grip_pose(_: Hand) -> Mat4 {
         Mat4::IDENTITY
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CStr;
+
+    use super::{InteractionProfile, SimpleController};
+    use crate::input::tests::{ActionType, Fixture};
+    use openxr as xr;
+
+    impl Fixture {
+        fn verify_no_bindings<T: ActionType>(&self, interaction_profile: &str, action_name: &CStr) {
+            let handle = self.get_action_handle(action_name);
+            let action = self.get_action::<T>(handle);
+            let profile = self
+                .input
+                .openxr
+                .instance
+                .string_to_path(interaction_profile)
+                .unwrap();
+
+            assert!(
+                fakexr::check_no_suggested_bindings(action, profile),
+                "Expected no bindings for action {:?} - got {:#?}",
+                action_name,
+                fakexr::get_suggested_bindings(action, profile)
+            );
+        }
+    }
+
+    #[test]
+    fn verify_bindings() {
+        let f = Fixture::new();
+        let path = SimpleController::profile_path();
+        f.load_actions(c"actions.json");
+        f.verify_bindings::<bool>(
+            path,
+            c"/actions/set1/in/boolact",
+            [
+                "/user/hand/left/input/menu/click".into(),
+                "/user/hand/right/input/menu/click".into(),
+                "/user/hand/left/input/select/click".into(),
+                "/user/hand/right/input/select/click".into(),
+            ],
+        );
+
+        f.verify_no_bindings::<f32>(path, c"/actions/set1/in/vec1act");
+
+        f.verify_no_bindings::<xr::Vector2f>(path, c"/actions/set1/in/vec2act");
+
+        f.verify_bindings::<xr::Haptic>(
+            path,
+            c"/actions/set1/in/vib",
+            [
+                "/user/hand/left/output/haptic".into(),
+                "/user/hand/right/output/haptic".into(),
+            ],
+        );
     }
 }
