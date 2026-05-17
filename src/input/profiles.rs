@@ -559,6 +559,7 @@ pub mod paths {
                 "trigger" => Some(Self::Trigger),
                 "grip" => Some(Self::Squeeze),
                 "thumbstick" | "joystick" => Some(Self::Thumbstick),
+                "thumbrest" => Some(Self::Thumbrest),
                 "trackpad" => Some(Self::Trackpad),
                 _ => None,
             }
