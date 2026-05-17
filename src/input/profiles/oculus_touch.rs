@@ -4,7 +4,7 @@ use super::{
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
-use crate::input::profiles::InputToXrPath;
+use crate::input::profiles::{DynInputPath, InputToXrPath};
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
 
@@ -58,6 +58,16 @@ impl InteractionProfile for OculusTouch {
             ),
         };
         &DEVICE_PROPERTIES
+    }
+    fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
+        match path {
+            p @ DynInputPath {
+                subpath: DynSubpath::Squeeze | DynSubpath::Trigger,
+                component: Some(DynComponent::Click),
+                ..
+            } => Some(p.with_component(DynComponent::Value)),
+            _ => None,
+        }
     }
     fn profile_path() -> &'static str {
         "/interaction_profiles/oculus/touch_controller"
