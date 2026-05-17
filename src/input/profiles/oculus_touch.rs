@@ -167,6 +167,7 @@ mod tests {
                 "/user/hand/right/input/b/click".into(),
                 "/user/hand/left/input/menu/click".into(),
                 "/user/hand/left/input/trigger/value".into(),
+                "/user/hand/left/input/thumbrest/touch".into(),
                 "/user/hand/right/input/thumbstick/click".into(),
                 "/user/hand/right/input/thumbstick/touch".into(),
             ],
