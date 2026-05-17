@@ -555,10 +555,11 @@ pub mod paths {
                 "b" => Some(Self::B),
                 "x" => Some(Self::X),
                 "y" => Some(Self::Y),
-                "application_menu" => Some(Self::Menu),
+                "application_menu" | "system" => Some(Self::Menu),
                 "trigger" => Some(Self::Trigger),
                 "grip" => Some(Self::Squeeze),
                 "thumbstick" | "joystick" => Some(Self::Thumbstick),
+                "thumbrest" => Some(Self::Thumbrest),
                 "trackpad" => Some(Self::Trackpad),
                 _ => None,
             }
