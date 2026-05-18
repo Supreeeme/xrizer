@@ -85,6 +85,19 @@ impl InteractionProfile for Knuckles {
                 component: Some(DynComponent::Touch),
                 ..
             } => Some(p.with_component(DynComponent::Value)),
+            DynInputPath {
+                subpath: DynSubpath::Pinch,
+                component: Some(component @ (DynComponent::Force | DynComponent::Value)),
+                ..
+            } => Some(DynInputPath {
+                subpath: match component {
+                    DynComponent::Force => DynSubpath::Trackpad,
+                    DynComponent::Value => DynSubpath::Trigger,
+                    DynComponent::Touch => DynSubpath::Thumbrest,
+                    _ => unreachable!(),
+                },
+                ..path
+            }),
             _ => None,
         }
     }
