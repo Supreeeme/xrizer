@@ -725,12 +725,14 @@ pub fn handle_sources(
                             return None;
                         };
 
-                        if validate_path(path).is_none() {
-                            InvalidActionPath(path, s).warn();
-                            return None;
+                        if let Some(path) = validate_path(path)
+                            .map(|path| context.instance.string_to_path(&path.to_string()).unwrap())
+                        {
+                            return Some(path);
                         }
 
-                        Some(context.instance.string_to_path(&path.to_string()).unwrap())
+                        InvalidActionPath(path, s).warn();
+                        None
                     },
                     path,
                     action_set_name,
