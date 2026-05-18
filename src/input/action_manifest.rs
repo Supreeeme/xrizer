@@ -357,25 +357,21 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             let set = set.clone();
 
-            if let Some(bindings) = &bindings.haptics {
-                bindings::handle_haptic_bindings(&self.openxr.instance, context, bindings);
+            if let Some(haptics) = &bindings.haptics {
+                bindings::handle_haptic_bindings(&self.openxr.instance, context, haptics);
             }
 
-            if let Some(bindings) = &bindings.poses {
-                bindings::handle_pose_bindings(context, bindings);
+            if let Some(poses) = &bindings.poses {
+                bindings::handle_pose_bindings(context, poses);
             }
 
-            if let Some(bindings) = &bindings.skeleton {
-                bindings::handle_skeleton_bindings(context, bindings);
+            if let Some(skeleton) = &bindings.skeleton {
+                bindings::handle_skeleton_bindings(context, skeleton);
             }
 
-            bindings::handle_sources(
-                &path_validator,
-                context,
-                action_set_name,
-                &set,
-                &bindings.sources,
-            );
+            if let Some(sources) = &bindings.sources {
+                bindings::handle_sources(&path_validator, context, action_set_name, &set, &sources);
+            }
         }
 
         let info_action_binding = *legacy_bindings

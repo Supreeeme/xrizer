@@ -37,7 +37,7 @@ pub struct Bindings {
 
 #[derive(Deserialize)]
 pub struct ActionSetBinding {
-    pub sources: Vec<ActionBinding>,
+    pub sources: Option<Vec<ActionBinding>>,
     pub poses: Option<Vec<PoseBinding>>,
     pub haptics: Option<Vec<SimpleActionBinding>>,
     pub skeleton: Option<Vec<SimpleActionBinding>>,
