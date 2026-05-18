@@ -275,6 +275,18 @@
 					},
 					"mode": "joystick",
 					"path": "/user/hand/right/input/trackpad"
+				},
+				{
+					"inputs": {
+						"north": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "dpad",
+					"path": "/user/hand/left/input/trackpad",
+					"parameters": {
+						"sub_mode": "click"
+					}
 				}
 			]
 		}
