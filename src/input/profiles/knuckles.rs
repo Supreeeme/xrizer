@@ -185,6 +185,12 @@ mod tests {
             ],
         );
 
+        f.verify_bindings::<f32>(
+            path,
+            c"/user/hand/left/input/trackpad/click-/actions/set1",
+            ["/user/hand/left/input/trackpad/force".into()],
+        );
+
         let handle = f.get_action_handle(c"/actions/set1/in/boolact");
         let data = f.input.openxr.session_data.get();
         let actions = data.input_data.get_loaded_actions().unwrap();
