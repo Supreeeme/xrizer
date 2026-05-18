@@ -255,12 +255,19 @@ impl<C: openxr_data::Compositor> Input<C> {
         bindings: Vec<actions::DefaultBindings>,
         context: &mut context::BindingsLoadContext,
     ) {
-        let mut it = bindings.into_iter().peekable();
-        while let Some(actions::DefaultBindings {
+        let mut processed_types = HashSet::new();
+        for actions::DefaultBindings {
             binding_url,
             controller_type,
-        }) = it.next()
+        } in bindings
         {
+            if !processed_types.insert(controller_type.clone()) {
+                debug!(
+                    "skipping duplicate bindings in {:?} for {controller_type:?}",
+                    binding_url
+                );
+                continue;
+            }
             let custom_path = if let Ok(custom_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
                 PathBuf::from(custom_dir)
             } else {
@@ -294,7 +301,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             match controller_type {
                 actions::ControllerType::Unknown(ref other) => {
-                    info!("Ignoring bindings for unknown profile {other}")
+                    debug!("Ignoring bindings for unknown profile {other}")
                 }
                 ref other => {
                     let mut runner = Runner(self, context, bindings);
@@ -320,10 +327,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                         }
                     }
                 }
-            }
-
-            while let Some(b) = it.next_if(|b| b.controller_type == controller_type) {
-                info!("skipping bindings in {:?}", b.binding_url);
             }
         }
     }
@@ -370,7 +373,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
 
             if let Some(sources) = &bindings.sources {
-                bindings::handle_sources(&path_validator, context, action_set_name, &set, &sources);
+                bindings::handle_sources(&path_validator, context, action_set_name, &set, sources);
             }
         }
 
