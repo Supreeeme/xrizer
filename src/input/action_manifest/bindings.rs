@@ -102,6 +102,21 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
     let hand = match hand {
         "/user/hand/left/pose" => Hand::Left,
         "/user/hand/right/pose" => Hand::Right,
+        "/user/camera/pose"
+        | "/user/chest/pose"
+        | "/user/keyboard/pose"
+        | "/user/elbow/left/pose"
+        | "/user/elbow/right/pose"
+        | "/user/foot/left/pose"
+        | "/user/foot/right/pose"
+        | "/user/knee/left/pose"
+        | "/user/knee/right/pose"
+        | "/user/shoulder/left/pose"
+        | "/user/shoulder/right/pose"
+        | "/user/waist/pose" => {
+            debug!("Got pose binding for {pose_path} - ignoring");
+            return Ok((Hand::Left, BoundPoseType::Raw)); // Hand doesn't matter since we'll ignore it
+        }
         _ => {
             return Err(D::Error::unknown_variant(
                 hand,
@@ -115,7 +130,7 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
         "tip" => BoundPoseType::Tip,
         "gdc2015" => BoundPoseType::Gdc2015,
         other => {
-            warn!("Unknown pose type: {other:?}");
+            debug!("Unknown pose type: {other:?}");
             BoundPoseType::Raw
         }
     };
