@@ -80,6 +80,11 @@ impl InteractionProfile for Knuckles {
                 component: Some(DynComponent::Click),
                 ..
             } => Some(p.with_component(DynComponent::Force)),
+            p @ DynInputPath {
+                subpath: DynSubpath::Squeeze,
+                component: Some(DynComponent::Touch),
+                ..
+            } => Some(p.with_component(DynComponent::Value)),
             _ => None,
         }
     }
@@ -163,6 +168,7 @@ mod tests {
                 "/user/hand/right/input/a/click".into(),
                 "/user/hand/left/input/b/click".into(),
                 "/user/hand/right/input/b/click".into(),
+                "/user/hand/left/input/squeeze/value".into(),
                 "/user/hand/left/input/trigger/touch".into(),
                 "/user/hand/right/input/trigger/touch".into(),
                 "/user/hand/left/input/thumbstick/click".into(),

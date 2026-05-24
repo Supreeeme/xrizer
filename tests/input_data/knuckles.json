@@ -97,6 +97,9 @@
 					"inputs": {
 						"click": {
 							"output": "/actions/set1/in/boolact"
+						},
+						"touch": {
+							"output": "/actions/set1/in/boolact"
 						}
 					},
 					"parameters": {},
