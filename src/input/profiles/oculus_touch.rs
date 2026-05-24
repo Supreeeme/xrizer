@@ -66,6 +66,11 @@ impl InteractionProfile for OculusTouch {
                 component: Some(DynComponent::Click),
                 ..
             } => Some(p.with_component(DynComponent::Value)),
+            p @ DynInputPath {
+                subpath: DynSubpath::A | DynSubpath::B | DynSubpath::X | DynSubpath::Y,
+                component: Some(DynComponent::Value),
+                ..
+            } => Some(p.with_component(DynComponent::Click)),
             _ => None,
         }
     }
