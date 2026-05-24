@@ -42,7 +42,14 @@ impl<C: openxr_data::Compositor> Input<C> {
     ) -> Result<(), vr::EVRInputError> {
         match self.loaded_actions_path.get() {
             Some(p) => {
-                assert_eq!(p, manifest_path);
+                if p != manifest_path {
+                    error!(
+                        "Tried to load action manifest {}, but {} is already loaded!",
+                        manifest_path.display(),
+                        p.display()
+                    );
+                    return Err(vr::EVRInputError::MismatchedActionManifest);
+                }
                 if session_data.input_data.actions.get().is_some() {
                     return Ok(());
                 }
