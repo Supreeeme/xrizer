@@ -107,8 +107,12 @@ fn make_version() -> u32 {
 
 impl<C: Compositor> OpenXrData<C> {
     pub fn new(injector: &Injector) -> Result<Self, InitError> {
-        #[cfg(not(test))]
+        #[cfg(all(not(test), feature = "static-openxr"))]
         let entry = xr::Entry::linked();
+
+        #[cfg(all(not(test), not(feature = "static-openxr")))]
+        let entry = unsafe { xr::Entry::load() }
+            .expect("Failed to load OpenXR loader — is libopenxr-loader installed?");
 
         #[cfg(test)]
         let entry =
