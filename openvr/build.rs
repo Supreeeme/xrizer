@@ -253,7 +253,7 @@ fn verify_fields_are_identical<'a, T>(
 ) where
     T: IntoIterator<Item = &'a syn::Field>,
 {
-    for (existing_field, new_field) in existing.into_iter().zip(new.into_iter()) {
+    for (existing_field, new_field) in existing.into_iter().zip(new) {
         if existing_field.ident != new_field.ident {
             let idents = [
                 existing_field.ident.as_ref().unwrap().to_string(),
@@ -898,9 +898,9 @@ fn process_and_versionify_types(tokens: TokenStream) -> String {
         }
     }
 
-    let versioned = versioned.into_iter().flat_map(|(_, mut versions)| {
+    let versioned = versioned.into_values().flat_map(|mut versions| {
         // reverse sort - start with highest interface version and go down
-        versions.sort_by(|a, b| b.version.cmp(&a.version));
+        versions.sort_by_key(|a| std::cmp::Reverse(a.version));
 
         let mut items = Vec::new();
         let mut prev_sigs = Vec::new();

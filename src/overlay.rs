@@ -324,7 +324,7 @@ impl OverlayMan {
         }
 
         // Sort by z_order asc
-        layers.sort_by(|a, b| a.0.cmp(&b.0));
+        layers.sort_by_key(|a| a.0);
 
         let sorted_layers: Vec<OverlayLayer<_>> = layers.into_iter().map(|(_, l)| l).collect();
 
