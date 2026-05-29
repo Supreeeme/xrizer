@@ -42,7 +42,14 @@ impl<C: openxr_data::Compositor> Input<C> {
     ) -> Result<(), vr::EVRInputError> {
         match self.loaded_actions_path.get() {
             Some(p) => {
-                assert_eq!(p, manifest_path);
+                if p != manifest_path {
+                    error!(
+                        "Tried to load action manifest {}, but {} is already loaded!",
+                        manifest_path.display(),
+                        p.display()
+                    );
+                    return Err(vr::EVRInputError::MismatchedActionManifest);
+                }
                 if session_data.input_data.actions.get().is_some() {
                     return Ok(());
                 }
@@ -255,12 +262,19 @@ impl<C: openxr_data::Compositor> Input<C> {
         bindings: Vec<actions::DefaultBindings>,
         context: &mut context::BindingsLoadContext,
     ) {
-        let mut it = bindings.into_iter().peekable();
-        while let Some(actions::DefaultBindings {
+        let mut processed_types = HashSet::new();
+        for actions::DefaultBindings {
             binding_url,
             controller_type,
-        }) = it.next()
+        } in bindings
         {
+            if !processed_types.insert(controller_type.clone()) {
+                debug!(
+                    "skipping duplicate bindings in {:?} for {controller_type:?}",
+                    binding_url
+                );
+                continue;
+            }
             let custom_path = if let Ok(custom_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
                 PathBuf::from(custom_dir)
             } else {
@@ -294,7 +308,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             match controller_type {
                 actions::ControllerType::Unknown(ref other) => {
-                    info!("Ignoring bindings for unknown profile {other}")
+                    debug!("Ignoring bindings for unknown profile {other}")
                 }
                 ref other => {
                     let mut runner = Runner(self, context, bindings);
@@ -320,10 +334,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                         }
                     }
                 }
-            }
-
-            while let Some(b) = it.next_if(|b| b.controller_type == controller_type) {
-                info!("skipping bindings in {:?}", b.binding_url);
             }
         }
     }
@@ -357,25 +367,21 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             let set = set.clone();
 
-            if let Some(bindings) = &bindings.haptics {
-                bindings::handle_haptic_bindings(&self.openxr.instance, context, bindings);
+            if let Some(haptics) = &bindings.haptics {
+                bindings::handle_haptic_bindings(&self.openxr.instance, context, haptics);
             }
 
-            if let Some(bindings) = &bindings.poses {
-                bindings::handle_pose_bindings(context, bindings);
+            if let Some(poses) = &bindings.poses {
+                bindings::handle_pose_bindings(context, poses);
             }
 
-            if let Some(bindings) = &bindings.skeleton {
-                bindings::handle_skeleton_bindings(context, bindings);
+            if let Some(skeleton) = &bindings.skeleton {
+                bindings::handle_skeleton_bindings(context, skeleton);
             }
 
-            bindings::handle_sources(
-                &path_validator,
-                context,
-                action_set_name,
-                &set,
-                &bindings.sources,
-            );
+            if let Some(sources) = &bindings.sources {
+                bindings::handle_sources(&path_validator, context, action_set_name, &set, sources);
+            }
         }
 
         let info_action_binding = *legacy_bindings

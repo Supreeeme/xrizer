@@ -80,6 +80,24 @@ impl InteractionProfile for Knuckles {
                 component: Some(DynComponent::Click),
                 ..
             } => Some(p.with_component(DynComponent::Force)),
+            p @ DynInputPath {
+                subpath: DynSubpath::Squeeze,
+                component: Some(DynComponent::Touch),
+                ..
+            } => Some(p.with_component(DynComponent::Value)),
+            DynInputPath {
+                subpath: DynSubpath::Pinch,
+                component: Some(component @ (DynComponent::Force | DynComponent::Value)),
+                ..
+            } => Some(DynInputPath {
+                subpath: match component {
+                    DynComponent::Force => DynSubpath::Trackpad,
+                    DynComponent::Value => DynSubpath::Trigger,
+                    DynComponent::Touch => DynSubpath::Thumbrest,
+                    _ => unreachable!(),
+                },
+                ..path
+            }),
             _ => None,
         }
     }
@@ -183,6 +201,12 @@ mod tests {
                 "/user/hand/right/input/trigger/value".into(),
                 "/user/hand/left/input/squeeze/value".into(),
             ],
+        );
+
+        f.verify_bindings::<f32>(
+            path,
+            c"/user/hand/left/input/trackpad/click-/actions/set1",
+            ["/user/hand/left/input/trackpad/force".into()],
         );
 
         let handle = f.get_action_handle(c"/actions/set1/in/boolact");

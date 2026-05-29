@@ -541,7 +541,8 @@ pub mod paths {
         Squeeze::<Click, Value, Force, Touch>,
         Thumbstick::<Click, Touch, Vec2X, Vec2Y>,
         Trackpad::<Click, Touch, Force, Vec2X, Vec2Y>,
-        Thumbrest::<Touch>
+        Thumbrest::<Touch>,
+        Pinch::<Value, Force, Touch>
     );
 
     // Vec2 impls
@@ -555,11 +556,13 @@ pub mod paths {
                 "b" => Some(Self::B),
                 "x" => Some(Self::X),
                 "y" => Some(Self::Y),
-                "application_menu" => Some(Self::Menu),
+                "application_menu" | "system" => Some(Self::Menu),
                 "trigger" => Some(Self::Trigger),
                 "grip" => Some(Self::Squeeze),
                 "thumbstick" | "joystick" => Some(Self::Thumbstick),
+                "thumbrest" => Some(Self::Thumbrest),
                 "trackpad" => Some(Self::Trackpad),
+                "pinch" => Some(Self::Pinch),
                 _ => None,
             }
         }

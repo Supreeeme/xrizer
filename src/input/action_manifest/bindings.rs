@@ -37,7 +37,7 @@ pub struct Bindings {
 
 #[derive(Deserialize)]
 pub struct ActionSetBinding {
-    pub sources: Vec<ActionBinding>,
+    pub sources: Option<Vec<ActionBinding>>,
     pub poses: Option<Vec<PoseBinding>>,
     pub haptics: Option<Vec<SimpleActionBinding>>,
     pub skeleton: Option<Vec<SimpleActionBinding>>,
@@ -102,6 +102,21 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
     let hand = match hand {
         "/user/hand/left/pose" => Hand::Left,
         "/user/hand/right/pose" => Hand::Right,
+        "/user/camera/pose"
+        | "/user/chest/pose"
+        | "/user/keyboard/pose"
+        | "/user/elbow/left/pose"
+        | "/user/elbow/right/pose"
+        | "/user/foot/left/pose"
+        | "/user/foot/right/pose"
+        | "/user/knee/left/pose"
+        | "/user/knee/right/pose"
+        | "/user/shoulder/left/pose"
+        | "/user/shoulder/right/pose"
+        | "/user/waist/pose" => {
+            debug!("Got pose binding for {pose_path} - ignoring");
+            return Ok((Hand::Left, BoundPoseType::Raw)); // Hand doesn't matter since we'll ignore it
+        }
         _ => {
             return Err(D::Error::unknown_variant(
                 hand,
@@ -115,7 +130,7 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
         "tip" => BoundPoseType::Tip,
         "gdc2015" => BoundPoseType::Gdc2015,
         other => {
-            warn!("Unknown pose type: {other:?}");
+            debug!("Unknown pose type: {other:?}");
             BoundPoseType::Raw
         }
     };
@@ -725,12 +740,14 @@ pub fn handle_sources(
                             return None;
                         };
 
-                        if validate_path(path).is_none() {
-                            InvalidActionPath(path, s).warn();
-                            return None;
+                        if let Some(path) = validate_path(path)
+                            .map(|path| context.instance.string_to_path(&path.to_string()).unwrap())
+                        {
+                            return Some(path);
                         }
 
-                        Some(context.instance.string_to_path(&path.to_string()).unwrap())
+                        InvalidActionPath(path, s).warn();
+                        None
                     },
                     path,
                     action_set_name,

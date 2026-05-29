@@ -33,6 +33,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
+use std::ops::Sub;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -930,14 +931,17 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             _ => return vr::EVRInputError::WrongType,
         };
 
+        let update_time = state.last_change_time.sub(self.openxr.display_time.get());
         *out.value = vr::InputAnalogActionData_t {
             bActive: state.is_active,
             activeOrigin: active_hand,
             x: state.current_state.x,
-            deltaX: delta.x,
             y: state.current_state.y,
+            z: 0.0, // TODO: support 3D axes?
+            deltaX: delta.x,
             deltaY: delta.y,
-            ..Default::default()
+            deltaZ: 0.0, // TODO: support 3D axes?
+            fUpdateTime: update_time.as_nanos().saturating_div(1_000_000) as f32,
         };
 
         vr::EVRInputError::None
@@ -975,12 +979,13 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             active_hand = binding_source;
         }
 
+        let update_time = state.last_change_time.sub(self.openxr.display_time.get());
         *out.value = vr::InputDigitalActionData_t {
             bActive: state.is_active,
             bState: state.current_state,
             activeOrigin: active_hand,
             bChanged: state.changed_since_last_sync,
-            fUpdateTime: 0.0, // TODO
+            fUpdateTime: update_time.as_nanos().saturating_div(1_000_000) as f32,
         };
 
         vr::EVRInputError::None
