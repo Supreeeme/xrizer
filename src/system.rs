@@ -149,7 +149,7 @@ impl ViewCache {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRSystem"]
-#[versions(023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 011, 009)]
+#[versions(026, 023, 022, 021, 020, 019, 017, 016, 015, 014, 012, 011, 009)]
 pub struct System {
     openxr: Arc<RealOpenXrData>, // We don't need to test session restarting.
     input: Injected<Input<crate::compositor::Compositor>>,
@@ -194,7 +194,7 @@ impl System {
     }
 }
 
-impl vr::IVRSystem023_Interface for System {
+impl vr::IVRSystem026_Interface for System {
     fn GetRecommendedRenderTargetSize(&self, width: *mut u32, height: *mut u32) {
         let views = self
             .openxr
@@ -840,6 +840,43 @@ impl vr::IVRSystem023_Interface for System {
     }
     fn GetD3D9AdapterIndex(&self) -> i32 {
         todo!()
+    }
+    fn ComputeDistortionSet(
+        &self,
+        _eye: vr::EVREye,
+        _channel: vr::EVRDistortionChannel,
+        _norm: bool,
+        _count: u32,
+        _input: *const vr::DistortionCoordinate_t,
+        _output: *mut vr::DistortionCoordinate_t,
+    ) -> bool {
+        crate::warn_unimplemented!("ComputeDistortionSet");
+        false
+    }
+    fn GetEyeTrackedFoveationCenter(
+        &self,
+        _pNdcLeft: *mut vr::HmdVector2_t,
+        _pNdcRight: *mut vr::HmdVector2_t,
+    ) -> bool {
+        crate::warn_unimplemented!("GetEyeTrackedFoveationCenter");
+        false
+    }
+    fn GetEyeTrackedFoveationCenterForProjection(
+        &self,
+        _pProjMat: *const vr::HmdMatrix44_t,
+        _pNdc: *mut vr::HmdVector2_t,
+    ) -> bool {
+        crate::warn_unimplemented!("GetEyeTrackedFoveationCenterForProjection");
+        false
+    }
+    fn SetSDKVersion(
+        &self,
+        _nVersionMajor: u32,
+        _nVersionMinor: u32,
+        _nVersionBuild: u32,
+    ) -> vr::EVRInitError {
+        log::info!("SetSDKVersion({}.{}.{})", _nVersionMajor, _nVersionMinor, _nVersionBuild);
+        vr::EVRInitError::None
     }
 }
 

@@ -164,7 +164,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         _: u32,
         _: *mut vr::EVRRenderModelError,
     ) -> u32 {
-        todo!()
+        0
     }
     fn GetRenderModelThumbnailURL(
         &self,
@@ -173,7 +173,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         _: u32,
         _: *mut vr::EVRRenderModelError,
     ) -> u32 {
-        todo!()
+        0
     }
     fn RenderModelHasComponent(
         &self,
@@ -330,7 +330,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         cstr_write_out(&cstr, render_model_name, render_model_name_len)
     }
     fn FreeTextureD3D11(&self, _: *mut std::ffi::c_void) {
-        todo!()
+        crate::warn_unimplemented!("FreeTextureD3D11");
     }
     fn LoadIntoTextureD3D11_Async(
         &self,

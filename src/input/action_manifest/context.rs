@@ -196,6 +196,10 @@ impl BindingsProfileLoadContext<'_> {
                 .instance
                 .string_to_path(&input_path.to_string())
                 .unwrap();
+            self.input_paths_out
+                .entry(action_path.clone())
+                .or_default()
+                .push(binding_path);
             self.bindings.push((action_path, binding_path));
         }
     }
@@ -204,7 +208,6 @@ impl BindingsProfileLoadContext<'_> {
         &mut self,
         output: &ActionPath,
         hand: openxr_data::Hand,
-        input_path: xr::Path,
         action_set_name: &str,
         action_set: &xr::ActionSet,
         params: Option<&T::BindingParams>,
@@ -236,14 +239,6 @@ impl BindingsProfileLoadContext<'_> {
                 T::create_binding_data(params),
                 hand_path,
             ));
-
-        // Record the input path so GetActionBindingInfo can return it.
-        if input_path != xr::Path::NULL {
-            self.input_paths_out
-                .entry(output.path.clone())
-                .or_default()
-                .push(input_path);
-        }
 
         T::ExtraActions::from_iter(full_names)
     }

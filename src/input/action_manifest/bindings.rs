@@ -959,10 +959,13 @@ pub fn handle_skeleton_bindings(
                     );
                 }
             }
-            _ => panic!(
-                "Expected skeleton action for skeleton binding {}",
-                output.path
-            ),
+            _ => {
+                warn!(
+                    "Expected skeleton action for skeleton binding {}, skipping",
+                    output.path
+                );
+                continue;
+            }
         }
     }
 }
@@ -984,14 +987,16 @@ pub fn handle_haptic_bindings(
             continue;
         };
 
-        assert!(
-            matches!(
-                &context.actions[&output.path],
-                crate::input::ActionData::Haptic(_)
-            ),
-            "expected haptic action for haptic binding {path}, got {}",
-            output.path
-        );
+        if !matches!(
+            &context.actions[&output.path],
+            crate::input::ActionData::Haptic(_)
+        ) {
+            warn!(
+                "expected haptic action for haptic binding {path}, got {}, skipping",
+                output.path
+            );
+            continue;
+        }
         let xr_path = instance.string_to_path(path).unwrap();
         context.push_binding(output.path.clone(), xr_path);
     }
@@ -1007,14 +1012,16 @@ pub fn handle_pose_bindings(context: &mut BindingsProfileLoadContext, bindings: 
             continue;
         };
 
-        assert!(
-            matches!(
-                context.actions.get_mut(&output.path).unwrap(),
-                ActionData::Pose
-            ),
-            "Expected pose action for pose binding on {}",
-            output.path
-        );
+        if !matches!(
+            context.actions.get_mut(&output.path).unwrap(),
+            ActionData::Pose
+        ) {
+            warn!(
+                "Expected pose action for pose binding on {}, skipping",
+                output.path
+            );
+            continue;
+        }
 
         let bound = context
             .pose_bindings

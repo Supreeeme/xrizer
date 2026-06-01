@@ -82,7 +82,7 @@ new_key_type! {
 
 #[derive(macros::InterfaceImpl)]
 #[interface = "IVRInput"]
-#[versions(010, 007, 006, 005, 004)]
+#[versions(011, 010, 007, 006, 005, 004)]
 pub struct Input<C: openxr_data::Compositor> {
     openxr: Arc<OpenXrData<C>>,
     vtables: Vtables<C>,
@@ -274,6 +274,18 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
 
         keys
+    }
+
+    fn related_action_paths(&self, action_key: ActionKey) -> Vec<String> {
+        let guard = self.action_map.read().unwrap();
+        let mut paths = Vec::new();
+        for key in self.related_action_keys(action_key) {
+            if let Some(action) = guard.get(key) {
+                paths.push(action.path.clone());
+            }
+        }
+        drop(guard);
+        paths
     }
 
     /// Resolve the currently active interaction profile, preferring the
@@ -523,7 +535,7 @@ macro_rules! get_subaction_path {
     };
 }
 
-impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
+impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
     fn GetBindingVariant(
         &self,
         _: vr::VRInputValueHandle_t,
@@ -620,19 +632,16 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             return vr::EVRInputError::InvalidHandle;
         }
 
-        let related_action_keys = self.related_action_keys(action_key);
+        let related_action_paths = self.related_action_paths(action_key);
 
-        // Prefer the currently active interaction profile; fall back to the
-        // profile with the most bindings.
         let active_profile = self.resolve_active_profile(&session_data, loaded);
 
-        // Helper: gather paths from a profile entry
         let paths_for_profile = |profile: xr::Path| -> Vec<xr::Path> {
             let mut out = Vec::new();
             let mut seen = std::collections::HashSet::new();
             if let Some(map) = loaded.per_profile_input_paths.get(&profile) {
-                for key in &related_action_keys {
-                    if let Some(paths) = map.get(*key) {
+                for path in &related_action_paths {
+                    if let Some(paths) = map.get(path.as_str()) {
                         for &p in paths {
                             if seen.insert(p) {
                                 out.push(p);
@@ -649,21 +658,17 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             if !active_paths.is_empty() {
                 active_paths
             } else {
-                // Active profile has no bindings for this action.
-                // Don't fall back to other profiles - SteamVR only returns
-                // bindings for the active controller profile.
                 Vec::new()
             }
         } else {
-            // No active profile yet – return from all loaded profiles (deduplicated)
             let mut seen = std::collections::HashSet::new();
             loaded
                 .per_profile_input_paths
                 .values()
                 .flat_map(|m| {
-                    related_action_keys
+                    related_action_paths
                         .iter()
-                        .flat_map(move |k| m.get(*k).into_iter().flatten().copied())
+                        .flat_map(|path| m.get(path.as_str()).into_iter().flatten().copied::<xr::Path>())
                 })
                 .filter(|p| seen.insert(*p))
                 .collect()
@@ -762,7 +767,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
 
         debug!(
             "GetActionBindingInfo: action {action_name:?} → {count} binding(s) (profile={active_profile_name}, related_actions={})",
-            related_action_keys.len(),
+            related_action_paths.len(),
         );
         vr::EVRInputError::None
     }
@@ -772,15 +777,26 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         info: *mut vr::InputOriginInfo_t,
         info_size: u32,
     ) -> vr::EVRInputError {
-        assert_eq!(
-            info_size as usize,
-            std::mem::size_of::<vr::InputOriginInfo_t>()
-        );
+        let expected = std::mem::size_of::<vr::InputOriginInfo_t>();
+        if info_size as usize != expected {
+            log::warn!(
+                "GetOriginTrackedDeviceInfo: unexpected info_size {}, expected {}",
+                info_size,
+                expected
+            );
+        }
+
+        if info.is_null() {
+            return vr::EVRInputError::InvalidParam;
+        }
 
         let key = InputSourceKey::from(KeyData::from_ffi(handle));
         let map = self.input_source_map.read().unwrap();
         if !map.contains_key(key) {
             debug!("GetOriginTrackedDeviceInfo: invalid handle 0x{:x}", handle);
+            unsafe {
+                info.write(Default::default());
+            }
             return vr::EVRInputError::InvalidHandle;
         }
 
@@ -790,7 +806,6 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             .unwrap_or_default();
         drop(map);
 
-        // Determine hand from the path (supports both hand paths and specific input paths).
         let index = match self.hand_from_key(key) {
             Some(hand) => hand as u32,
             None => {
@@ -805,8 +820,6 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             }
         };
 
-        // Derive render model component name from the input source path.
-        // e.g. "/user/hand/right/input/trigger" → "trigger"
         let (_, _, raw_component, _) = parse_input_path(&source_path);
         let component_name = normalize_component(raw_component);
 
@@ -818,13 +831,14 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
             handle, source_path, index, component_name
         );
 
-        unsafe {
-            *info.as_mut().unwrap() = vr::InputOriginInfo_t {
-                devicePath: handle,
-                trackedDeviceIndex: index,
-                rchRenderModelComponentName: render_model_component,
-            };
-        }
+        let Some(info) = (unsafe { info.as_mut() }) else {
+            return vr::EVRInputError::InvalidParam;
+        };
+        *info = vr::InputOriginInfo_t {
+            devicePath: handle,
+            trackedDeviceIndex: index,
+            rchRenderModelComponentName: render_model_component,
+        };
         vr::EVRInputError::None
     }
     fn GetOriginLocalizedName(
@@ -955,6 +969,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         }
 
         let related_action_keys = self.related_action_keys(action_key);
+        let related_action_paths = self.related_action_paths(action_key);
 
         // Zero out the output buffer upfront.
         let out = unsafe { std::slice::from_raw_parts_mut(origins_out, origin_out_count as usize) };
@@ -1037,8 +1052,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
                 };
 
                 for m in &profile_maps {
-                    for key in &related_action_keys {
-                        if let Some(paths) = m.get(*key) {
+                    for path in &related_action_paths {
+                        if let Some(paths) = m.get(path.as_str()) {
                             for &path in paths {
                                 if let Ok(path_str) = self.openxr.instance.path_to_string(path) {
                                     if path_str.starts_with("/user/hand/left")
@@ -1821,6 +1836,27 @@ impl<C: openxr_data::Compositor> vr::IVRInput010_Interface for Input<C> {
         self.loading_actions.store(false, Ordering::Relaxed);
         ret
     }
+    fn GetEyeTrackingDataRelativeToNow(
+        &self,
+        _action: vr::VRActionHandle_t,
+        _eOrigin: vr::ETrackingUniverseOrigin,
+        _fPredictedSecondsFromNow: f32,
+        _pEyeTrackingData: *mut vr::VREyeTrackingData_t,
+        _ulEyeTrackingDataSize: u32,
+    ) -> vr::EVRInputError {
+        crate::warn_unimplemented!("GetEyeTrackingDataRelativeToNow");
+        vr::EVRInputError::None
+    }
+    fn GetEyeTrackingDataForNextFrame(
+        &self,
+        _action: vr::VRActionHandle_t,
+        _eOrigin: vr::ETrackingUniverseOrigin,
+        _pEyeTrackingData: *mut vr::VREyeTrackingData_t,
+        _ulEyeTrackingDataSize: u32,
+    ) -> vr::EVRInputError {
+        crate::warn_unimplemented!("GetEyeTrackingDataForNextFrame");
+        vr::EVRInputError::None
+    }
 }
 
 impl<C: openxr_data::Compositor> vr::IVRInput005On006 for Input<C> {
@@ -1830,7 +1866,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput005On006 for Input<C> {
         action: vr::VRActionHandle_t,
         summary_data: *mut vr::VRSkeletalSummaryData_t,
     ) -> vr::EVRInputError {
-        <Self as vr::IVRInput010_Interface>::GetSkeletalSummaryData(
+        <Self as vr::IVRInput011_Interface>::GetSkeletalSummaryData(
             self,
             action,
             vr::EVRSummaryType::FromAnimation,
@@ -1848,7 +1884,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput005On006 for Input<C> {
         action_data_size: u32,
         restrict_to_device: vr::VRInputValueHandle_t,
     ) -> vr::EVRInputError {
-        <Self as vr::IVRInput010_Interface>::GetPoseActionDataRelativeToNow(
+        <Self as vr::IVRInput011_Interface>::GetPoseActionDataRelativeToNow(
             self,
             action,
             origin,
@@ -1880,7 +1916,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput004On005 for Input<C> {
         name_array: *mut c_char,
         name_array_size: u32,
     ) -> vr::EVRInputError {
-        <Self as vr::IVRInput010_Interface>::GetOriginLocalizedName(
+        <Self as vr::IVRInput011_Interface>::GetOriginLocalizedName(
             self,
             origin,
             name_array,
@@ -1902,7 +1938,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput004On005 for Input<C> {
             return vr::EVRInputError::NoData;
         }
 
-        <Self as vr::IVRInput010_Interface>::GetSkeletalActionData(
+        <Self as vr::IVRInput011_Interface>::GetSkeletalActionData(
             self,
             action,
             action_data,
@@ -1925,7 +1961,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput004On005 for Input<C> {
             return vr::EVRInputError::NoData;
         }
 
-        <Self as vr::IVRInput010_Interface>::GetSkeletalBoneData(
+        <Self as vr::IVRInput011_Interface>::GetSkeletalBoneData(
             self,
             action,
             transform_space,
@@ -2227,6 +2263,7 @@ struct ManifestLoadedActions {
     actions_with_custom_bindings: HashSet<ActionKey>,
     per_profile_pose_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, BoundPose>>,
     per_profile_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, Vec<BoolBindingData>>>,
+    per_profile_input_paths: HashMap<xr::Path, HashMap<String, Vec<xr::Path>>>,
     info_set: xr::ActionSet,
     _info_action: xr::Action<bool>,
     haptic_set: xr::ActionSet,

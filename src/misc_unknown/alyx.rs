@@ -1,7 +1,7 @@
 // Undocumented OpenVR interfaces used by Half-Life: Alyx.
 use log::debug;
 use seq_macro::seq;
-use std::ffi::{CStr, c_char, c_int, c_void};
+use std::ffi::{CStr, c_char, c_int};
 use std::sync::atomic::{AtomicBool, Ordering};
 use super::{Wrapper, UNKNOWN_TAG};
 
