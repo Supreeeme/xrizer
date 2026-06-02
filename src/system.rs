@@ -266,18 +266,7 @@ impl vr::IVRSystem026_Interface for System {
         crate::warn_unimplemented!("ComputeDistortion");
         false
     }
-    fn ComputeDistortionSet(
-        &self,
-        _: openvr::EVREye,
-        _: openvr::EVRDistortionChannel,
-        _: bool,
-        _: u32,
-        _: *const openvr::DistortionCoordinate_t,
-        _: *mut openvr::DistortionCoordinate_t,
-    ) -> bool {
-        crate::warn_unimplemented!("ComputeDistortionSet");
-        false
-    }
+
     fn GetEyeToHeadTransform(&self, eye: vr::EVREye) -> vr::HmdMatrix34_t {
         let views = self.get_views(xr::ReferenceSpaceType::VIEW).views;
         let view = views[eye as usize];
@@ -310,9 +299,7 @@ impl vr::IVRSystem026_Interface for System {
         static VERSION: &CStr = c"2.15.6";
         VERSION.as_ptr()
     }
-    fn SetSDKVersion(&self, _: u32, _: u32, _: u32) -> vr::EVRInitError {
-        vr::EVRInitError::None
-    }
+
     fn GetAppContainerFilePaths(&self, _: *mut std::os::raw::c_char, _: u32) -> u32 {
         todo!()
     }
@@ -461,22 +448,7 @@ impl vr::IVRSystem026_Interface for System {
         }
     }
 
-    fn GetEyeTrackedFoveationCenter(
-        &self,
-        _: *mut openvr::HmdVector2_t,
-        _: *mut openvr::HmdVector2_t,
-    ) -> bool {
-        crate::warn_unimplemented!("GetEyeTrackedFoveationCenter");
-        false
-    }
-    fn GetEyeTrackedFoveationCenterForProjection(
-        &self,
-        _: *const openvr::HmdMatrix44_t,
-        _: *mut openvr::HmdVector2_t,
-    ) -> bool {
-        crate::warn_unimplemented!("GetEyeTrackedFoveationCenterForProjection");
-        false
-    }
+
 
     fn GetEventTypeNameFromEnum(&self, _: vr::EVREventType) -> *const std::os::raw::c_char {
         todo!()

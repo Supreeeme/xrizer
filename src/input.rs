@@ -1621,27 +1621,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         vr::EVRInputError::None
     }
 
-    fn GetEyeTrackingDataRelativeToNow(
-        &self,
-        _: openvr::VRActionHandle_t,
-        _: openvr::ETrackingUniverseOrigin,
-        _: f32,
-        _: *mut openvr::VREyeTrackingData_t,
-        _: u32,
-    ) -> openvr::EVRInputError {
-        crate::warn_unimplemented!("GetEyeTrackingDataRelativeToNow");
-        vr::EVRInputError::NoData
-    }
-    fn GetEyeTrackingDataForNextFrame(
-        &self,
-        _: openvr::VRActionHandle_t,
-        _: openvr::ETrackingUniverseOrigin,
-        _: *mut openvr::VREyeTrackingData_t,
-        _: u32,
-    ) -> openvr::EVRInputError {
-        crate::warn_unimplemented!("GetEyeTrackingDataForNextFrame");
-        vr::EVRInputError::NoData
-    }
+
 
     fn UpdateActionState(
         &self,
