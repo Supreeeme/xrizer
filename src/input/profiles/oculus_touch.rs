@@ -1,5 +1,5 @@
 use super::{
-    InteractionProfile, Left, MainAxisType, ProfileProperties, Property, Right,
+    DynInputPath, InteractionProfile, Left, MainAxisType, ProfileProperties, Property, Right,
     SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
@@ -65,6 +65,39 @@ impl InteractionProfile for OculusTouch {
     }
     fn has_required_extensions(_: &openxr::ExtensionSet) -> bool {
         true
+    }
+
+    fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
+        use super::paths::DynSubpath;
+        match path {
+            DynInputPath {
+                subpath: DynSubpath::Trackpad,
+                ..
+            } => Some(DynInputPath {
+                hand: path.hand,
+                subpath: DynSubpath::Thumbstick,
+                component: path.component,
+            }),
+            DynInputPath {
+                hand,
+                subpath: DynSubpath::Squeeze,
+                component: Some(super::paths::DynComponent::Click),
+            } => Some(DynInputPath {
+                hand,
+                subpath: DynSubpath::Squeeze,
+                component: Some(super::paths::DynComponent::Value),
+            }),
+            DynInputPath {
+                hand,
+                subpath: DynSubpath::Trigger,
+                component: Some(super::paths::DynComponent::Click),
+            } => Some(DynInputPath {
+                hand,
+                subpath: DynSubpath::Trigger,
+                component: Some(super::paths::DynComponent::Value),
+            }),
+            _ => None,
+        }
     }
 
     fn legacy_bindings(c: &InputToXrPath<Self>) -> LegacyBindings {

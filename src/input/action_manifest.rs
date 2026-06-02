@@ -227,6 +227,13 @@ impl<C: openxr_data::Compositor> Input<C> {
             .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
             .collect();
 
+        let per_profile_input_paths = per_profile_input_paths
+            .into_iter()
+            .map(|(profile, map)| {
+                (profile, action_map_to_secondary(&mut act_guard, map))
+            })
+            .collect();
+
         let loaded = super::ManifestLoadedActions {
             sets,
             actions,
@@ -296,7 +303,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             match controller_type {
                 actions::ControllerType::Unknown(ref other) => {
-                    info!("Ignoring bindings for unknown profile {other}")
+                    debug!("Ignoring bindings for unknown profile {other}")
                 }
                 ref other => {
                     let mut runner = Runner(self, context, bindings);
@@ -325,7 +332,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
 
             while let Some(b) = it.next_if(|b| b.controller_type == controller_type) {
-                info!("skipping bindings in {:?}", b.binding_url);
+                debug!("skipping bindings in {:?}", b.binding_url);
             }
         }
     }
@@ -353,7 +360,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         for (action_set_name, bindings) in bindings.iter() {
             let Some(set) = context.get_action_set(action_set_name) else {
-                warn!("Action set {action_set_name} missing.");
+                debug!("Action set {action_set_name} missing.");
                 continue;
             };
 
@@ -384,24 +391,8 @@ impl<C: openxr_data::Compositor> Input<C> {
             .trigger_click
             .first()
             .unwrap_or_else(|| panic!("Missing trigger_click binding for {}", P::profile_path()));
-        let bindings: Vec<xr::Binding<'_>> = context
-            .bindings
-            .iter()
-            .map(|(name, path)| {
-                use super::ActionData::*;
-                let path = *path;
-                match context
-                    .actions
-                    .get(name)
-                    .unwrap_or_else(|| panic!("Couldn't find data for action {name}"))
-                {
-                    Bool(action) => xr::Binding::new(action, path),
-                    Vector1 { action, .. } => xr::Binding::new(action, path),
-                    Vector2 { action, .. } => xr::Binding::new(action, path),
-                    Haptic(action) => xr::Binding::new(action, path),
-                    Skeleton { .. } | Pose => unreachable!(),
-                }
-            })
+
+        let base_bindings: Vec<xr::Binding<'_>> = std::iter::empty()
             .chain(
                 legacy_bindings
                     .extra
@@ -422,19 +413,82 @@ impl<C: openxr_data::Compositor> Input<C> {
             .chain(skeletal_bindings.binding_iter(&context.skeletal_input.actions))
             .collect();
 
+        let manifest_bindings: Vec<xr::Binding<'_>> = context
+            .bindings
+            .iter()
+            .map(|(name, path)| {
+                use super::ActionData::*;
+                let path = *path;
+                match context
+                    .actions
+                    .get(name)
+                    .unwrap_or_else(|| panic!("Couldn't find data for action {name}"))
+                {
+                    Bool(action) => xr::Binding::new(action, path),
+                    Vector1 { action, .. } => xr::Binding::new(action, path),
+                    Vector2 { action, .. } => xr::Binding::new(action, path),
+                    Haptic(action) => xr::Binding::new(action, path),
+                    Skeleton { .. } | Pose => unreachable!(),
+                }
+            })
+            .collect();
+
         self.openxr
             .instance
-            .suggest_interaction_profile_bindings(profile_path, &bindings)
+            .suggest_interaction_profile_bindings(profile_path, &base_bindings)
             .unwrap_or_else(|e| {
-                panic!(
-                    "Couldn't suggest profile bindings for {}: {e}",
-                    std::any::type_name::<P>()
-                )
+                warn!("Base bindings for {} failed: {e}", P::profile_path());
             });
+
         debug!(
-            "suggested {} bindings for {}",
-            bindings.len(),
+            "Suggesting {} base + {} manifest bindings for {}",
+            base_bindings.len(),
+            manifest_bindings.len(),
             P::profile_path()
+        );
+
+        let all: Vec<xr::Binding<'_>> = base_bindings.iter().copied()
+            .chain(manifest_bindings.iter().copied())
+            .collect();
+
+        let combined_result = self.openxr
+            .instance
+            .suggest_interaction_profile_bindings(profile_path, &all);
+
+        debug!(
+            "Combined binding suggestion for {}: {:?}",
+            P::profile_path(),
+            combined_result
+        );
+
+        if let Err(_e) = combined_result {
+            let total = manifest_bindings.len();
+            let mut good: Vec<xr::Binding<'_>> = Vec::new();
+            for &b in &manifest_bindings {
+                match self.openxr.instance.suggest_interaction_profile_bindings(profile_path, &[b]) {
+                    Ok(()) => good.push(b),
+                    Err(_) => {}
+                }
+            }
+            if good.is_empty() {
+                warn!("No manifest bindings for {} — using base bindings only", P::profile_path());
+            } else {
+                let all_good: Vec<_> = base_bindings.iter().copied()
+                    .chain(good.iter().copied())
+                    .collect();
+                let skipped = total - good.len();
+                if skipped > 0 {
+                    warn!("{skipped}/{total} manifest bindings skipped for {}", P::profile_path());
+                }
+                self.openxr.instance.suggest_interaction_profile_bindings(profile_path, &all_good).ok();
+            }
+        }
+
+        debug!(
+            "suggested bindings for {} ({} base + {} manifest)",
+            P::profile_path(),
+            base_bindings.len(),
+            manifest_bindings.len(),
         );
     }
 }

@@ -184,7 +184,7 @@ impl<Inputs, Parameters> ActionBindingData<Inputs, Parameters> {
                 parameters: self.parameters.as_ref(),
             }),
             MaybeInputPath::Invalid { path, error } => {
-                warn!("got invalid input path {path} - {error}");
+                debug!("got invalid input path {path} - {error}");
                 None
             }
         }
@@ -208,7 +208,7 @@ struct Custom;
 struct InvalidActionPath<'a>(DynInputPath, &'a str);
 impl InvalidActionPath<'_> {
     fn warn(&self) {
-        warn!("invalid path {} for {}", self.0, self.1);
+        debug!("invalid path {} for {}", self.0, self.1);
     }
 }
 
@@ -465,7 +465,7 @@ pub fn handle_dpad_binding(
         let output = &a.as_ref()?.output;
         let ret = context.actions.contains_key(&output.path);
         if !ret {
-            warn!(
+            debug!(
                 "Couldn't find dpad action {} (for path {parent_path}, {direction:?})",
                 output.path
             );
@@ -487,7 +487,7 @@ pub fn handle_dpad_binding(
     .collect();
 
     if bound_actions.is_empty() {
-        warn!("Dpad mode, but no actions ({parent_path} in {action_set_name})");
+        debug!("Dpad mode, but no actions ({parent_path} in {action_set_name})");
         return;
     }
 
@@ -721,7 +721,7 @@ pub fn handle_sources(
                     |s| {
                         // TODO: don't do this conversion dance
                         let Ok(path) = s.parse::<DynInputPath>() else {
-                            warn!("invalid path {s} for dpad binding");
+                            debug!("invalid path {s} for dpad binding");
                             return None;
                         };
 
@@ -791,7 +791,7 @@ pub fn handle_sources(
                                 .unwrap(),
                         );
                     } else {
-                        warn!(
+                        debug!(
                             "failed to bind trigger pull or touch for action {} - invalid path ({with_pull})",
                             touch.output.path
                         );
@@ -944,7 +944,7 @@ pub fn handle_skeleton_bindings(
                     "/user/hand/left/input/skeleton/left" => Hand::Left,
                     "/user/hand/right/input/skeleton/right" => Hand::Right,
                     other => {
-                        warn!(
+                        debug!(
                             "Got invalid skeleton binding {other} for action {}",
                             output.path
                         );
@@ -953,14 +953,14 @@ pub fn handle_skeleton_bindings(
                 };
 
                 if bound_hand != *hand {
-                    warn!(
+                    debug!(
                         "Action {} was created with hand {hand:?}, but is bound to hand {bound_hand:?}",
                         output.path
                     );
                 }
             }
             _ => {
-                warn!(
+                debug!(
                     "Expected skeleton action for skeleton binding {}, skipping",
                     output.path
                 );
@@ -980,7 +980,7 @@ pub fn handle_haptic_bindings(
             path.as_str(),
             "/user/hand/left/output/haptic" | "/user/hand/right/output/haptic",
         ) {
-            warn!("invalid haptic path {path} for {}", output.path);
+            debug!("invalid haptic path {path} for {}", output.path);
             continue;
         };
         if !context.find_action(&output.path) {
@@ -991,7 +991,7 @@ pub fn handle_haptic_bindings(
             &context.actions[&output.path],
             crate::input::ActionData::Haptic(_)
         ) {
-            warn!(
+            debug!(
                 "expected haptic action for haptic binding {path}, got {}, skipping",
                 output.path
             );
@@ -1016,7 +1016,7 @@ pub fn handle_pose_bindings(context: &mut BindingsProfileLoadContext, bindings: 
             context.actions.get_mut(&output.path).unwrap(),
             ActionData::Pose
         ) {
-            warn!(
+            debug!(
                 "Expected pose action for pose binding on {}, skipping",
                 output.path
             );

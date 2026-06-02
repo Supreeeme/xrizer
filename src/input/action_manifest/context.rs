@@ -7,7 +7,7 @@ use crate::input::profiles::{DynInputPath, paths};
 use crate::input::skeletal::SkeletalInputActionData;
 use crate::input::{ActionData, BoundPose, ExtraActionData, Input, InteractionProfile};
 use crate::openxr_data::{self, Hand};
-use log::{info, trace, warn};
+use log::{debug, info, trace, warn};
 use openxr as xr;
 use std::collections::HashMap;
 
@@ -176,7 +176,7 @@ impl BindingsProfileLoadContext<'_> {
         let ret = self.actions.contains_key(name);
         if !ret {
             let caller = std::panic::Location::caller();
-            warn!(
+            debug!(
                 "Couldn't find action {name}, skipping (line {})",
                 caller.line()
             );

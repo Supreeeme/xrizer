@@ -276,18 +276,6 @@ impl<C: openxr_data::Compositor> Input<C> {
         keys
     }
 
-    fn related_action_paths(&self, action_key: ActionKey) -> Vec<String> {
-        let guard = self.action_map.read().unwrap();
-        let mut paths = Vec::new();
-        for key in self.related_action_keys(action_key) {
-            if let Some(action) = guard.get(key) {
-                paths.push(action.path.clone());
-            }
-        }
-        drop(guard);
-        paths
-    }
-
     /// Resolve the currently active interaction profile, preferring the
     /// runtime-reported profile over the profile with the most bindings.
     /// Returns `None` only when no profile is known at all.
@@ -573,7 +561,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         _: u32,
         _: *mut vr::RenderModel_ComponentState_t,
     ) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("GetComponentStateForBinding");
+        vr::EVRInputError::None
     }
     fn ShowBindingsForActionSet(
         &self,
@@ -582,14 +571,16 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         _: u32,
         _: vr::VRInputValueHandle_t,
     ) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("ShowBindingsForActionSet");
+        vr::EVRInputError::None
     }
     fn ShowActionOrigins(
         &self,
         _: vr::VRActionSetHandle_t,
         _: vr::VRActionHandle_t,
     ) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("ShowActionOrigins");
+        vr::EVRInputError::None
     }
     fn GetActionBindingInfo(
         &self,
@@ -632,7 +623,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             return vr::EVRInputError::InvalidHandle;
         }
 
-        let related_action_paths = self.related_action_paths(action_key);
+        let related_action_keys = self.related_action_keys(action_key);
 
         let active_profile = self.resolve_active_profile(&session_data, loaded);
 
@@ -640,8 +631,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             let mut out = Vec::new();
             let mut seen = std::collections::HashSet::new();
             if let Some(map) = loaded.per_profile_input_paths.get(&profile) {
-                for path in &related_action_paths {
-                    if let Some(paths) = map.get(path.as_str()) {
+                for key in &related_action_keys {
+                    if let Some(paths) = map.get(*key) {
                         for &p in paths {
                             if seen.insert(p) {
                                 out.push(p);
@@ -666,9 +657,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                 .per_profile_input_paths
                 .values()
                 .flat_map(|m| {
-                    related_action_paths
+                    related_action_keys
                         .iter()
-                        .flat_map(|path| m.get(path.as_str()).into_iter().flatten().copied::<xr::Path>())
+                        .flat_map(|key| m.get(*key).into_iter().flatten().copied::<xr::Path>())
                 })
                 .filter(|p| seen.insert(*p))
                 .collect()
@@ -767,7 +758,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
 
         debug!(
             "GetActionBindingInfo: action {action_name:?} → {count} binding(s) (profile={active_profile_name}, related_actions={})",
-            related_action_paths.len(),
+            related_action_keys.len(),
         );
         vr::EVRInputError::None
     }
@@ -969,7 +960,6 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         }
 
         let related_action_keys = self.related_action_keys(action_key);
-        let related_action_paths = self.related_action_paths(action_key);
 
         // Zero out the output buffer upfront.
         let out = unsafe { std::slice::from_raw_parts_mut(origins_out, origin_out_count as usize) };
@@ -1052,8 +1042,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                 };
 
                 for m in &profile_maps {
-                    for path in &related_action_paths {
-                        if let Some(paths) = m.get(path.as_str()) {
+                    for key in &related_action_keys {
+                        if let Some(paths) = m.get(*key) {
                             for &path in paths {
                                 if let Ok(path_str) = self.openxr.instance.path_to_string(path) {
                                     if path_str.starts_with("/user/hand/left")
@@ -1155,7 +1145,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         _: *mut vr::VRBoneTransform_t,
         _: u32,
     ) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("DecompressSkeletalBoneData");
+        vr::EVRInputError::None
     }
     fn GetSkeletalBoneDataCompressed(
         &self,
@@ -1165,7 +1156,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         _: u32,
         _: *mut u32,
     ) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("GetSkeletalBoneDataCompressed");
+        vr::EVRInputError::None
     }
     fn GetSkeletalSummaryData(
         &self,
@@ -1274,7 +1266,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         _: *mut c_char,
         _: u32,
     ) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("GetBoneName");
+        vr::EVRInputError::None
     }
     fn GetBoneHierarchy(
         &self,
@@ -1282,7 +1275,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         _: *mut vr::BoneIndex_t,
         _: u32,
     ) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("GetBoneHierarchy");
+        vr::EVRInputError::None
     }
     fn GetBoneCount(&self, handle: vr::VRActionHandle_t, count: *mut u32) -> vr::EVRInputError {
         get_action_from_handle!(self, handle, session_data, action);
@@ -1906,7 +1900,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput004On005 for Input<C> {
         _transform_array: *mut vr::VRBoneTransform_t,
         _transform_array_count: u32,
     ) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("DecompressSkeletalBoneData (legacy)");
+        vr::EVRInputError::None
     }
 
     #[inline]
@@ -1982,7 +1977,8 @@ impl<C: openxr_data::Compositor> vr::IVRInput004On005 for Input<C> {
         _required_compressed_size: *mut u32,
         _restrict_to_device: vr::VRInputValueHandle_t,
     ) -> vr::EVRInputError {
-        todo!()
+        crate::warn_unimplemented!("GetSkeletalBoneDataCompressed (legacy)");
+        vr::EVRInputError::None
     }
 }
 
@@ -2263,7 +2259,7 @@ struct ManifestLoadedActions {
     actions_with_custom_bindings: HashSet<ActionKey>,
     per_profile_pose_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, BoundPose>>,
     per_profile_bindings: HashMap<xr::Path, SecondaryMap<ActionKey, Vec<BoolBindingData>>>,
-    per_profile_input_paths: HashMap<xr::Path, HashMap<String, Vec<xr::Path>>>,
+    per_profile_input_paths: HashMap<xr::Path, SecondaryMap<ActionKey, Vec<xr::Path>>>,
     info_set: xr::ActionSet,
     _info_action: xr::Action<bool>,
     haptic_set: xr::ActionSet,
