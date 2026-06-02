@@ -1,12 +1,12 @@
 // Compatibility stubs for legacy OpenVR interfaces required by older titles
 // (e.g. Doom VFR) that predate current xrizer/OpenXR support.
+use super::{UNKNOWN_TAG, Wrapper};
 use log::{debug, info};
 use openvr as vr;
 use openxr as xr;
 use std::borrow::Cow;
 use std::ffi::{CStr, c_char, c_void};
 use std::path::{Path, PathBuf};
-use super::{Wrapper, UNKNOWN_TAG};
 
 // Mirrors the gen_vtable! macro from the parent module.
 macro_rules! gen_vtable {
@@ -72,8 +72,7 @@ fn copy_cstring_to_buffer(text: &[u8], buffer: *mut c_char, buffer_len: u32) -> 
 
 fn steamvr_resources_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
-    let path = Path::new(&home)
-        .join(".local/share/Steam/steamapps/common/SteamVR/resources");
+    let path = Path::new(&home).join(".local/share/Steam/steamapps/common/SteamVR/resources");
     path.is_dir().then_some(path)
 }
 
@@ -118,10 +117,18 @@ fn default_play_area_rect() -> vr::HmdQuad_t {
     let half_extent = DEFAULT_PLAY_AREA_SIZE * 0.5;
     vr::HmdQuad_t {
         vCorners: [
-            vr::HmdVector3_t { v: [-half_extent, 0.0, -half_extent] },
-            vr::HmdVector3_t { v: [half_extent, 0.0, -half_extent] },
-            vr::HmdVector3_t { v: [half_extent, 0.0, half_extent] },
-            vr::HmdVector3_t { v: [-half_extent, 0.0, half_extent] },
+            vr::HmdVector3_t {
+                v: [-half_extent, 0.0, -half_extent],
+            },
+            vr::HmdVector3_t {
+                v: [half_extent, 0.0, -half_extent],
+            },
+            vr::HmdVector3_t {
+                v: [half_extent, 0.0, half_extent],
+            },
+            vr::HmdVector3_t {
+                v: [-half_extent, 0.0, half_extent],
+            },
         ],
     }
 }

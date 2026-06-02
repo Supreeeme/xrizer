@@ -1621,8 +1621,6 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         vr::EVRInputError::None
     }
 
-
-
     fn UpdateActionState(
         &self,
         active_sets: *mut vr::VRActiveActionSet_t,

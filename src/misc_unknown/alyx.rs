@@ -1,9 +1,9 @@
 // Undocumented OpenVR interfaces used by Half-Life: Alyx.
+use super::{UNKNOWN_TAG, Wrapper};
 use log::debug;
 use seq_macro::seq;
 use std::ffi::{CStr, c_char, c_int};
 use std::sync::atomic::{AtomicBool, Ordering};
-use super::{Wrapper, UNKNOWN_TAG};
 
 // Mirrors the gen_vtable! macro from the parent module.
 macro_rules! gen_vtable {

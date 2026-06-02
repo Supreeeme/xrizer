@@ -448,8 +448,6 @@ impl vr::IVRSystem026_Interface for System {
         }
     }
 
-
-
     fn GetEventTypeNameFromEnum(&self, _: vr::EVREventType) -> *const std::os::raw::c_char {
         todo!()
     }
@@ -880,7 +878,12 @@ impl vr::IVRSystem026_Interface for System {
         _nVersionMinor: u32,
         _nVersionBuild: u32,
     ) -> vr::EVRInitError {
-        log::info!("SetSDKVersion({}.{}.{})", _nVersionMajor, _nVersionMinor, _nVersionBuild);
+        log::info!(
+            "SetSDKVersion({}.{}.{})",
+            _nVersionMajor,
+            _nVersionMinor,
+            _nVersionBuild
+        );
         vr::EVRInitError::None
     }
 }

@@ -229,9 +229,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let per_profile_input_paths = per_profile_input_paths
             .into_iter()
-            .map(|(profile, map)| {
-                (profile, action_map_to_secondary(&mut act_guard, map))
-            })
+            .map(|(profile, map)| (profile, action_map_to_secondary(&mut act_guard, map)))
             .collect();
 
         let loaded = super::ManifestLoadedActions {
@@ -447,11 +445,14 @@ impl<C: openxr_data::Compositor> Input<C> {
             P::profile_path()
         );
 
-        let all: Vec<xr::Binding<'_>> = base_bindings.iter().copied()
+        let all: Vec<xr::Binding<'_>> = base_bindings
+            .iter()
+            .copied()
             .chain(manifest_bindings.iter().copied())
             .collect();
 
-        let combined_result = self.openxr
+        let combined_result = self
+            .openxr
             .instance
             .suggest_interaction_profile_bindings(profile_path, &all);
 
@@ -465,22 +466,37 @@ impl<C: openxr_data::Compositor> Input<C> {
             let total = manifest_bindings.len();
             let mut good: Vec<xr::Binding<'_>> = Vec::new();
             for &b in &manifest_bindings {
-                match self.openxr.instance.suggest_interaction_profile_bindings(profile_path, &[b]) {
+                match self
+                    .openxr
+                    .instance
+                    .suggest_interaction_profile_bindings(profile_path, &[b])
+                {
                     Ok(()) => good.push(b),
                     Err(_) => {}
                 }
             }
             if good.is_empty() {
-                warn!("No manifest bindings for {} — using base bindings only", P::profile_path());
+                warn!(
+                    "No manifest bindings for {} — using base bindings only",
+                    P::profile_path()
+                );
             } else {
-                let all_good: Vec<_> = base_bindings.iter().copied()
+                let all_good: Vec<_> = base_bindings
+                    .iter()
+                    .copied()
                     .chain(good.iter().copied())
                     .collect();
                 let skipped = total - good.len();
                 if skipped > 0 {
-                    warn!("{skipped}/{total} manifest bindings skipped for {}", P::profile_path());
+                    warn!(
+                        "{skipped}/{total} manifest bindings skipped for {}",
+                        P::profile_path()
+                    );
                 }
-                self.openxr.instance.suggest_interaction_profile_bindings(profile_path, &all_good).ok();
+                self.openxr
+                    .instance
+                    .suggest_interaction_profile_bindings(profile_path, &all_good)
+                    .ok();
             }
         }
 

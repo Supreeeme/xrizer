@@ -45,36 +45,26 @@ impl InterfaceImpl for UnknownInterfaces {
             x if x == c"IVRControlPanel_006" => {
                 Some(Box::new(|this| &this.control_panel as *const _ as _))
             }
-            x if x == c"IVRChaperoneSetup_005" => {
-                Some(Box::new(|this| {
-                    info!(target: UNKNOWN_TAG, "providing legacy interface IVRChaperoneSetup_005");
-                    &this.chaperone_setup as *const _ as _
-                }))
-            }
-            x if x == c"IVRExtendedDisplay_001" => {
-                Some(Box::new(|this| {
-                    info!(target: UNKNOWN_TAG, "providing legacy interface IVRExtendedDisplay_001");
-                    &this.extended_display as *const _ as _
-                }))
-            }
-            x if x == c"IVRTrackedCamera_003" => {
-                Some(Box::new(|this| {
-                    info!(target: UNKNOWN_TAG, "providing legacy interface IVRTrackedCamera_003");
-                    &this.tracked_camera as *const _ as _
-                }))
-            }
-            x if x == c"IVRResources_001" => {
-                Some(Box::new(|this| {
-                    info!(target: UNKNOWN_TAG, "providing legacy interface IVRResources_001");
-                    &this.resources as *const _ as _
-                }))
-            }
-            x if x == c"IVRDriverManager_001" => {
-                Some(Box::new(|this| {
-                    info!(target: UNKNOWN_TAG, "providing legacy interface IVRDriverManager_001");
-                    &this.driver_manager as *const _ as _
-                }))
-            }
+            x if x == c"IVRChaperoneSetup_005" => Some(Box::new(|this| {
+                info!(target: UNKNOWN_TAG, "providing legacy interface IVRChaperoneSetup_005");
+                &this.chaperone_setup as *const _ as _
+            })),
+            x if x == c"IVRExtendedDisplay_001" => Some(Box::new(|this| {
+                info!(target: UNKNOWN_TAG, "providing legacy interface IVRExtendedDisplay_001");
+                &this.extended_display as *const _ as _
+            })),
+            x if x == c"IVRTrackedCamera_003" => Some(Box::new(|this| {
+                info!(target: UNKNOWN_TAG, "providing legacy interface IVRTrackedCamera_003");
+                &this.tracked_camera as *const _ as _
+            })),
+            x if x == c"IVRResources_001" => Some(Box::new(|this| {
+                info!(target: UNKNOWN_TAG, "providing legacy interface IVRResources_001");
+                &this.resources as *const _ as _
+            })),
+            x if x == c"IVRDriverManager_001" => Some(Box::new(|this| {
+                info!(target: UNKNOWN_TAG, "providing legacy interface IVRDriverManager_001");
+                &this.driver_manager as *const _ as _
+            })),
             _ => None,
         }
     }
