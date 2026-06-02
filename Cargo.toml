@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 
 [features]
 default = ["monado"]
+static-openxr = ["openxr/static"]
 tracing = ["dep:tracy-client", "openvr/tracing"]
 monado = ["dep:openxr_mndx_xdev_space"]
 
@@ -32,7 +33,7 @@ openxr-sys = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3" }
 
 [workspace.dependencies]
 ash = "0.38.0"
-openxr = { version = "0.19.0", features = ["static"] }
+openxr = { version = "0.19.0" }
 openxr-sys = { version = "0.11.0" }
 slotmap = "1.0.7"
 glam = "0.30.4"

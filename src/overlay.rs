@@ -123,12 +123,12 @@ impl OverlayMan {
                             orientation: xr::Quaternionf { x: 1.0, y: 0.0, z: 0.0, w: 0.0 },
                         },
                         xr::Posef { // left
-                            position: xr::Vector3f { x: -SKYBOX_SIZE, y: 0.0, z: 0.0 },
-                            orientation: xr::Quaternionf { x: FRAC_1_SQRT_2, y: 0.0, z: FRAC_1_SQRT_2, w: 0.0 },
-                        },
-                        xr::Posef { // right
                             position: xr::Vector3f { x: SKYBOX_SIZE, y: 0.0, z: 0.0 },
                             orientation: xr::Quaternionf { x: -FRAC_1_SQRT_2, y: 0.0, z: FRAC_1_SQRT_2, w: 0.0 },
+                        },
+                        xr::Posef { // right
+                            position: xr::Vector3f { x: -SKYBOX_SIZE, y: 0.0, z: 0.0 },
+                            orientation: xr::Quaternionf { x: FRAC_1_SQRT_2, y: 0.0, z: FRAC_1_SQRT_2, w: 0.0 },
                         },
                         xr::Posef { // up
                             position: xr::Vector3f { x: 0.0, y: SKYBOX_SIZE, z: 0.0 },
@@ -324,7 +324,7 @@ impl OverlayMan {
         }
 
         // Sort by z_order asc
-        layers.sort_by(|a, b| a.0.cmp(&b.0));
+        layers.sort_by_key(|a| a.0);
 
         let sorted_layers: Vec<OverlayLayer<_>> = layers.into_iter().map(|(_, l)| l).collect();
 

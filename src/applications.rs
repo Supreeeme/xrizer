@@ -6,12 +6,12 @@ use std::process::Command;
 
 #[derive(Default, macros::InterfaceImpl)]
 #[interface = "IVRApplications"]
-#[versions(007, 006, 005, 004, 003, 002)]
+#[versions(008, 007, 006, 005, 004, 003, 002)]
 pub struct Applications {
     vtables: Vtables,
 }
 
-impl vr::IVRApplications007_Interface for Applications {
+impl vr::IVRApplications008_Interface for Applications {
     fn GetCurrentSceneProcessId(&self) -> u32 {
         todo!()
     }
@@ -184,6 +184,11 @@ impl vr::IVRApplications007_Interface for Applications {
     }
     fn AddApplicationManifest(&self, _: *const c_char, _: bool) -> vr::EVRApplicationError {
         crate::warn_unimplemented!("AddApplicationManifest");
+        vr::EVRApplicationError::None
+    }
+
+    fn RegisterSubprocess(&self, _: u32) -> vr::EVRApplicationError {
+        crate::warn_unimplemented!("RegisterSubprocess");
         vr::EVRApplicationError::None
     }
 }

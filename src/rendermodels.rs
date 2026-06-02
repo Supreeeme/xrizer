@@ -621,7 +621,7 @@ impl OwnedRenderModel {
             normals[ic] += n;
         }
 
-        for (v, n) in verts.iter_mut().zip(normals.into_iter()) {
+        for (v, n) in verts.iter_mut().zip(normals) {
             let n = if n.length_squared() > 0.0 {
                 n.normalize()
             } else {
