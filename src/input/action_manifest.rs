@@ -466,13 +466,12 @@ impl<C: openxr_data::Compositor> Input<C> {
             let total = manifest_bindings.len();
             let mut good: Vec<xr::Binding<'_>> = Vec::new();
             for &b in &manifest_bindings {
-                match self
+                if let Ok(()) = self
                     .openxr
                     .instance
                     .suggest_interaction_profile_bindings(profile_path, &[b])
                 {
-                    Ok(()) => good.push(b),
-                    Err(_) => {}
+                    good.push(b)
                 }
             }
             if good.is_empty() {
