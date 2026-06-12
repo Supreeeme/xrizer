@@ -91,6 +91,24 @@
 							"output": "/actions/set1/in/boolact"
 						}
 					},
+					"mode": "trigger",
+					"path": "/user/hand/left/input/trigger"
+				},
+				{
+					"inputs": {
+						"touch": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "button",
+					"path": "/user/hand/left/input/thumbrest"
+				},
+				{
+					"inputs": {
+						"click": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
 					"mode": "button",
 					"path": "/user/hand/left/input/grip"
 				},
