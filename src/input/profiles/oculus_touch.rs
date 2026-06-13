@@ -4,7 +4,7 @@ use super::{
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
-use crate::input::profiles::{DynInputPath, InputToXrPath};
+use crate::input::profiles::InputToXrPath;
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
 
@@ -62,6 +62,14 @@ impl InteractionProfile for OculusTouch {
     }
     fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
         match path {
+            DynInputPath {
+                subpath: DynSubpath::Trackpad,
+                ..
+            } => Some(DynInputPath {
+                hand: path.hand,
+                subpath: DynSubpath::Thumbstick,
+                component: path.component,
+            }),
             p @ DynInputPath {
                 subpath: DynSubpath::Squeeze | DynSubpath::Trigger,
                 component: Some(DynComponent::Click),
@@ -75,39 +83,6 @@ impl InteractionProfile for OculusTouch {
     }
     fn has_required_extensions(_: &openxr::ExtensionSet) -> bool {
         true
-    }
-
-    fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
-        use super::paths::DynSubpath;
-        match path {
-            DynInputPath {
-                subpath: DynSubpath::Trackpad,
-                ..
-            } => Some(DynInputPath {
-                hand: path.hand,
-                subpath: DynSubpath::Thumbstick,
-                component: path.component,
-            }),
-            DynInputPath {
-                hand,
-                subpath: DynSubpath::Squeeze,
-                component: Some(super::paths::DynComponent::Click),
-            } => Some(DynInputPath {
-                hand,
-                subpath: DynSubpath::Squeeze,
-                component: Some(super::paths::DynComponent::Value),
-            }),
-            DynInputPath {
-                hand,
-                subpath: DynSubpath::Trigger,
-                component: Some(super::paths::DynComponent::Click),
-            } => Some(DynInputPath {
-                hand,
-                subpath: DynSubpath::Trigger,
-                component: Some(super::paths::DynComponent::Value),
-            }),
-            _ => None,
-        }
     }
 
     fn legacy_bindings(c: &InputToXrPath<Self>) -> LegacyBindings {
