@@ -301,7 +301,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
             match controller_type {
                 actions::ControllerType::Unknown(ref other) => {
-                    debug!("Ignoring bindings for unknown profile {other}")
+                    info!("Ignoring bindings for unknown profile {other}")
                 }
                 ref other => {
                     let mut runner = Runner(self, context, bindings);
@@ -358,7 +358,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         for (action_set_name, bindings) in bindings.iter() {
             let Some(set) = context.get_action_set(action_set_name) else {
-                debug!("Action set {action_set_name} missing.");
+                warn!("Action set {action_set_name} missing.");
                 continue;
             };
 

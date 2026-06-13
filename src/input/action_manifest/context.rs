@@ -176,7 +176,7 @@ impl BindingsProfileLoadContext<'_> {
         let ret = self.actions.contains_key(name);
         if !ret {
             let caller = std::panic::Location::caller();
-            debug!(
+            warn!(
                 "Couldn't find action {name}, skipping (line {})",
                 caller.line()
             );
