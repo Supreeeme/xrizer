@@ -183,9 +183,7 @@ impl<Inputs, Parameters> ActionBindingData<Inputs, Parameters> {
                 inputs: &self.inputs,
                 parameters: self.parameters.as_ref(),
             }),
-            MaybeInputPath::Invalid { .. } => {
-                None
-            }
+            MaybeInputPath::Invalid { .. } => None,
         }
     }
 }
@@ -925,8 +923,7 @@ pub fn handle_skeleton_bindings(
                     }
                 };
 
-                if bound_hand != *hand {
-                }
+                if bound_hand != *hand {}
             }
             _ => {
                 continue;
