@@ -544,9 +544,9 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     fakexr::set_aim(f.raw_session(), LeftHand, pose);
 
     let seated_origin = vr::ETrackingUniverseOrigin::Seated;
-    let waitgetposes_pose = f
-        .input
-        .get_controller_pose(super::Hand::Left, Some(seated_origin));
+    let waitgetposes_pose =
+        f.input
+            .get_controller_pose(super::Hand::Left, Some(seated_origin), None);
 
     let mut raw_pose = vr::InputPoseActionData_t {
         pose: vr::TrackedDevicePose_t {

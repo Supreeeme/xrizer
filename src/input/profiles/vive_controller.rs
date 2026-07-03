@@ -1,6 +1,6 @@
 use super::{
-    DynInputPath, InteractionProfile, MainAxisType, ProfileProperties, Property,
-    SkeletalInputBindings,
+    BoundPoseType, DynInputPath, InteractionProfile, MainAxisType, PoseTransformations,
+    ProfileProperties, Property, SkeletalInputBindings,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
@@ -109,6 +109,10 @@ impl InteractionProfile for ViveWands {
 
     fn offset_grip_pose(_: Hand) -> Mat4 {
         Mat4::IDENTITY
+    }
+
+    fn pose_transformation(_pose: BoundPoseType) -> Option<PoseTransformations> {
+        None
     }
 }
 

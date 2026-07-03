@@ -297,7 +297,7 @@ struct BoundPose {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum BoundPoseType {
+pub enum BoundPoseType {
     /// Equivalent to what is returned by WaitGetPoses, this appears to be the same or close to
     /// OpenXR's grip pose in the same position as the aim pose.
     /// "All tracked devices also get two pose components registered regardless of what render model they use: /pose/raw and /pose/tip"
@@ -307,8 +307,16 @@ enum BoundPoseType {
     /// "If you provide /pose/tip in your rendermodel you should set it to the position and rotation that are appropriate for pointing (i.e. with a laser pointer) with your controller."
     /// ~https://github.com/ValveSoftware/openvr/wiki/Input-Profiles#pose-components
     Tip,
+    Base,
     /// Not sure why games still use this, but having it be equivalent to raw seems to work fine.
     Gdc2015,
+    Handgrip,
+    Grip,
+    OpenxrHandmodel,
+    OpenxrPinch,
+    OpenxrPoke,
+    OpenxrAim,
+    OpenxrGrip,
 }
 
 macro_rules! get_action_from_handle {
@@ -745,7 +753,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                 .map(|h| (hand, h.profile_path))
                 .unzip()
         };
-        let (active_origin, hand) = match loaded.try_get_action(action) {
+        let (active_origin, hand, pose_type) = match loaded.try_get_action(action) {
             Ok(ActionData::Pose) => {
                 let (mut hand, interaction_profile) = match subaction_path {
                     x if x == self.get_subaction_path(Hand::Left) => get_hand(Hand::Left),
@@ -795,7 +803,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                     }
                 };
 
-                let Some(ty) = pose_type else {
+                if pose_type.is_none() {
                     trace!("action has no bindings for the hand {hand:?}");
                     no_data!()
                 };
@@ -806,20 +814,13 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                     Hand::Right => self.right_hand_key.data().as_ffi(),
                 });
 
-                match ty {
-                    BoundPoseType::Raw | BoundPoseType::Gdc2015 => (origin, hand),
-                    BoundPoseType::Tip => {
-                        // ToDo: Check if render model has a tip pose otherwise use raw pose
-                        // For now, just use the raw pose
-                        (origin, hand)
-                    }
-                }
+                (origin, hand, pose_type)
             }
             Ok(ActionData::Skeleton(hand)) => {
                 if subaction_path != xr::Path::NULL {
                     return vr::EVRInputError::InvalidDevice;
                 }
-                (0, *hand)
+                (0, *hand, None)
             }
             Ok(_) => return vr::EVRInputError::WrongType,
             Err(e) => return e,
@@ -830,7 +831,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
 
         unsafe {
             let pose = self
-                .get_controller_pose(hand, Some(origin))
+                .get_controller_pose(hand, Some(origin), pose_type)
                 .unwrap_or_default();
             action_data.write(vr::InputPoseActionData_t {
                 bActive: true,
