@@ -329,7 +329,7 @@ impl vr::IVRSystem026_Interface for System {
         false
     }
     fn IsSteamVRDrawingControllers(&self) -> bool {
-        todo!()
+        false
     }
     fn IsInputAvailable(&self) -> bool {
         true
