@@ -1014,14 +1014,14 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         active_set_size: u32,
         active_set_count: u32,
     ) -> vr::EVRInputError {
+        // alyx, portal 2 ce
+        if active_set_count == 0 || active_set_size == 0 {
+            return vr::EVRInputError::NoActiveActionSet;
+        }
         assert_eq!(
             active_set_size as usize,
             std::mem::size_of::<vr::VRActiveActionSet_t>()
         );
-        // alyx
-        if active_set_count == 0 {
-            return vr::EVRInputError::NoActiveActionSet;
-        }
 
         let active_sets =
             unsafe { std::slice::from_raw_parts(active_sets, active_set_count as usize) };
