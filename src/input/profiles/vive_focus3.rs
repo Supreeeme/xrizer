@@ -121,28 +121,7 @@ impl InteractionProfile for ViveFocus3 {
     }
 
     fn offset_grip_pose(hand: Hand) -> Mat4 {
-        match hand {
-            Hand::Left => Mat4::from_rotation_translation(
-                Quat::from_euler(
-                    EulerRot::XYZ,
-                    20.6_f32.to_radians(),
-                    0.0_f32.to_radians(),
-                    0.0_f32.to_radians(),
-                ),
-                Vec3::new(0.007, -0.00182941, 0.1019482),
-            )
-            .inverse(),
-            Hand::Right => Mat4::from_rotation_translation(
-                Quat::from_euler(
-                    EulerRot::XYZ,
-                    20.6_f32.to_radians(),
-                    0.0_f32.to_radians(),
-                    0.0_f32.to_radians(),
-                ),
-                Vec3::new(-0.007, -0.00182941, 0.1019482),
-            )
-            .inverse(),
-        }
+        super::offset_grip_pose_from_pose_type::<ViveFocus3>(hand, BoundPoseType::OpenxrGrip)
     }
 
     /// Derived from `SteamVR/drivers/vrlink/resources/rendermodels/vive_focus3_controller*/*.json`

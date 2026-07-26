@@ -124,28 +124,7 @@ impl InteractionProfile for Knuckles {
     }
 
     fn offset_grip_pose(hand: Hand) -> Mat4 {
-        match hand {
-            Hand::Left => Mat4::from_rotation_translation(
-                Quat::from_euler(
-                    EulerRot::XYZ,
-                    15.392_f32.to_radians(),
-                    -2.071_f32.to_radians(),
-                    0.303_f32.to_radians(),
-                ),
-                Vec3::new(0.0, -0.015, 0.13),
-            )
-            .inverse(),
-            Hand::Right => Mat4::from_rotation_translation(
-                Quat::from_euler(
-                    EulerRot::XYZ,
-                    15.392_f32.to_radians(),
-                    2.071_f32.to_radians(),
-                    -0.303_f32.to_radians(),
-                ),
-                Vec3::new(0.0, -0.015, 0.13),
-            )
-            .inverse(),
-        }
+        super::offset_grip_pose_from_pose_type::<Knuckles>(hand, BoundPoseType::Grip)
     }
 
     /// Derived from `SteamVR/drivers/indexcontroller/resources/rendermodels/valve_controller_knu_1_0*/*.json`

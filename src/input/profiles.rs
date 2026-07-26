@@ -39,6 +39,23 @@ pub trait InteractionProfile: SupportedProfile + Sized + 'static {
     fn pose_transformation(pose: BoundPoseType) -> Option<PoseTransformations>;
 }
 
+/// Helper for generating `offset_grip_pose` methods via `pose_transformation`
+/// & a `BoundPoseType`.
+///
+/// Looks up the proper matrix for the hand+type & inverts it, defaulting back
+/// to the identity matrix.
+fn offset_grip_pose_from_pose_type<P: InteractionProfile>(
+    hand: Hand,
+    pose_type: BoundPoseType,
+) -> Mat4 {
+    P::pose_transformation(pose_type)
+        .map_or(Mat4::IDENTITY, |pose_transform| match hand {
+            Hand::Left => pose_transform.left_hand,
+            Hand::Right => pose_transform.right_hand,
+        })
+        .inverse()
+}
+
 pub(super) trait RunWithProfile {
     fn run<P: InteractionProfile>(&mut self);
     fn keep_running(&self) -> bool {
