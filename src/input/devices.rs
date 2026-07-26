@@ -91,6 +91,7 @@ pub struct TrackedDevice {
     pub profile_path: xr::Path,
     pub connected: bool,
     pub previous_connected: bool,
+    /// Per-frame cache of device's _Raw_ pose.
     pose_cache: Mutex<Option<vr::TrackedDevicePose_t>>,
 }
 
@@ -139,43 +140,10 @@ fn get_controller_pose(
         (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
     };
 
-    // Transform controller location & orientation based on profile's hand+pose transformation
-    // matrix.
-    if let Some(location_transform) = pose_type.and_then(|p_type| {
-        controller.profile_data.as_ref().and_then(|profile_data| {
-            profile_data.pose_transformation(controller.get_controller_hand().unwrap(), p_type)
-        })
-    }) {
-        let raw_pose = location.pose;
-        let pose_mat = Mat4::from_rotation_translation(
-            Quat::from_xyzw(
-                raw_pose.orientation.x,
-                raw_pose.orientation.y,
-                raw_pose.orientation.z,
-                raw_pose.orientation.w,
-            ),
-            Vec3 {
-                x: raw_pose.position.x,
-                y: raw_pose.position.y,
-                z: raw_pose.position.z,
-            },
-        );
-        let (_, new_quat, new_vec) =
-            (pose_mat * location_transform).to_scale_rotation_translation();
-        let [quat_x, quat_y, quat_z, quat_w] = new_quat.to_array();
-        location.pose = xr::Posef {
-            orientation: xr::Quaternionf {
-                x: quat_x,
-                y: quat_y,
-                z: quat_z,
-                w: quat_w,
-            },
-            position: xr::Vector3f {
-                x: new_vec.x,
-                y: new_vec.y,
-                z: new_vec.z,
-            },
-        };
+    // Transform location & orientation based on profile's hand+pose
+    // transformation matrix.
+    if let Some(p_type) = pose_type {
+        location.pose = controller.transform_pose(location.pose, p_type);
     }
 
     Some(vr::space_relation_to_openvr_pose(location, velocity))
@@ -225,25 +193,35 @@ impl TrackedDevice {
         origin: vr::ETrackingUniverseOrigin,
         pose_type: Option<BoundPoseType>,
     ) -> Option<vr::TrackedDevicePose_t> {
+        // Grab or generate the cached Raw pose
         let mut pose_cache = self.pose_cache.lock().unwrap();
-        if let Some(pose) = *pose_cache
-            && pose_type.is_none()
-        {
-            return Some(pose);
-        }
+        let cache_val = if let Some(pose) = *pose_cache {
+            Some(pose)
+        } else {
+            *pose_cache = match self.device_type {
+                TrackedDeviceType::Hmd => get_hmd_pose(xr_data, session_data, origin),
+                TrackedDeviceType::Controller { .. } => {
+                    get_controller_pose(xr_data, session_data, self, origin, None)
+                }
+                #[cfg(feature = "monado")]
+                TrackedDeviceType::GenericTracker { .. } => {
+                    get_generic_tracker_pose(xr_data, session_data, self, origin)
+                }
+            };
 
-        *pose_cache = match self.device_type {
-            TrackedDeviceType::Hmd => get_hmd_pose(xr_data, session_data, origin),
-            TrackedDeviceType::Controller { .. } => {
-                get_controller_pose(xr_data, session_data, self, origin, pose_type)
-            }
-            #[cfg(feature = "monado")]
-            TrackedDeviceType::GenericTracker { .. } => {
-                get_generic_tracker_pose(xr_data, session_data, self, origin)
-            }
+            *pose_cache
         };
 
-        *pose_cache
+        // Return the raw pose or the transformed pose based on given `pose_type`
+        cache_val
+            .zip(pose_type)
+            .map(|(mut val, p_type)| {
+                val.mDeviceToAbsoluteTracking = vr::HmdMatrix34_t::from(
+                    self.transform_pose(xr::Posef::from(val.mDeviceToAbsoluteTracking), p_type),
+                );
+                val
+            })
+            .or(cache_val)
     }
 
     pub fn get_hand_skeleton(
@@ -296,6 +274,51 @@ impl TrackedDevice {
             TrackedDeviceType::Controller { hand, .. } => Some(hand),
             _ => None,
         }
+    }
+
+    /// Modify a pose's position & orientation if the device defines a
+    /// transformation for the given pose type.
+    pub fn transform_pose(&self, raw_pose: xr::Posef, pose_type: BoundPoseType) -> xr::Posef {
+        self.profile_data
+            .as_ref()
+            .and_then(|profile_data| {
+                self.get_controller_hand().and_then(|hand| {
+                    profile_data
+                        .pose_transformation(hand, pose_type)
+                        .map(|location_transform| {
+                            let pose_mat = Mat4::from_rotation_translation(
+                                Quat::from_xyzw(
+                                    raw_pose.orientation.x,
+                                    raw_pose.orientation.y,
+                                    raw_pose.orientation.z,
+                                    raw_pose.orientation.w,
+                                ),
+                                Vec3 {
+                                    x: raw_pose.position.x,
+                                    y: raw_pose.position.y,
+                                    z: raw_pose.position.z,
+                                },
+                            );
+                            let (_, new_quat, new_vec) =
+                                (pose_mat * location_transform).to_scale_rotation_translation();
+                            let [quat_x, quat_y, quat_z, quat_w] = new_quat.to_array();
+                            xr::Posef {
+                                orientation: xr::Quaternionf {
+                                    x: quat_x,
+                                    y: quat_y,
+                                    z: quat_z,
+                                    w: quat_w,
+                                },
+                                position: xr::Vector3f {
+                                    x: new_vec.x,
+                                    y: new_vec.y,
+                                    z: new_vec.z,
+                                },
+                            }
+                        })
+                })
+            })
+            .unwrap_or(raw_pose)
     }
 
     fn get_string_property(&self, property: vr::ETrackedDeviceProperty) -> Option<&CStr> {
