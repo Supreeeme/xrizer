@@ -35,7 +35,10 @@ pub trait InteractionProfile: SupportedProfile + Sized + 'static {
     fn skeletal_input_bindings(converter: &InputToXrPath<Self>) -> SkeletalInputBindings;
     /// Can be extracted from SteamVR rendermodel files, it is the inverse of the "grip" or "openxr_grip" value
     fn offset_grip_pose(_: Hand) -> Mat4;
-    /// Can be extracted from SteamVR controller driver JSON, `component.{tip,base,etc}`
+    /// Can be extracted from SteamVR controller driver JSON, `component.{tip,base,etc}`.
+    ///
+    /// You can use the `resources/generate_pose_transforms.py` script to generate
+    /// these for you.
     fn pose_transformation(pose: BoundPoseType) -> Option<PoseTransformations>;
 }
 
