@@ -754,7 +754,11 @@ impl BoolCustomBinding for DoubleTapData {
                     elapsed
                         .as_nanos()
                         .try_into()
-                        .expect("XrTime should never be negative"),
+                        // A controller's clock can briefly run backwards (a sample
+                        // timestamped in the past), making elapsed negative. Out of
+                        // order events are equivalent to zero elapsed time here, so
+                        // clamp instead of panicking.
+                        .unwrap_or(0),
                 );
                 elapsed.as_millis() <= Self::TIMEOUT_MS
             };
