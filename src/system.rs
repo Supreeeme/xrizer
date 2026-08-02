@@ -578,9 +578,21 @@ impl vr::IVRSystem026_Interface for System {
                 // something to even get the game to recognize the HMD's location. However, the value
                 // itself doesn't appear to be that important.
                 vr::ETrackedDeviceProperty::SerialNumber_String
-                | vr::ETrackedDeviceProperty::ManufacturerName_String
                 | vr::ETrackedDeviceProperty::ControllerType_String => {
                     Some(CString::new("<unknown>").unwrap())
+                }
+                // Some games sniff the HMD's tracking system/model/vendor strings to
+                // decide which motion controller scheme to enable. If these are empty,
+                // such games fall back to "no supported controllers" and ignore all
+                // controller input while menus still work via mouse.
+                vr::ETrackedDeviceProperty::TrackingSystemName_String => {
+                    Some(CString::new("oculus").unwrap())
+                }
+                vr::ETrackedDeviceProperty::ModelNumber_String => {
+                    Some(CString::new("Oculus Quest3").unwrap())
+                }
+                vr::ETrackedDeviceProperty::ManufacturerName_String => {
+                    Some(CString::new("Oculus").unwrap())
                 }
                 _ => None,
             },
@@ -1088,5 +1100,7 @@ mod tests {
         test_prop(vr::ETrackedDeviceProperty::SerialNumber_String);
         test_prop(vr::ETrackedDeviceProperty::ManufacturerName_String);
         test_prop(vr::ETrackedDeviceProperty::ControllerType_String);
+        test_prop(vr::ETrackedDeviceProperty::TrackingSystemName_String);
+        test_prop(vr::ETrackedDeviceProperty::ModelNumber_String);
     }
 }
