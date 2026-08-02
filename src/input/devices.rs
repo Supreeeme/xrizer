@@ -214,6 +214,7 @@ impl TrackedDevice {
 
         // Return the raw pose or the transformed pose based on given `pose_type`
         cache_val
+            .filter(|val| val.bPoseIsValid)
             .zip(pose_type)
             .map(|(mut val, p_type)| {
                 val.mDeviceToAbsoluteTracking = vr::HmdMatrix34_t::from(
