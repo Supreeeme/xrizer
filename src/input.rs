@@ -949,7 +949,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                 .map(|h| (hand, h.profile_path))
                 .unzip()
         };
-        let (active_origin, hand) = match loaded.try_get_action(action) {
+        let (active_origin, hand, pose_type) = match loaded.try_get_action(action) {
             Ok(ActionData::Pose) => {
                 let (mut hand, interaction_profile) = match subaction_path {
                     x if x == self.get_subaction_path(Hand::Left) => get_hand(Hand::Left),
@@ -1010,20 +1010,13 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                     Hand::Right => self.right_hand_key.data().as_ffi(),
                 });
 
-                match ty {
-                    BoundPoseType::Raw | BoundPoseType::Gdc2015 => (origin, hand),
-                    BoundPoseType::Tip => {
-                        // ToDo: Check if render model has a tip pose otherwise use raw pose
-                        // For now, just use the raw pose
-                        (origin, hand)
-                    }
-                }
+                (origin, hand, ty)
             }
             Ok(ActionData::Skeleton(hand)) => {
                 if subaction_path != xr::Path::NULL {
                     return vr::EVRInputError::InvalidDevice;
                 }
-                (0, *hand)
+                (0, *hand, BoundPoseType::Raw)
             }
             Ok(_) => return vr::EVRInputError::WrongType,
             Err(e) => return e,
@@ -1033,9 +1026,13 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         drop(data);
 
         unsafe {
-            let pose = self
-                .get_controller_pose(hand, Some(origin))
-                .unwrap_or_default();
+            let pose = match pose_type {
+                BoundPoseType::Tip => self.get_controller_tip_pose(hand, Some(origin)),
+                BoundPoseType::Raw | BoundPoseType::Gdc2015 => {
+                    self.get_controller_pose(hand, Some(origin))
+                }
+            }
+            .unwrap_or_default();
             action_data.write(vr::InputPoseActionData_t {
                 bActive: true,
                 activeOrigin: active_origin,
@@ -1921,11 +1918,13 @@ impl PoseData {
                 hand: Hand::Left,
                 hand_path: left_path,
                 raw: RwLock::default(),
+                tip: RwLock::default(),
             },
             right_space: HandSpace {
                 hand: Hand::Right,
                 hand_path: right_path,
                 raw: RwLock::default(),
+                tip: RwLock::default(),
             },
         }
     }
@@ -1942,6 +1941,10 @@ struct HandSpace {
     /// Based on the controller jsons in SteamVR, the "raw" pose
     /// This is stored as a space so we can locate hand joints relative to it for skeletal data.
     raw: RwLock<Option<xr::Space>>,
+
+    /// SteamVR's /pose/tip - the pointing pose, from the "tip" component in the
+    /// controller's render model json. Used for laser pointers/menu cursors.
+    tip: RwLock<Option<xr::Space>>,
 }
 
 struct SpaceReadGuard<'a>(RwLockReadGuard<'a, Option<xr::Space>>);
@@ -2000,7 +2003,55 @@ impl HandSpace {
         Some(SpaceReadGuard(self.raw.read().unwrap()))
     }
 
+    pub fn try_get_or_init_tip(
+        &self,
+        hand_profile: &Option<ProfileData>,
+        session_data: &SessionData,
+        pose_data: &PoseData,
+    ) -> Option<SpaceReadGuard<'_>> {
+        {
+            let tip = self.tip.read().unwrap();
+            if tip.is_some() {
+                return Some(SpaceReadGuard(tip));
+            }
+        }
+        {
+            let Some(profile) = hand_profile.as_ref() else {
+                trace!("no hand profile, no tip space will be created");
+                return None;
+            };
+
+            let offset = profile.tip_offset(self.hand);
+            let translation = offset.w_axis.truncate();
+            let rotation = Quat::from_mat4(&offset);
+
+            let offset_pose = xr::Posef {
+                orientation: xr::Quaternionf {
+                    x: rotation.x,
+                    y: rotation.y,
+                    z: rotation.z,
+                    w: rotation.w,
+                },
+                position: xr::Vector3f {
+                    x: translation.x,
+                    y: translation.y,
+                    z: translation.z,
+                },
+            };
+
+            *self.tip.write().unwrap() = Some(
+                pose_data
+                    .grip
+                    .create_space(&session_data.session, self.hand_path, offset_pose)
+                    .unwrap(),
+            );
+        }
+
+        Some(SpaceReadGuard(self.tip.read().unwrap()))
+    }
+
     pub fn reset_raw(&self) {
         *self.raw.write().unwrap() = None;
+        *self.tip.write().unwrap() = None;
     }
 }

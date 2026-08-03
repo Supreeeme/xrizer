@@ -50,6 +50,7 @@ impl std::fmt::Debug for TrackedDeviceType {
 pub struct ProfileData {
     properties: &'static ProfileProperties,
     get_hand_offset: fn(Hand) -> Mat4,
+    get_tip_offset: fn(Hand) -> Mat4,
     get_render_model_component: fn(super::profiles::paths::DynSubpath) -> Option<&'static CStr>,
     /// For Knuckles, the skeleton thumb tries to accurately match where the physical
     /// thumb is, e.g. the curl depends on which part of the touchpad is being touched,
@@ -65,6 +66,7 @@ impl ProfileData {
         Self {
             properties: P::properties(),
             get_hand_offset: P::offset_grip_pose,
+            get_tip_offset: P::offset_tip_pose,
             get_render_model_component: P::render_model_component,
             force_estimated_thumb: TypeId::of::<P>() == TypeId::of::<Knuckles>(),
         }
@@ -73,6 +75,11 @@ impl ProfileData {
     #[inline]
     pub fn hand_offset(&self, hand: Hand) -> Mat4 {
         (self.get_hand_offset)(hand)
+    }
+
+    #[inline]
+    pub fn tip_offset(&self, hand: Hand) -> Mat4 {
+        (self.get_tip_offset)(hand)
     }
 
     #[inline]
@@ -134,6 +141,35 @@ fn get_controller_pose(
         .ok()?
     } else {
         trace!("Failed to get raw space, returning empty pose");
+        (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
+    };
+
+    Some(vr::space_relation_to_openvr_pose(location, velocity))
+}
+
+pub(super) fn get_controller_tip_pose(
+    xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+    session_data: &SessionData,
+    controller: &TrackedDevice,
+    origin: vr::ETrackingUniverseOrigin,
+) -> Option<vr::TrackedDevicePose_t> {
+    let pose_data = session_data.input_data.pose_data.get()?;
+
+    let spaces = match controller.get_controller_hand().unwrap() {
+        Hand::Left => &pose_data.left_space,
+        Hand::Right => &pose_data.right_space,
+    };
+
+    let (location, velocity) = if let Some(tip) =
+        spaces.try_get_or_init_tip(&controller.profile_data, session_data, pose_data)
+    {
+        tip.relate(
+            session_data.get_space_for_origin(origin),
+            xr_data.display_time.get(),
+        )
+        .ok()?
+    } else {
+        trace!("Failed to get tip space, returning empty pose");
         (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
     };
 
@@ -528,6 +564,23 @@ impl<C: openxr_data::Compositor> Input<C> {
             .get_controller_index(hand)?;
 
         self.get_device_pose(controller_index, origin)
+    }
+
+    pub fn get_controller_tip_pose(
+        &self,
+        hand: Hand,
+        origin: Option<vr::ETrackingUniverseOrigin>,
+    ) -> Option<vr::TrackedDevicePose_t> {
+        let session_data = self.openxr.session_data.get();
+        let devices = session_data.input_data.devices.read().unwrap();
+        let controller = devices.get_controller(hand)?;
+
+        get_controller_tip_pose(
+            &self.openxr,
+            &session_data,
+            controller,
+            origin.unwrap_or(session_data.current_origin),
+        )
     }
 
     pub fn get_device_pose(

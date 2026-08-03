@@ -1171,3 +1171,57 @@ fn action_origins_and_localized_names() {
         ]
     );
 }
+
+#[test]
+fn tip_pose_uses_tip_offset() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let tipl = f.get_action_handle(c"/actions/set1/in/tipl");
+    let tipr = f.get_action_handle(c"/actions/set1/in/tipr");
+
+    f.load_actions(c"actions_grab_button.json");
+    f.set_interaction_profile::<OculusTouch>(LeftHand);
+    f.set_interaction_profile::<OculusTouch>(RightHand);
+    let session = f.input.openxr.session_data.get().session.as_raw();
+    fakexr::set_grip(session, LeftHand, xr::Posef::IDENTITY);
+    fakexr::set_grip(session, RightHand, xr::Posef::IDENTITY);
+
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    fn offset_to_pose(offset: &Mat4) -> xr::Posef {
+        let translation = offset.w_axis.truncate();
+        let rotation = Quat::from_mat4(offset);
+
+        xr::Posef {
+            orientation: xr::Quaternionf {
+                x: rotation.x,
+                y: rotation.y,
+                z: rotation.z,
+                w: rotation.w,
+            },
+            position: xr::Vector3f {
+                x: translation.x,
+                y: translation.y,
+                z: translation.z,
+            },
+        }
+    }
+
+    for (handle, hand) in [(tipl, Hand::Left), (tipr, Hand::Right)] {
+        let expected = OculusTouch::offset_tip_pose(hand);
+        // The tip pose must differ from the raw pose on touch controllers
+        assert_ne!(expected, OculusTouch::offset_grip_pose(hand));
+
+        let actual = f.get_pose(handle, 0).unwrap();
+        assert!(actual.bActive, "{hand:?} tip pose not active");
+        let p = actual.pose;
+        assert!(p.bPoseIsValid, "{hand:?} tip pose invalid");
+        compare_pose(
+            offset_to_pose(&expected),
+            p.mDeviceToAbsoluteTracking.into(),
+        );
+    }
+}

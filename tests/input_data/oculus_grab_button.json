@@ -1,6 +1,16 @@
 {
     "bindings": {
         "/actions/set1": {
+            "poses": [
+                {
+                    "output": "/actions/set1/in/tipl",
+                    "path": "/user/hand/left/pose/tip"
+                },
+                {
+                    "output": "/actions/set1/in/tipr",
+                    "path": "/user/hand/right/pose/tip"
+                }
+            ],
             "sources": [
                 {
                     "mode": "button",

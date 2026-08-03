@@ -10,6 +10,16 @@
             "name": "/actions/set1/in/BoolAct",
             "requirement": "mandatory",
             "type": "boolean"
+        },
+        {
+            "name": "/actions/set1/in/TipL",
+            "requirement": "suggested",
+            "type": "pose"
+        },
+        {
+            "name": "/actions/set1/in/TipR",
+            "requirement": "suggested",
+            "type": "pose"
         }
     ],
     "default_bindings": [

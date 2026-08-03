@@ -136,6 +136,18 @@ impl InteractionProfile for OculusTouch {
             _ => return None,
         })
     }
+    fn offset_tip_pose(hand: Hand) -> Mat4 {
+        // "tip" component from SteamVR's quest render model jsons, relative to the raw pose
+        let x = match hand {
+            Hand::Left => 0.016694,
+            Hand::Right => -0.016694,
+        };
+        Self::offset_grip_pose(hand)
+            * Mat4::from_rotation_translation(
+                Quat::from_rotation_x((-37.4_f32).to_radians()),
+                Vec3::new(x, -0.02522, 0.024687),
+            )
+    }
     fn offset_grip_pose(hand: Hand) -> Mat4 {
         match hand {
             Hand::Left => Mat4::from_rotation_translation(

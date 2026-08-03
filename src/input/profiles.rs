@@ -43,6 +43,13 @@ pub trait InteractionProfile: SupportedProfile + Sized + 'static {
     fn skeletal_input_bindings(converter: &InputToXrPath<Self>) -> SkeletalInputBindings;
     /// Can be extracted from SteamVR rendermodel files, it is the inverse of the "grip" or "openxr_grip" value
     fn offset_grip_pose(_: Hand) -> Mat4;
+    /// Transform from the OpenXR grip pose to SteamVR's /pose/tip - the pose games use
+    /// for pointing (e.g. laser pointers/menu cursors). The offset relative to the raw
+    /// pose comes from the "tip" component in the controller's render model json.
+    /// Defaults to the raw pose for profiles without a known tip transform.
+    fn offset_tip_pose(hand: Hand) -> Mat4 {
+        Self::offset_grip_pose(hand)
+    }
 }
 
 pub(super) trait RunWithProfile {
