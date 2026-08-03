@@ -99,6 +99,63 @@ macro_rules! atomic_float {
 atomic_float!(AtomicF32, f32, AtomicU32);
 atomic_float!(AtomicF64, f64, AtomicU64);
 
+/// Per-process log files older than this get removed on startup.
+const LOG_MAX_AGE: std::time::Duration = std::time::Duration::from_hours(48);
+
+/// Remove old per-process log files so the log directory doesn't accumulate
+/// one file per xrizer process forever. Files newer than the cutoff are kept,
+/// as they may belong to a concurrently running process.
+fn prune_old_logs(dir: &std::path::Path, keep_newer_than: std::time::SystemTime) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with("xrizer-") || !name.ends_with(".txt") {
+            continue;
+        }
+        let too_old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t < keep_newer_than);
+        if too_old {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+#[cfg(test)]
+mod log_prune_tests {
+    use super::prune_old_logs;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn prune_only_removes_old_xrizer_logs() {
+        let dir = std::env::temp_dir().join(format!("xrizer-prune-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("xrizer-123.txt"), "a").unwrap();
+        std::fs::write(dir.join("xrizer-456.txt"), "b").unwrap();
+        std::fs::write(dir.join("unrelated.txt"), "c").unwrap();
+
+        // cutoff in the past: nothing is old enough to remove
+        prune_old_logs(&dir, SystemTime::now() - Duration::from_secs(60));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3);
+
+        // cutoff in the future: all xrizer logs count as old
+        prune_old_logs(&dir, SystemTime::now() + Duration::from_secs(60));
+        let remaining: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(remaining, vec!["unrelated.txt".to_string()]);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
 fn init_logging() {
     static ONCE: std::sync::Once = std::sync::Once::new();
 
@@ -131,7 +188,10 @@ fn init_logging() {
             if let Ok(state) = state_dir {
                 let path = Path::new(&state).join("xrizer");
                 let mut setup = || {
-                    let path = path.join("xrizer.txt");
+                    // Multiple processes (e.g. a launcher's VR probe and the game itself)
+                    // can run concurrently; a shared truncating log file lets one clobber
+                    // the other's output, so give each process its own file.
+                    let path = path.join(format!("xrizer-{}.txt", std::process::id()));
                     match std::fs::File::create(path) {
                         Ok(file) => {
                             let writer = ComboWriter(file, std::io::stderr());
@@ -142,7 +202,10 @@ fn init_logging() {
                 };
 
                 match std::fs::create_dir_all(&path) {
-                    Ok(_) => setup(),
+                    Ok(_) => {
+                        prune_old_logs(&path, std::time::SystemTime::now() - LOG_MAX_AGE);
+                        setup()
+                    }
                     Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => setup(),
                     err => {
                         startup_err = Some(format!(
