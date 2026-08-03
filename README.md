@@ -72,7 +72,7 @@ After building, the output directory can be used as a runtime directory. If you 
 # Contributing
 
 All contributions welcome.
-- If you're opening a bug, please submit a log. The log is located at `$XDG_STATE_HOME/xrizer/xrizer.txt`, or `$HOME/.local/state/xrizer/xrizer.txt` if `$XDG_STATE_HOME` is not set.
+- If you're opening a bug, please submit a log. Logs are written to `$XDG_STATE_HOME/xrizer`, or `$HOME/.local/state/xrizer` if `$XDG_STATE_HOME` is not set. Each process gets its own file named `xrizer-<timestamp>-<pid>.txt` - the most recent one is usually the one you want, as launchers often start a short-lived process to check for a headset before the game itself runs. Files older than two days are removed on startup.
 - If submitting pull requests, please consider writing a test if possible/helpful - OpenVR is a large API surface and games are fickle, so ensuring things are well tested prevents future unintentional breakage.
 
 # Environment Variables
