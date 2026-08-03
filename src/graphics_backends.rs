@@ -26,6 +26,22 @@ pub trait GraphicsBackend: Into<SupportedBackend> {
         color_space: vr::EColorSpace,
     ) -> xr::SwapchainCreateInfo<Self::Api>;
 
+    /// Like swapchain_info_for_texture, but with invalid values games are known
+    /// to submit fixed up. Callers creating or comparing swapchains should use
+    /// this to keep the create info consistent across frames.
+    fn checked_swapchain_info_for_texture(
+        &self,
+        texture: Self::OpenVrTexture,
+        bounds: vr::VRTextureBounds_t,
+        color_space: vr::EColorSpace,
+    ) -> xr::SwapchainCreateInfo<Self::Api> {
+        let mut info = self.swapchain_info_for_texture(texture, bounds, color_space);
+        // Games submit a sample count of 0 when MSAA is disabled (e.g. Half-Life
+        // 2: VR with antialiasing set to None), but OpenXR requires at least 1.
+        info.sample_count = info.sample_count.max(1);
+        info
+    }
+
     fn store_swapchain_images(
         &mut self,
         images: Vec<<Self::Api as xr::Graphics>::SwapchainImage>,
