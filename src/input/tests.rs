@@ -1085,3 +1085,89 @@ fn load_actions_race() {
     let res = f.get_bool_state(boolact);
     assert!(res.is_ok(), "{res:?}");
 }
+
+#[test]
+fn action_origins_and_localized_names() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+    f.load_actions(c"actions_origins.json");
+    f.set_interaction_profile::<OculusTouch>(LeftHand);
+    f.set_interaction_profile::<OculusTouch>(RightHand);
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    let mut origins = [0u64; 4];
+    let err = f
+        .input
+        .GetActionOrigins(set1, boolact, origins.as_mut_ptr(), origins.len() as u32);
+    assert_eq!(err, vr::EVRInputError::None);
+    let bound: Vec<u64> = origins.iter().copied().filter(|&o| o != 0).collect();
+    assert_eq!(bound.len(), 2, "expected two origins, got {origins:?}");
+    // Unused entries stay invalid
+    assert_eq!(origins[2], 0);
+    assert_eq!(origins[3], 0);
+
+    // VRInputString_Hand | VRInputString_InputSource
+    const HAND_AND_SOURCE: i32 = 0x1 | 0x4;
+    let names: HashSet<String> = bound
+        .iter()
+        .map(|&origin| {
+            let mut buf = [0u8; 128];
+            let err = f.input.GetOriginLocalizedName(
+                origin,
+                buf.as_mut_ptr() as *mut _,
+                buf.len() as u32,
+                HAND_AND_SOURCE,
+            );
+            assert_eq!(err, vr::EVRInputError::None);
+            CStr::from_bytes_until_nul(&buf)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+
+    assert!(
+        names.contains("Left Hand Squeeze") && names.contains("Right Hand Squeeze"),
+        "unexpected origin names: {names:?}"
+    );
+
+    // Origins should map back to the hand devices, with the render model
+    // component name games use to label bindings (quest2 model names).
+    let mut infos: Vec<(u32, String)> = bound
+        .iter()
+        .map(|&origin| {
+            let mut info = vr::InputOriginInfo_t::default();
+            let err = f.input.GetOriginTrackedDeviceInfo(
+                origin,
+                &mut info,
+                std::mem::size_of::<vr::InputOriginInfo_t>() as u32,
+            );
+            assert_eq!(err, vr::EVRInputError::None);
+            // devicePath must be the hand's device path handle, not the origin itself
+            let hand_handle = match info.trackedDeviceIndex {
+                x if x == Hand::Left as u32 => f.get_input_source_handle(c"/user/hand/left"),
+                x if x == Hand::Right as u32 => f.get_input_source_handle(c"/user/hand/right"),
+                other => panic!("unexpected device index {other}"),
+            };
+            assert_eq!(info.devicePath, hand_handle);
+            let component = unsafe { CStr::from_ptr(info.rchRenderModelComponentName.as_ptr()) }
+                .to_str()
+                .unwrap()
+                .to_string();
+            (info.trackedDeviceIndex, component)
+        })
+        .collect();
+    infos.sort();
+    assert_eq!(
+        infos,
+        vec![
+            (Hand::Left as u32, "button_grip".to_string()),
+            (Hand::Right as u32, "button_grip".to_string()),
+        ]
+    );
+}

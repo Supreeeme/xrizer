@@ -122,6 +122,24 @@ impl InteractionProfile for Knuckles {
         }
     }
 
+    fn render_model_component(
+        subpath: crate::input::profiles::paths::DynSubpath,
+    ) -> Option<&'static std::ffi::CStr> {
+        // Component names from SteamVR's valve_controller_knu_1_0_{left,right} render models.
+        // Menu and Select have no mapping here: they aren't legal paths for this
+        // profile, and OpenVR's application menu is bound to B (see legacy_bindings).
+        // The model's sys_button is the system button, which OpenXR reserves.
+        use crate::input::profiles::paths::DynSubpath::*;
+        Some(match subpath {
+            Trigger => c"trigger",
+            Squeeze => c"squeeze",
+            Thumbstick => c"thumbstick",
+            Trackpad => c"trackpad",
+            A => c"button_a",
+            B => c"button_b",
+            _ => return None,
+        })
+    }
     fn offset_grip_pose(hand: Hand) -> Mat4 {
         match hand {
             Hand::Left => Mat4::from_rotation_translation(
