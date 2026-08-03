@@ -50,6 +50,7 @@ impl std::fmt::Debug for TrackedDeviceType {
 pub struct ProfileData {
     properties: &'static ProfileProperties,
     get_hand_offset: fn(Hand) -> Mat4,
+    get_render_model_component: fn(super::profiles::paths::DynSubpath) -> Option<&'static CStr>,
     /// For Knuckles, the skeleton thumb tries to accurately match where the physical
     /// thumb is, e.g. the curl depends on which part of the touchpad is being touched,
     /// or how the thumbstick is being pushed, but in GetSkeletalSummaryData with
@@ -64,6 +65,7 @@ impl ProfileData {
         Self {
             properties: P::properties(),
             get_hand_offset: P::offset_grip_pose,
+            get_render_model_component: P::render_model_component,
             force_estimated_thumb: TypeId::of::<P>() == TypeId::of::<Knuckles>(),
         }
     }
@@ -71,6 +73,14 @@ impl ProfileData {
     #[inline]
     pub fn hand_offset(&self, hand: Hand) -> Mat4 {
         (self.get_hand_offset)(hand)
+    }
+
+    #[inline]
+    pub fn render_model_component(
+        &self,
+        subpath: super::profiles::paths::DynSubpath,
+    ) -> Option<&'static CStr> {
+        (self.get_render_model_component)(subpath)
     }
 }
 

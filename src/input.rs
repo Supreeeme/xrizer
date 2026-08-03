@@ -431,44 +431,248 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         }
 
         // Superhot needs this device index to render controllers.
+        // Origins from GetActionOrigins are full source paths (e.g.
+        // /user/hand/left/input/squeeze), so fall back to prefix matching.
         let index = match key {
             x if x == self.left_hand_key => Hand::Left as u32,
             x if x == self.right_hand_key => Hand::Right as u32,
             _ => {
-                unsafe {
-                    info.write(Default::default());
+                let path = map.get(key).and_then(|p| p.to_str().ok()).unwrap_or("");
+                if path.starts_with("/user/hand/left") {
+                    Hand::Left as u32
+                } else if path.starts_with("/user/hand/right") {
+                    Hand::Right as u32
+                } else {
+                    unsafe {
+                        info.write(Default::default());
+                    }
+                    return vr::EVRInputError::InvalidDevice;
                 }
-                return vr::EVRInputError::InvalidDevice;
             }
+        };
+
+        // Games (e.g. HL2VR) use the render model component name to label bindings
+        // in their UI - an empty name typically displays as "Unbound".
+        let mut component_name = [0; 128];
+        if let Some(parsed) = map
+            .get(key)
+            .and_then(|p| p.to_str().ok())
+            .and_then(|p| p.parse::<profiles::DynInputPath>().ok())
+        {
+            let data = self.openxr.session_data.get();
+            let devices = data.input_data.devices.read().unwrap();
+            if let Some(name) = devices
+                .get_controller(parsed.hand)
+                .and_then(|c| c.profile_data.as_ref())
+                .and_then(|p| p.render_model_component(parsed.subpath))
+            {
+                for (dst, src) in component_name.iter_mut().zip(name.to_bytes_with_nul()) {
+                    *dst = *src as c_char;
+                }
+            }
+        }
+
+        // devicePath is the path of the *device* the origin lives on, not the origin
+        // itself - games compare it against GetInputSourceHandle("/user/hand/left|right")
+        // to figure out which hand a binding is on.
+        let device_path = if index == Hand::Left as u32 {
+            self.left_hand_key.data().as_ffi()
+        } else {
+            self.right_hand_key.data().as_ffi()
         };
 
         unsafe {
             *info.as_mut().unwrap() = vr::InputOriginInfo_t {
-                devicePath: handle,
+                devicePath: device_path,
                 trackedDeviceIndex: index,
-                rchRenderModelComponentName: [0; 128],
+                rchRenderModelComponentName: component_name,
             };
         }
         vr::EVRInputError::None
     }
     fn GetOriginLocalizedName(
         &self,
-        _: vr::VRInputValueHandle_t,
-        _: *mut c_char,
-        _: u32,
-        _: i32,
+        origin: vr::VRInputValueHandle_t,
+        name_array: *mut c_char,
+        name_array_size: u32,
+        string_sections_to_include: i32,
     ) -> vr::EVRInputError {
-        crate::warn_unimplemented!("GetOriginLocalizedName");
+        if name_array.is_null() || name_array_size == 0 {
+            return vr::EVRInputError::InvalidParam;
+        }
+
+        let key = InputSourceKey::from(KeyData::from_ffi(origin));
+        let path_string = {
+            let map = self.input_source_map.read().unwrap();
+            let Some(path) = map.get(key) else {
+                return vr::EVRInputError::InvalidHandle;
+            };
+            let Ok(path) = path.to_str() else {
+                return vr::EVRInputError::InvalidHandle;
+            };
+            path.to_string()
+        };
+
+        // EVRInputStringBits
+        const VR_INPUT_STRING_HAND: i32 = 0x1;
+        const VR_INPUT_STRING_CONTROLLER_TYPE: i32 = 0x2;
+        const VR_INPUT_STRING_INPUT_SOURCE: i32 = 0x4;
+
+        let mut flags = xr::sys::InputSourceLocalizedNameFlags::EMPTY;
+        if string_sections_to_include & VR_INPUT_STRING_HAND != 0 {
+            flags |= xr::sys::InputSourceLocalizedNameFlags::USER_PATH;
+        }
+        if string_sections_to_include & VR_INPUT_STRING_CONTROLLER_TYPE != 0 {
+            flags |= xr::sys::InputSourceLocalizedNameFlags::INTERACTION_PROFILE;
+        }
+        if string_sections_to_include & VR_INPUT_STRING_INPUT_SOURCE != 0 {
+            flags |= xr::sys::InputSourceLocalizedNameFlags::COMPONENT;
+        }
+
+        let session_data = self.openxr.session_data.get();
+        let name = self
+            .openxr
+            .instance
+            .string_to_path(&path_string)
+            .ok()
+            .and_then(|path| {
+                session_data
+                    .session
+                    .input_source_localized_name(path, flags)
+                    .ok()
+            })
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| {
+                // Runtime doesn't know this path (e.g. a bare hand path from an
+                // action's activeOrigin) - derive something readable ourselves.
+                let mut parts = Vec::new();
+                if string_sections_to_include & VR_INPUT_STRING_HAND != 0 {
+                    if path_string.starts_with("/user/hand/left") {
+                        parts.push("Left Hand".to_string());
+                    } else if path_string.starts_with("/user/hand/right") {
+                        parts.push("Right Hand".to_string());
+                    }
+                }
+                if string_sections_to_include & VR_INPUT_STRING_INPUT_SOURCE != 0
+                    && let Some(component) = path_string
+                        .split_once("/input/")
+                        .and_then(|(_, rest)| rest.split('/').next())
+                {
+                    let mut chars = component.chars();
+                    if let Some(first) = chars.next() {
+                        parts.push(first.to_uppercase().collect::<String>() + chars.as_str());
+                    }
+                }
+                parts.join(" ")
+            });
+
+        trace!(
+            "origin name for {path_string:?} (sections: {string_sections_to_include:#x}): {name:?}"
+        );
+
+        let out = unsafe {
+            std::slice::from_raw_parts_mut(name_array as *mut u8, name_array_size as usize)
+        };
+        let len = name.len().min(out.len() - 1);
+        out[..len].copy_from_slice(&name.as_bytes()[..len]);
+        out[len] = 0;
         vr::EVRInputError::None
     }
     fn GetActionOrigins(
         &self,
-        _: vr::VRActionSetHandle_t,
-        _: vr::VRActionHandle_t,
-        _: *mut vr::VRInputValueHandle_t,
-        _: u32,
+        _action_set_handle: vr::VRActionSetHandle_t,
+        digital_action_handle: vr::VRActionHandle_t,
+        origins_out: *mut vr::VRInputValueHandle_t,
+        origin_out_count: u32,
     ) -> vr::EVRInputError {
-        crate::warn_unimplemented!("GetActionOrigins");
+        if origins_out.is_null() || origin_out_count == 0 {
+            return vr::EVRInputError::InvalidParam;
+        }
+        let out = unsafe { std::slice::from_raw_parts_mut(origins_out, origin_out_count as usize) };
+        out.fill(vr::k_ulInvalidInputValueHandle);
+
+        let session_data = self.openxr.session_data.get();
+        let Some(loaded) = session_data.input_data.get_loaded_actions() else {
+            return vr::EVRInputError::InvalidHandle;
+        };
+        let action = match loaded.try_get_action(digital_action_handle) {
+            Ok(action) => action,
+            Err(e) => return e,
+        };
+
+        let mut sources: Vec<xr::Path> = Vec::new();
+        let mut collect = |paths: xr::Result<Vec<xr::Path>>| {
+            if let Ok(paths) = paths {
+                for path in paths {
+                    if !sources.contains(&path) {
+                        sources.push(path);
+                    }
+                }
+            }
+        };
+
+        match action {
+            ActionData::Bool(action) => collect(action.bound_sources(&session_data.session)),
+            ActionData::Vector1 { action, .. } => {
+                collect(action.bound_sources(&session_data.session))
+            }
+            ActionData::Vector2 { action, .. } => {
+                collect(action.bound_sources(&session_data.session))
+            }
+            ActionData::Haptic(action) => collect(action.bound_sources(&session_data.session)),
+            ActionData::Pose | ActionData::Skeleton(_) => {}
+        }
+
+        if let Ok(extra) = loaded.try_get_extra(digital_action_handle) {
+            if let Some(action) = &extra.toggle_action {
+                collect(action.bound_sources(&session_data.session));
+            }
+            if let Some(action) = &extra.analog_action {
+                collect(action.bound_sources(&session_data.session));
+            }
+            if let Some(action) = &extra.double_action {
+                collect(action.bound_sources(&session_data.session));
+            }
+            if let Some(action) = &extra.vector2_action {
+                collect(action.bound_sources(&session_data.session));
+            }
+            if let Some(grab) = &extra.grab_actions {
+                collect(grab.force_action.bound_sources(&session_data.session));
+                collect(grab.value_action.bound_sources(&session_data.session));
+            }
+        }
+
+        let mut written = 0;
+        for source in sources {
+            if written >= out.len() {
+                break;
+            }
+            let Ok(path_string) = self.openxr.instance.path_to_string(source) else {
+                continue;
+            };
+            let Ok(path_cstring) = CString::new(path_string) else {
+                continue;
+            };
+            let handle = {
+                let guard = self.input_source_map.read().unwrap();
+                match guard
+                    .iter()
+                    .find(|(_, src)| src.as_c_str() == path_cstring.as_c_str())
+                {
+                    Some((key, _)) => key.data().as_ffi(),
+                    None => {
+                        drop(guard);
+                        let mut guard = self.input_source_map.write().unwrap();
+                        guard.insert(path_cstring).data().as_ffi()
+                    }
+                }
+            };
+            if !out[..written].contains(&handle) {
+                out[written] = handle;
+                written += 1;
+            }
+        }
+
         vr::EVRInputError::None
     }
     fn TriggerHapticVibrationAction(

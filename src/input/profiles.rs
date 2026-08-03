@@ -33,6 +33,13 @@ pub trait InteractionProfile: SupportedProfile + Sized + 'static {
         None
     }
     fn legacy_bindings(converter: &InputToXrPath<Self>) -> LegacyBindings;
+    /// The render model component name corresponding to an input source subpath, reported
+    /// via InputOriginInfo_t::rchRenderModelComponentName. Games use this to label
+    /// bindings in their UI. Component names are found in the render model json for
+    /// this controller in SteamVR (see ProfileProperties::render_model_name).
+    fn render_model_component(_subpath: paths::DynSubpath) -> Option<&'static CStr> {
+        None
+    }
     fn skeletal_input_bindings(converter: &InputToXrPath<Self>) -> SkeletalInputBindings;
     /// Can be extracted from SteamVR rendermodel files, it is the inverse of the "grip" or "openxr_grip" value
     fn offset_grip_pose(_: Hand) -> Mat4;
@@ -421,17 +428,24 @@ impl std::str::FromStr for DynInputPath {
 
         verify_next!("input");
 
+        // Accept both spellings: binding jsons use OpenVR names, while paths
+        // coming back from the runtime (e.g. bound sources) use OpenXR names.
         let subpath_str = split.next();
         let subpath = subpath_str
-            .and_then(paths::DynSubpath::from_openvr_str)
+            .and_then(|s| {
+                paths::DynSubpath::from_openvr_str(s)
+                    .or_else(|| paths::DynSubpath::from_openxr_str(s))
+            })
             .ok_or_else(|| format!("invalid subpath {subpath_str:?}"))?;
 
         let component = split.next();
         let component = component
             .map(|c| {
-                paths::DynComponent::from_openvr_str(c).ok_or_else(|| {
-                    format!("invalid component {component:?} for subpath {subpath_str:?}")
-                })
+                paths::DynComponent::from_openvr_str(c)
+                    .or_else(|| paths::DynComponent::from_openxr_str(c))
+                    .ok_or_else(|| {
+                        format!("invalid component {component:?} for subpath {subpath_str:?}")
+                    })
             })
             .transpose()?;
 
@@ -482,6 +496,18 @@ pub mod paths {
                 "click" => Some(Self::Click),
                 "touch" => Some(Self::Touch),
                 "value" | "pull" => Some(Self::Value),
+                _ => None,
+            }
+        }
+
+        /// OpenXR spellings, for parsing OpenXR source paths (e.g. origins
+        /// returned by xrEnumerateBoundSourcesForAction).
+        pub fn from_openxr_str(s: &str) -> Option<Self> {
+            match s {
+                "click" => Some(Self::Click),
+                "touch" => Some(Self::Touch),
+                "value" => Some(Self::Value),
+                "force" => Some(Self::Force),
                 _ => None,
             }
         }
@@ -565,6 +591,25 @@ pub mod paths {
                 "trigger" => Some(Self::Trigger),
                 "grip" => Some(Self::Squeeze),
                 "thumbstick" | "joystick" => Some(Self::Thumbstick),
+                "thumbrest" => Some(Self::Thumbrest),
+                "trackpad" => Some(Self::Trackpad),
+                _ => None,
+            }
+        }
+
+        /// OpenXR spellings, for parsing OpenXR source paths (e.g. origins
+        /// returned by xrEnumerateBoundSourcesForAction).
+        pub fn from_openxr_str(s: &str) -> Option<Self> {
+            match s {
+                "a" => Some(Self::A),
+                "b" => Some(Self::B),
+                "x" => Some(Self::X),
+                "y" => Some(Self::Y),
+                "menu" => Some(Self::Menu),
+                "select" => Some(Self::Select),
+                "trigger" => Some(Self::Trigger),
+                "squeeze" => Some(Self::Squeeze),
+                "thumbstick" => Some(Self::Thumbstick),
                 "thumbrest" => Some(Self::Thumbrest),
                 "trackpad" => Some(Self::Trackpad),
                 _ => None,

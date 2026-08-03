@@ -122,6 +122,21 @@ impl InteractionProfile for Knuckles {
         }
     }
 
+    fn render_model_component(
+        subpath: crate::input::profiles::paths::DynSubpath,
+    ) -> Option<&'static std::ffi::CStr> {
+        // Component names from SteamVR's valve_controller_knu_1_0_{left,right} render models.
+        use crate::input::profiles::paths::DynSubpath::*;
+        Some(match subpath {
+            Trigger => c"trigger",
+            Squeeze => c"squeeze",
+            Thumbstick => c"thumbstick",
+            Trackpad => c"trackpad",
+            A => c"button_a",
+            B => c"button_b",
+            _ => return None,
+        })
+    }
     fn offset_grip_pose(hand: Hand) -> Mat4 {
         match hand {
             Hand::Left => Mat4::from_rotation_translation(
