@@ -25,6 +25,50 @@ pub fn dialog(error: String, backtrace: Backtrace) {
     }
 }
 
+/// Copy via a clipboard manager if one is available - miniquad's clipboard only
+/// serves pastes while our window is alive (and is unimplemented on some
+/// backends), while wl-copy/xclip/xsel keep the selection around.
+fn copy_to_clipboard(text: &str) -> bool {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    const WAYLAND_TOOLS: &[(&str, &[&str])] = &[("wl-copy", &[])];
+    const X11_TOOLS: &[(&str, &[&str])] = &[
+        ("xclip", &["-selection", "clipboard"]),
+        ("xsel", &["--clipboard", "--input"]),
+    ];
+
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    let tools: Vec<_> = if wayland {
+        WAYLAND_TOOLS.iter().chain(X11_TOOLS).collect()
+    } else {
+        X11_TOOLS.iter().chain(WAYLAND_TOOLS).collect()
+    };
+
+    for (cmd, args) in tools {
+        let Ok(mut child) = Command::new(cmd)
+            .args(*args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            continue;
+        };
+        let wrote = child
+            .stdin
+            .take()
+            .map(|mut stdin| stdin.write_all(text.as_bytes()).is_ok())
+            .unwrap_or(false);
+        if wrote && child.wait().is_ok_and(|s| s.success()) {
+            return true;
+        }
+    }
+
+    miniquad::window::clipboard_set(text);
+    false
+}
+
 fn ui(ctx: &egui::Context, info: &ErrorInfo) {
     egui::TopBottomPanel::top("header").show(ctx, |ui| {
         ui.centered_and_justified(|ui| {
@@ -56,29 +100,36 @@ fn ui(ctx: &egui::Context, info: &ErrorInfo) {
                                 ui.label("Backtrace");
                                 let mut click_start = None;
                                 if ui.button("Copy to clipboard").clicked() {
-                                    miniquad::window::clipboard_set(&format!("{}", info.backtrace));
-                                    click_start = Some(Instant::now());
+                                    let persistent = copy_to_clipboard(&format!(
+                                        "{}\n{}",
+                                        info.error, info.backtrace
+                                    ));
+                                    click_start = Some((Instant::now(), persistent));
                                 }
                                 let id = ui.auto_id_with("success");
-                                let mut visible = false;
+                                let mut visible = None;
                                 ui.data_mut(|map| {
                                     let click_time =
-                                        map.get_temp_mut_or_default::<Option<Instant>>(id);
+                                        map.get_temp_mut_or_default::<Option<(Instant, bool)>>(id);
 
                                     if click_time.is_none() {
                                         *click_time = click_start;
                                     }
 
-                                    if let Some(time) = click_time {
-                                        if time.elapsed().as_secs() < 1 {
-                                            visible = true;
+                                    if let Some((time, persistent)) = click_time {
+                                        if time.elapsed().as_secs() < 3 {
+                                            visible = Some(*persistent);
                                         } else {
                                             *click_time = None;
                                         }
                                     }
                                 });
 
-                                ui.add_visible(visible, egui::Label::new("✅ Copied!"));
+                                let label = match visible {
+                                    Some(false) => "✅ Copied! (paste before closing this window)",
+                                    _ => "✅ Copied!",
+                                };
+                                ui.add_visible(visible.is_some(), egui::Label::new(label));
                             });
                         })
                         .body(|ui| {
@@ -95,7 +146,8 @@ fn ui(ctx: &egui::Context, info: &ErrorInfo) {
                             format!("{}/.local/state", std::env::var("HOME").unwrap())
                         });
 
-                        let path = std::path::Path::new(&dir).join("xrizer/xrizer.txt");
+                        let path = std::path::Path::new(&dir)
+                            .join(format!("xrizer/xrizer-{}.txt", std::process::id()));
                         let _ = Command::new("xdg-open").arg(path).spawn();
                     }
                     if ui.button("Report on GitHub").clicked() {
