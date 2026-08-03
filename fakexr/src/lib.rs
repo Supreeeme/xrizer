@@ -325,8 +325,8 @@ pub unsafe extern "system" fn get_instance_proc_addr(
                     AttachSessionActionSets,
                     GetCurrentInteractionProfile,
                     SyncActions,
-                    (EnumerateBoundSourcesForAction),
-                    (GetInputSourceLocalizedName),
+                    EnumerateBoundSourcesForAction,
+                    GetInputSourceLocalizedName,
                     {mndx::CreateXDevListMNDX},
                     {mndx::GetXDevListGenerationNumberMNDX},
                     {mndx::EnumerateXDevsMNDX},
@@ -1520,6 +1520,114 @@ extern "system" fn get_current_interaction_profile(
         })
     }
 
+    xr::Result::SUCCESS
+}
+
+extern "system" fn enumerate_bound_sources_for_action(
+    session: xr::Session,
+    enumerate_info: *const xr::BoundSourcesForActionEnumerateInfo,
+    source_capacity_input: u32,
+    source_count_output: *mut u32,
+    sources: *mut xr::Path,
+) -> xr::Result {
+    let session = get_handle!(session);
+    let info = unsafe { enumerate_info.as_ref().unwrap() };
+    let action = get_handle!(info.action);
+    let Some(instance) = session.instance.upgrade() else {
+        return xr::Result::ERROR_INSTANCE_LOST;
+    };
+
+    let suggested = action.suggested.lock().unwrap();
+    let mut bound = Vec::new();
+    for (user_prefix, profile) in [
+        ("/user/hand/left", session.left_hand.profile.load()),
+        ("/user/hand/right", session.right_hand.profile.load()),
+    ] {
+        if profile == xr::Path::NULL {
+            continue;
+        }
+        let Some(bindings) = suggested.get(&profile) else {
+            continue;
+        };
+        for path in bindings {
+            let Ok(Some(s)) = instance.get_path_value(*path) else {
+                continue;
+            };
+            if s.starts_with(user_prefix) && !bound.contains(path) {
+                bound.push(*path);
+            }
+        }
+    }
+
+    unsafe { source_count_output.write(bound.len() as u32) };
+    if source_capacity_input > 0 {
+        if (source_capacity_input as usize) < bound.len() {
+            return xr::Result::ERROR_SIZE_INSUFFICIENT;
+        }
+        let out = unsafe { std::slice::from_raw_parts_mut(sources, bound.len()) };
+        out.copy_from_slice(&bound);
+    }
+    xr::Result::SUCCESS
+}
+
+extern "system" fn get_input_source_localized_name(
+    session: xr::Session,
+    get_info: *const xr::InputSourceLocalizedNameGetInfo,
+    buffer_capacity_input: u32,
+    buffer_count_output: *mut u32,
+    buffer: *mut c_char,
+) -> xr::Result {
+    let session = get_handle!(session);
+    let info = unsafe { get_info.as_ref().unwrap() };
+    let Some(instance) = session.instance.upgrade() else {
+        return xr::Result::ERROR_INSTANCE_LOST;
+    };
+    let Ok(Some(path)) = instance.get_path_value(info.source_path) else {
+        return xr::Result::ERROR_PATH_INVALID;
+    };
+
+    let (hand_name, profile) = if path.starts_with("/user/hand/left") {
+        ("Left Hand", session.left_hand.profile.load())
+    } else if path.starts_with("/user/hand/right") {
+        ("Right Hand", session.right_hand.profile.load())
+    } else {
+        return xr::Result::ERROR_PATH_UNSUPPORTED;
+    };
+
+    let flags = info.which_components;
+    let mut parts: Vec<String> = Vec::new();
+    if flags.contains(xr::InputSourceLocalizedNameFlags::USER_PATH) {
+        parts.push(hand_name.into());
+    }
+    if flags.contains(xr::InputSourceLocalizedNameFlags::INTERACTION_PROFILE)
+        && let Ok(Some(p)) = instance.get_path_value(profile)
+        && let Some(seg) = p.rsplit('/').next()
+    {
+        parts.push(seg.to_string());
+    }
+    if flags.contains(xr::InputSourceLocalizedNameFlags::COMPONENT)
+        && let Some(component) = path
+            .split_once("/input/")
+            .and_then(|(_, rest)| rest.split('/').next())
+    {
+        let mut chars = component.chars();
+        let titled = chars
+            .next()
+            .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
+            .unwrap_or_default();
+        parts.push(titled);
+    }
+
+    let name = parts.join(" ");
+    let buf = [name.as_bytes(), &[0]].concat();
+    unsafe { buffer_count_output.write(buf.len() as u32) };
+    if buffer_capacity_input > 0 {
+        if (buffer_capacity_input as usize) < buf.len() {
+            return xr::Result::ERROR_SIZE_INSUFFICIENT;
+        }
+        let out = unsafe { std::slice::from_raw_parts_mut(buffer as *mut u8, buf.len()) };
+        out.copy_from_slice(&buf);
+    }
     xr::Result::SUCCESS
 }
 
