@@ -1,0 +1,21 @@
+{
+    "action_sets": [
+        {
+            "name": "/actions/set1",
+            "usage": "leftright"
+        }
+    ],
+    "actions": [
+        {
+            "name": "/actions/set1/in/BoolAct",
+            "requirement": "mandatory",
+            "type": "boolean"
+        }
+    ],
+    "default_bindings": [
+        {
+            "controller_type": "oculus_touch",
+            "binding_url": "oculus_grab_button.json"
+        }
+    ]
+}

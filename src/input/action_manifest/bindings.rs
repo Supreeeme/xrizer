@@ -275,6 +275,9 @@ struct ButtonInput {
     /// Click can be overridden to use a different path via the `force_input` parameter.
     click: Option<ActionBindingOutput<paths::Click>>,
     double: Option<ActionBindingOutput<Custom>>,
+    /// Nonstandard slot some games use for grip bindings in button mode
+    /// (e.g. Half-Life 2: VR); SteamVR treats it like click, so we do too.
+    grab: Option<ActionBindingOutput<paths::Click>>,
 }
 
 #[derive(Deserialize)]
@@ -599,6 +602,7 @@ pub fn handle_sources(
                             touch,
                             click,
                             double,
+                            grab,
                         },
                     parameters,
                 }) = data.validate_path()
@@ -635,7 +639,7 @@ pub fn handle_sources(
                     );
                 }
 
-                if let Some(click) = click {
+                for click in [click, grab].into_iter().flatten() {
                     let target = parameters.and_then(|x| x.force_input).unwrap_or(
                         // Default to value for clicky components, because the click point
                         // does not necessarily match SteamVR's click point.

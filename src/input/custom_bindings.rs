@@ -1643,6 +1643,65 @@ mod tests {
     }
 
     #[test]
+    fn grab_slot_in_button_mode_oculus() {
+        // Some games (e.g. Half-Life 2: VR) bind grip grab with mode "button" and a
+        // nonstandard "grab" input slot instead of "click". It should behave like click.
+        let mut f = Fixture::new();
+        let set1 = f.get_action_set_handle(c"/actions/set1");
+        let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+        let left = f.get_input_source_handle(c"/user/hand/left");
+
+        f.load_actions(c"actions_grab_button.json");
+        f.verify_extra_bindings(
+            OculusTouch::profile_path(),
+            c"/actions/set1/in/boolact",
+            ExtraActionType::Analog,
+            [
+                "/user/hand/left/input/squeeze/value".into(),
+                "/user/hand/right/input/squeeze/value".into(),
+            ],
+        );
+        get_analog_action!(f, boolact, analog_data);
+
+        let act = analog_data.as_raw();
+
+        f.set_interaction_profile::<OculusTouch>(LeftHand);
+        fakexr::set_action_state(act, ActionState::Float(0.0), LeftHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        let s_left = f.get_bool_state_hand(boolact, left).unwrap();
+        assert!(s_left.bActive);
+        assert!(!s_left.bState);
+        assert!(!s_left.bChanged);
+
+        // Above the 0.8 activate threshold from the binding parameters
+        fakexr::set_action_state(act, ActionState::Float(0.9), LeftHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        let s_left = f.get_bool_state_hand(boolact, left).unwrap();
+        assert!(s_left.bActive);
+        assert!(s_left.bState);
+        assert!(s_left.bChanged);
+
+        fakexr::set_action_state(act, ActionState::Float(0.5), LeftHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+
+        let s_left = f.get_bool_state_hand(boolact, left).unwrap();
+        assert!(s_left.bActive);
+        assert!(!s_left.bState);
+        assert!(s_left.bChanged);
+    }
+
+    #[test]
     fn double_tap() {
         let mut f = Fixture::new();
         let set1 = f.get_action_set_handle(c"/actions/set1");
