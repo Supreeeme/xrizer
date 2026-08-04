@@ -419,7 +419,19 @@ impl TrackedDeviceList {
             !matches!(device.device_type, TrackedDeviceType::GenericTracker { .. })
         });
 
-        let max_generic_trackers = vr::k_unMaxTrackedDeviceCount as usize - self.devices.len();
+        // Trackers identify as Vive Trackers, which some games sniff to pick a
+        // controller scheme (e.g. SUPERHOT VR switches to its Vive scheme when
+        // it sees one), so allow capping or disabling them per game.
+        let default_max = if crate::quirks::get().no_generic_trackers {
+            0
+        } else {
+            usize::MAX
+        };
+        let max_generic_trackers = std::env::var("XRIZER_MAX_TRACKERS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default_max)
+            .min(vr::k_unMaxTrackedDeviceCount as usize - self.devices.len());
         let extra_tracker_serials = std::env::var("XRIZER_TRACKER_SERIALS")
             .map_or(vec![], |trackers| {
                 trackers.split(";").map(|t| t.to_string()).collect()
