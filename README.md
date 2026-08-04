@@ -80,6 +80,8 @@ _RUST_LOG_ - This is used for adjusting the logging of xrizer. See the [env_logg
 - `openvr_calls` - logs the name of each OpenVR function as they are called
 - `tracked_property` - logs the name and device index of each requested tracked device property.
 
+If `RUST_LOG` doesn't reach xrizer - some launchers sanitize the environment before starting a game - you can put the same filter string in a file named `log_filter` in the log directory instead. It's only read when `RUST_LOG` is unset.
+
 _XRIZER_CUSTOM_BINDINGS_DIR_ - This can be used to supply a directory that xrizer will search for controller bindings files. Note that the format of these bindings aren't actually documented anywhere, but it's easy enough to modify an existing file, and xrizer parses them so you can read the source too.
 
 _XRIZER_TRACKER_SERIALS_ - This is a semi-colon (`;`) separated list of device serial numbers to use as generic trackers. Can be used to assign controllers as FBT trackers.

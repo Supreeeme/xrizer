@@ -173,6 +173,9 @@ fn init_logging() {
         #[allow(unused_mut)]
         let mut startup_err: Option<String> = None;
 
+        builder.filter_level(log::LevelFilter::Info);
+        builder.parse_default_env();
+
         #[cfg(not(test))]
         {
             struct ComboWriter(std::fs::File, std::io::Stderr);
@@ -220,6 +223,17 @@ fn init_logging() {
                 }
             }
 
+            // Some launch setups don't deliver RUST_LOG to the game process
+            // (e.g. launchers that sanitize the environment), so fall back to
+            // a filter file next to the logs.
+            if std::env::var_os("RUST_LOG").is_none()
+                && let Some(dir) = &dir
+                && let Ok(filter) = std::fs::read_to_string(dir.join("log_filter"))
+                && !filter.trim().is_empty()
+            {
+                builder.parse_filters(filter.trim());
+            }
+
             std::panic::set_hook(Box::new(|info| {
                 log::error!("{info}");
                 let backtrace = std::backtrace::Backtrace::force_capture();
@@ -230,8 +244,6 @@ fn init_logging() {
         }
 
         builder
-            .filter_level(log::LevelFilter::Info)
-            .parse_default_env()
             .is_test(cfg!(test))
             .format(|buf, record| {
                 use std::io::Write;
