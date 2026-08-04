@@ -82,6 +82,8 @@ _RUST_LOG_ - This is used for adjusting the logging of xrizer. See the [env_logg
 
 _XRIZER_CUSTOM_BINDINGS_DIR_ - This can be used to supply a directory that xrizer will search for controller bindings files. Note that the format of these bindings aren't actually documented anywhere, but it's easy enough to modify an existing file, and xrizer parses them so you can read the source too.
 
+_XRIZER_MAX_TRACKERS_ - The maximum number of generic trackers to expose. Trackers identify as Vive Trackers, and some games check for those to decide which controller scheme to use, so a game can behave oddly when it sees one; set this to `0` to hide them entirely. xrizer already does that automatically for games known to need it.
+
 _XRIZER_TRACKER_SERIALS_ - This is a semi-colon (`;`) separated list of device serial numbers to use as generic trackers. Can be used to assign controllers as FBT trackers.
 
 # See also
