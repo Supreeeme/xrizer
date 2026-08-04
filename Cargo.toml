@@ -21,7 +21,7 @@ monado = ["dep:openxr_mndx_xdev_space"]
 members = ["xbuild"]
 
 [workspace.package]
-rust-version = "1.85"
+rust-version = "1.91"
 edition = "2024"
 
 [workspace.lints.clippy]
