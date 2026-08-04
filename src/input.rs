@@ -1134,6 +1134,20 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             _ => return vr::EVRInputError::WrongType,
         };
 
+        if log::log_enabled!(log::Level::Trace) {
+            let action_map = self.action_map.read().unwrap();
+            let action_key = ActionKey::from(KeyData::from_ffi(handle));
+            trace!(
+                "analog action {:?}: x {} y {} (dx {} dy {}, active: {})",
+                action_map.get(action_key).map(|a| &a.path),
+                state.current_state.x,
+                state.current_state.y,
+                delta.x,
+                delta.y,
+                state.is_active
+            );
+        }
+
         *out.value = vr::InputAnalogActionData_t {
             bActive: state.is_active,
             activeOrigin: active_hand,
@@ -1177,6 +1191,18 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         {
             state = binding_state;
             active_hand = binding_source;
+        }
+
+        if log::log_enabled!(log::Level::Trace) {
+            let action_map = self.action_map.read().unwrap();
+            let action_key = ActionKey::from(KeyData::from_ffi(handle));
+            trace!(
+                "digital action {:?}: {} (changed: {}, active: {})",
+                action_map.get(action_key).map(|a| &a.path),
+                state.current_state,
+                state.changed_since_last_sync,
+                state.is_active
+            );
         }
 
         *out.value = vr::InputDigitalActionData_t {
