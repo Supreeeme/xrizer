@@ -275,6 +275,10 @@ struct ButtonInput {
     /// Click can be overridden to use a different path via the `force_input` parameter.
     click: Option<ActionBindingOutput<paths::Click>>,
     double: Option<ActionBindingOutput<Custom>>,
+    /// SteamVR activates this after the button is held for a moment
+    /// (e.g. SUPERHOT VR binds its menu to a long press); approximate it
+    /// as a regular click rather than dropping the binding.
+    long: Option<ActionBindingOutput<paths::Click>>,
 }
 
 #[derive(Deserialize)]
@@ -599,6 +603,7 @@ pub fn handle_sources(
                             touch,
                             click,
                             double,
+                            long,
                         },
                     parameters,
                 }) = data.validate_path()
@@ -635,7 +640,7 @@ pub fn handle_sources(
                     );
                 }
 
-                if let Some(click) = click {
+                for click in [click, long].into_iter().flatten() {
                     let target = parameters.and_then(|x| x.force_input).unwrap_or(
                         // Default to value for clicky components, because the click point
                         // does not necessarily match SteamVR's click point.
