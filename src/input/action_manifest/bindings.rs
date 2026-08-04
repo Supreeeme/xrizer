@@ -278,6 +278,10 @@ struct ButtonInput {
     /// Nonstandard slot some games use for grip bindings in button mode
     /// (e.g. Half-Life 2: VR); SteamVR treats it like click, so we do too.
     grab: Option<ActionBindingOutput<paths::Click>>,
+    /// SteamVR activates this after the button is held for a moment
+    /// (e.g. SUPERHOT VR binds its menu to a long press); approximate it
+    /// as a regular click rather than dropping the binding.
+    long: Option<ActionBindingOutput<paths::Click>>,
 }
 
 #[derive(Deserialize)]
@@ -603,6 +607,7 @@ pub fn handle_sources(
                             click,
                             double,
                             grab,
+                            long,
                         },
                     parameters,
                 }) = data.validate_path()
@@ -639,7 +644,7 @@ pub fn handle_sources(
                     );
                 }
 
-                for click in [click, grab].into_iter().flatten() {
+                for click in [click, grab, long].into_iter().flatten() {
                     let target = parameters.and_then(|x| x.force_input).unwrap_or(
                         // Default to value for clicky components, because the click point
                         // does not necessarily match SteamVR's click point.
