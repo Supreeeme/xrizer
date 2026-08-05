@@ -11,6 +11,36 @@ pub struct Quirks {
     /// SUPERHOT VR switches to its Vive scheme - where dropping items
     /// requires a trackpad - when it sees one).
     pub no_generic_trackers: bool,
+
+    /// Report linear velocities computed from position deltas instead of the
+    /// runtime's. Some runtimes under-report linear velocity (measured ~0.43x
+    /// on WiVRn), which makes throwing objects nearly impossible in games that
+    /// use controller velocity for it. Position-derived velocities stay
+    /// correct even on runtimes without the problem, just redundant.
+    /// Env override: XRIZER_SYNTHESIZED_VELOCITY=1/0.
+    pub synthesized_velocity: bool,
+}
+
+/// Tracking glitches can teleport the controller for a frame; without a cap, a
+/// synthesized velocity happily turns that into a rocket-powered throw.
+/// Slightly above the fastest plausible human hand speed.
+pub const MAX_SYNTHESIZED_SPEED: f32 = 12.0;
+
+/// Whether to report linear velocities computed from position deltas, honouring
+/// the XRIZER_SYNTHESIZED_VELOCITY override.
+pub fn synthesized_velocity() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        env_override("XRIZER_SYNTHESIZED_VELOCITY").unwrap_or(get().synthesized_velocity)
+    })
+}
+
+/// A boolean environment override, if one is set. Anything other than 1/true
+/// disables the quirk, so a game profile can be turned off as well as on.
+fn env_override(var: &str) -> Option<bool> {
+    let value = std::env::var(var).ok()?;
+    let value = value.trim();
+    Some(value == "1" || value.eq_ignore_ascii_case("true"))
 }
 
 pub fn get() -> Quirks {
@@ -23,11 +53,17 @@ pub fn get() -> Quirks {
         let quirks = match exe.to_lowercase().as_str() {
             "superhotvr.exe" => Quirks {
                 no_generic_trackers: true,
+                ..Default::default()
+            },
+            // Half-Life 2: VR Mod (and episodes) computes throws from hand velocity
+            "hl2.exe" => Quirks {
+                synthesized_velocity: true,
+                ..Default::default()
             },
             _ => Quirks::default(),
         };
 
-        if quirks.no_generic_trackers {
+        if quirks.no_generic_trackers || quirks.synthesized_velocity {
             log::info!("Applying game quirks for {exe}: {quirks:?}");
         }
         quirks
