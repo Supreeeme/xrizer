@@ -1171,3 +1171,43 @@ fn action_origins_and_localized_names() {
         ]
     );
 }
+
+#[test]
+fn synthesized_velocity_from_history() {
+    use super::HandSpace;
+    use glam::Vec3;
+
+    let space = HandSpace {
+        hand: Hand::Left,
+        hand_path: xr::Path::NULL,
+        raw: Default::default(),
+        pose_history: Default::default(),
+    };
+    let origin = vr::ETrackingUniverseOrigin::Standing;
+
+    // 1 m/s along +X, sampled every 10ms
+    let mut out = None;
+    for i in 0..6i64 {
+        out = space.update_history_and_velocity(
+            i * 10_000_000,
+            Vec3::new(0.01 * i as f32, 0.0, 0.0),
+            origin,
+        );
+    }
+    let v = out.expect("velocity after enough history");
+    assert!((v - Vec3::X).length() < 1e-3, "{v:?}");
+
+    // repeated queries at the same predicted time don't corrupt the window
+    let v2 = space
+        .update_history_and_velocity(50_000_000, Vec3::new(0.05, 0.0, 0.0), origin)
+        .unwrap();
+    assert!((v2 - v).length() < 1e-3, "{v2:?}");
+
+    // switching tracking origins invalidates the old samples
+    let after_switch = space.update_history_and_velocity(
+        60_000_000,
+        Vec3::ZERO,
+        vr::ETrackingUniverseOrigin::Seated,
+    );
+    assert!(after_switch.is_none());
+}

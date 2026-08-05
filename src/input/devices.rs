@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::sync::Mutex;
 
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 use openvr as vr;
 use openxr as xr;
 
@@ -124,7 +124,7 @@ fn get_controller_pose(
         Hand::Right => &pose_data.right_space,
     };
 
-    let (location, velocity) = if let Some(raw) =
+    let (location, mut velocity) = if let Some(raw) =
         spaces.try_get_or_init_raw(&controller.profile_data, session_data, pose_data)
     {
         raw.relate(
@@ -136,6 +136,27 @@ fn get_controller_pose(
         trace!("Failed to get raw space, returning empty pose");
         (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
     };
+
+    if crate::quirks::synthesized_velocity()
+        && location
+            .location_flags
+            .contains(xr::SpaceLocationFlags::POSITION_VALID)
+    {
+        let pos = location.pose.position;
+        if let Some(v) = spaces.update_history_and_velocity(
+            xr_data.display_time.get().as_nanos(),
+            Vec3::new(pos.x, pos.y, pos.z),
+            origin,
+        ) {
+            let v = v.clamp_length_max(crate::quirks::MAX_SYNTHESIZED_SPEED);
+            velocity.linear_velocity = xr::Vector3f {
+                x: v.x,
+                y: v.y,
+                z: v.z,
+            };
+            velocity.velocity_flags |= xr::SpaceVelocityFlags::LINEAR_VALID;
+        }
+    }
 
     Some(vr::space_relation_to_openvr_pose(location, velocity))
 }

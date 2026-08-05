@@ -80,6 +80,8 @@ _RUST_LOG_ - This is used for adjusting the logging of xrizer. See the [env_logg
 - `openvr_calls` - logs the name of each OpenVR function as they are called
 - `tracked_property` - logs the name and device index of each requested tracked device property.
 
+_XRIZER_SYNTHESIZED_VELOCITY_ - Set to `1` to report controller linear velocities computed from position deltas rather than the ones the OpenXR runtime reports, or `0` to force the runtime's. Some runtimes under-report linear velocity, which makes throwing objects in games difficult; xrizer enables this automatically for games known to need it.
+
 _XRIZER_CUSTOM_BINDINGS_DIR_ - This can be used to supply a directory that xrizer will search for controller bindings files. Note that the format of these bindings aren't actually documented anywhere, but it's easy enough to modify an existing file, and xrizer parses them so you can read the source too.
 
 _XRIZER_MAX_TRACKERS_ - The maximum number of generic trackers to expose. Trackers identify as Vive Trackers, and some games check for those to decide which controller scheme to use, so a game can behave oddly when it sees one; set this to `0` to hide them entirely. xrizer already does that automatically for games known to need it.
