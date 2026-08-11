@@ -20,6 +20,18 @@ const RENDER_MODEL_COLOR: [u8; 4] = [32, 32, 32, 255];
 // use a single static component for all rendermodels
 static DEFAULT_COMPONENT: &CStr = c"xrizer_component";
 
+// SteamVR registers these standard pose components for each controller,
+// for all render models. The OpenVR wiki on Input Profiles says:
+// "All tracked devices also get two pose components registered regardless
+// of what render model they use: /pose/raw and /pose/tip"
+// Some games (for example, the BigWalkVR mod) mark a controller pose as
+// invalid if GetComponentState fails for these components.
+static POSE_COMPONENTS: &[&CStr] = &[c"tip", c"base", c"handgrip", c"grip"];
+
+fn is_supported_component(component_name: &CStr) -> bool {
+    component_name == DEFAULT_COMPONENT || POSE_COMPONENTS.contains(&component_name)
+}
+
 struct RenderModelObjLz4 {
     /// lz4-compressed obj data
     bytes: &'static [u8],
@@ -190,7 +202,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         let render_model_name = unsafe { CStr::from_ptr(render_model_name) };
         let component_name = unsafe { CStr::from_ptr(component_name) };
 
-        component_name == DEFAULT_COMPONENT && get_render_model_data(render_model_name).is_some()
+        is_supported_component(component_name) && get_render_model_data(render_model_name).is_some()
     }
     fn GetComponentState(
         &self,
@@ -210,7 +222,8 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         let render_model_name = unsafe { CStr::from_ptr(render_model_name) };
         let component_name = unsafe { CStr::from_ptr(component_name) };
 
-        if component_name != DEFAULT_COMPONENT || get_render_model_data(render_model_name).is_none()
+        if !is_supported_component(component_name)
+            || get_render_model_data(render_model_name).is_none()
         {
             // unsupported model or component
             return false;
@@ -963,6 +976,51 @@ mod tests {
         let is_static = vr::EVRComponentProperty::IsStatic.0;
         assert_ne!(state.uProperties & visible, 0);
         assert_ne!(state.uProperties & is_static, 0);
+    }
+
+    #[test]
+    fn get_component_state_supports_standard_pose_components() {
+        // SteamVR registers standard pose components (for example, "tip")
+        // for each controller. Some games (for example, the BigWalkVR mod)
+        // mark a controller pose as invalid if GetComponentState fails for
+        // these components. Thus GetComponentState must succeed for known
+        // render models.
+        let rm = RenderModels::default();
+        let some_model = CString::new(*RENDER_MODELS.keys().next().unwrap()).unwrap();
+
+        for component in POSE_COMPONENTS {
+            let mut state = unsafe { std::mem::zeroed::<vr::RenderModel_ComponentState_t>() };
+            assert!(
+                rm.GetComponentState(
+                    some_model.as_ptr(),
+                    component.as_ptr(),
+                    ptr::null(),
+                    ptr::null(),
+                    &mut state,
+                ),
+                "GetComponentState failed for standard pose component {component:?}"
+            );
+            assert!(rm.RenderModelHasComponent(some_model.as_ptr(), component.as_ptr()));
+
+            // GetComponentState must fail for unknown models
+            assert!(!rm.GetComponentState(
+                c"unknown_model".as_ptr(),
+                component.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                &mut state,
+            ));
+        }
+
+        // GetComponentState must fail for unknown component names
+        let mut state = unsafe { std::mem::zeroed::<vr::RenderModel_ComponentState_t>() };
+        assert!(!rm.GetComponentState(
+            some_model.as_ptr(),
+            c"not_a_real_component".as_ptr(),
+            ptr::null(),
+            ptr::null(),
+            &mut state,
+        ));
     }
 
     #[test]
