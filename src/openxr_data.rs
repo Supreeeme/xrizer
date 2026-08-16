@@ -142,10 +142,10 @@ impl<C: Compositor> OpenXrData<C> {
         #[cfg(feature = "monado")]
         if supported_exts
             .other
-            .contains(&XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string())
+            .contains(&[XR_MNDX_XDEV_SPACE_EXTENSION_NAME.as_bytes(), b"\0"].concat())
         {
             exts.other
-                .push(XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string());
+                .push([XR_MNDX_XDEV_SPACE_EXTENSION_NAME.as_bytes(), b"\0"].concat());
         }
 
         let instance = entry
