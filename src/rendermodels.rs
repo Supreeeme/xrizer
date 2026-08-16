@@ -330,7 +330,7 @@ impl vr::IVRRenderModels006_Interface for RenderModels {
         cstr_write_out(&cstr, render_model_name, render_model_name_len)
     }
     fn FreeTextureD3D11(&self, _: *mut std::ffi::c_void) {
-        todo!()
+        crate::warn_unimplemented!("FreeTextureD3D11");
     }
     fn LoadIntoTextureD3D11_Async(
         &self,

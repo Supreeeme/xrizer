@@ -15,7 +15,7 @@ use crate::{
     },
     openxr_data::Hand,
 };
-use log::{debug, trace, warn};
+use log::{trace, warn};
 use openxr as xr;
 use serde::de::value::StringDeserializer;
 use serde::{
@@ -183,10 +183,7 @@ impl<Inputs, Parameters> ActionBindingData<Inputs, Parameters> {
                 inputs: &self.inputs,
                 parameters: self.parameters.as_ref(),
             }),
-            MaybeInputPath::Invalid { path, error } => {
-                warn!("got invalid input path {path} - {error}");
-                None
-            }
+            MaybeInputPath::Invalid { .. } => None,
         }
     }
 }
@@ -205,11 +202,10 @@ struct ActionBindingOutput<C> {
 #[derive(Debug)]
 struct Custom;
 
+#[allow(dead_code)]
 struct InvalidActionPath<'a>(DynInputPath, &'a str);
 impl InvalidActionPath<'_> {
-    fn warn(&self) {
-        warn!("invalid path {} for {}", self.0, self.1);
-    }
+    fn warn(&self) {}
 }
 
 impl<C: Component> ActionBindingOutput<C>
@@ -464,12 +460,6 @@ pub fn handle_dpad_binding(
     let maybe_find_action = constrain(|a, direction| {
         let output = &a.as_ref()?.output;
         let ret = context.actions.contains_key(&output.path);
-        if !ret {
-            warn!(
-                "Couldn't find dpad action {} (for path {parent_path}, {direction:?})",
-                output.path
-            );
-        }
         ret.then_some(output)
     });
 
@@ -487,7 +477,6 @@ pub fn handle_dpad_binding(
     .collect();
 
     if bound_actions.is_empty() {
-        warn!("Dpad mode, but no actions ({parent_path} in {action_set_name})");
         return;
     }
 
@@ -657,12 +646,6 @@ pub fn handle_sources(
                             component: Some(DynComponent::Click),
                             ..
                         }) => {
-                            if !matches!(target, ButtonForceInput::Click) {
-                                debug!(
-                                    "falling back to click component for {} on {} (target: {:?})",
-                                    click.output.path, path, target
-                                );
-                            }
                             let _ = click
                                 .try_bind_with_component(
                                     path,
@@ -721,7 +704,6 @@ pub fn handle_sources(
                     |s| {
                         // TODO: don't do this conversion dance
                         let Ok(path) = s.parse::<DynInputPath>() else {
-                            warn!("invalid path {s} for dpad binding");
                             return None;
                         };
 
@@ -769,10 +751,6 @@ pub fn handle_sources(
                         .try_bind_with_component(path, context, validate_path)
                         .is_err()
                 {
-                    debug!(
-                        "Falling back to pull for touch on {path} (action {:?})",
-                        &touch.output.path
-                    );
                     // SteamVR fallbacks "touch" bindings on triggers to "any pull amount" if there's no native capsense
                     let with_pull = path.with_component(DynComponent::Value);
                     if let Some(with_pull) = validate_path(with_pull) {
@@ -791,11 +769,6 @@ pub fn handle_sources(
                                 .instance
                                 .string_to_path(&with_pull.to_string())
                                 .unwrap(),
-                        );
-                    } else {
-                        warn!(
-                            "failed to bind trigger pull or touch for action {} - invalid path ({with_pull})",
-                            touch.output.path
                         );
                     }
                 }
@@ -945,26 +918,16 @@ pub fn handle_skeleton_bindings(
                 let bound_hand = match path.as_str() {
                     "/user/hand/left/input/skeleton/left" => Hand::Left,
                     "/user/hand/right/input/skeleton/right" => Hand::Right,
-                    other => {
-                        warn!(
-                            "Got invalid skeleton binding {other} for action {}",
-                            output.path
-                        );
+                    _other => {
                         continue;
                     }
                 };
 
-                if bound_hand != *hand {
-                    warn!(
-                        "Action {} was created with hand {hand:?}, but is bound to hand {bound_hand:?}",
-                        output.path
-                    );
-                }
+                if bound_hand != *hand {}
             }
-            _ => panic!(
-                "Expected skeleton action for skeleton binding {}",
-                output.path
-            ),
+            _ => {
+                continue;
+            }
         }
     }
 }
@@ -979,21 +942,18 @@ pub fn handle_haptic_bindings(
             path.as_str(),
             "/user/hand/left/output/haptic" | "/user/hand/right/output/haptic",
         ) {
-            warn!("invalid haptic path {path} for {}", output.path);
             continue;
         };
         if !context.find_action(&output.path) {
             continue;
         };
 
-        assert!(
-            matches!(
-                &context.actions[&output.path],
-                crate::input::ActionData::Haptic(_)
-            ),
-            "expected haptic action for haptic binding {path}, got {}",
-            output.path
-        );
+        if !matches!(
+            &context.actions[&output.path],
+            crate::input::ActionData::Haptic(_)
+        ) {
+            continue;
+        }
         let xr_path = instance.string_to_path(path).unwrap();
         context.push_binding(output.path.clone(), xr_path);
     }
@@ -1009,14 +969,12 @@ pub fn handle_pose_bindings(context: &mut BindingsProfileLoadContext, bindings: 
             continue;
         };
 
-        assert!(
-            matches!(
-                context.actions.get_mut(&output.path).unwrap(),
-                ActionData::Pose
-            ),
-            "Expected pose action for pose binding on {}",
-            output.path
-        );
+        if !matches!(
+            context.actions.get_mut(&output.path).unwrap(),
+            ActionData::Pose
+        ) {
+            continue;
+        }
 
         let bound = context
             .pose_bindings

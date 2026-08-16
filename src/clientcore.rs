@@ -216,8 +216,14 @@ impl IVRClientCore003_Interface for ClientCore {
             unsafe { *error = vr::EVRInitError::None };
         }
 
-        let openxr = self.openxr.read().unwrap();
-        let openxr = openxr.as_ref().unwrap();
+        let openxr_guard = self.openxr.read().unwrap();
+        let Some(openxr) = openxr_guard.as_ref() else {
+            warn!("GetGenericInterface called before successful Init, returning null");
+            if !error.is_null() {
+                unsafe { *error = vr::EVRInitError::Init_NotInitialized };
+            }
+            return std::ptr::null_mut();
+        };
 
         self.try_interface(interface, |injector| System::new(openxr.clone(), injector))
             .or_else(|| {
@@ -239,6 +245,9 @@ impl IVRClientCore003_Interface for ClientCore {
             .or_else(|| self.try_interface(interface, |_| Settings::default()))
             .or_else(|| self.try_interface(interface, |_| UnknownInterfaces::default()))
             .unwrap_or_else(|| {
+                if !error.is_null() {
+                    unsafe { *error = vr::EVRInitError::Init_InterfaceNotFound };
+                }
                 warn!("app requested unknown interface {interface:?}");
                 std::ptr::null_mut()
             })
@@ -256,6 +265,7 @@ impl IVRClientCore003_Interface for ClientCore {
                 Applications::supported_versions(),
                 OverlayView::supported_versions(),
                 Screenshots::supported_versions(),
+                Settings::supported_versions(),
                 UnknownInterfaces::supported_versions(),
             ]
             .concat()

@@ -1,10 +1,10 @@
 use super::{
-    InteractionProfile, Left, MainAxisType, ProfileProperties, Property, Right,
+    DynInputPath, InteractionProfile, Left, MainAxisType, ProfileProperties, Property, Right,
     SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
-use crate::input::profiles::{DynInputPath, InputToXrPath};
+use crate::input::profiles::InputToXrPath;
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
 
@@ -46,6 +46,7 @@ impl InteractionProfile for OculusTouch {
             },
             tracking_system_name: c"oculus",
             manufacturer_name: c"Oculus",
+            input_profile_path: c"{oculus}/input/touch_profile.json",
             main_axis: MainAxisType::Thumbstick,
             legacy_buttons_mask: button_mask_from_ids!(
                 System,
@@ -61,6 +62,14 @@ impl InteractionProfile for OculusTouch {
     }
     fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
         match path {
+            DynInputPath {
+                subpath: DynSubpath::Trackpad,
+                ..
+            } => Some(DynInputPath {
+                hand: path.hand,
+                subpath: DynSubpath::Thumbstick,
+                component: path.component,
+            }),
             p @ DynInputPath {
                 subpath: DynSubpath::Squeeze | DynSubpath::Trigger,
                 component: Some(DynComponent::Click),
