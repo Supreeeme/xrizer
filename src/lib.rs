@@ -186,10 +186,11 @@ fn init_logging() {
             })
             .init();
 
-        let mut version = env!("VERGEN_GIT_DESCRIBE");
-        if version == "VERGEN_IDEMPOTENT_OUTPUT" {
-            version = env!("CARGO_PKG_VERSION");
-        }
+        let version = option_env!("XRIZER_VERSION")
+            .or_else(|| {
+                option_env!("VERGEN_GIT_DESCRIBE").filter(|v| *v != "VERGEN_IDEMPOTENT_OUTPUT")
+            })
+            .unwrap_or(env!("CARGO_PKG_VERSION"));
         log::info!("Initializing XRizer version {version}");
         if let Some(err) = startup_err {
             log::warn!("{err}");

@@ -12,10 +12,13 @@ readme = "README.md"
 crate-type = ["cdylib"]
 
 [features]
-default = ["monado"]
+default = ["monado", "git-version"]
 static-openxr = ["openxr/static"]
 tracing = ["dep:tracy-client", "openvr/tracing"]
 monado = ["dep:openxr_mndx_xdev_space"]
+# Derive the reported version from `git describe`. Disable when building outside
+# of a git checkout and pass XRIZER_VERSION instead.
+git-version = ["dep:vergen-gitcl"]
 
 [workspace]
 members = ["xbuild"]
@@ -74,7 +77,7 @@ lz4_flex = { version = "0.12.0", default-features = false, features = ["frame"] 
 [build-dependencies]
 anyhow = "1.0.99"
 shaders = { path = "shaders" }
-vergen-gitcl = "1.0.8"
+vergen-gitcl = { version = "1.0.8", optional = true }
 
 [dev-dependencies]
 libloading = "0.8.5"

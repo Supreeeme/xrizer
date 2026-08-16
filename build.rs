@@ -1,6 +1,5 @@
 use anyhow::anyhow;
 use std::env;
-use vergen_gitcl::{Emitter, GitclBuilder};
 
 fn main() -> Result<(), anyhow::Error> {
     let out_dir = env::var("OUT_DIR").unwrap();
@@ -35,6 +34,30 @@ fn main() -> Result<(), anyhow::Error> {
     println!("cargo::rustc-env=XRIZER_OPENVR_PLATFORM_DIR={platform_location}");
     println!("cargo::rustc-env=XRIZER_OPENVR_VRCLIENT_NAME={vrclient_name}");
 
-    let builder = GitclBuilder::default().describe(true, true, None).build()?;
-    Emitter::default().add_instructions(&builder)?.emit()
+    emit_version()
+}
+
+/// Emit the version that is reported at runtime.
+///
+/// XRIZER_VERSION lets builds that have no git checkout - distribution packages
+/// and other builds from a source tarball - supply their own version. Otherwise
+/// the version is derived from `git describe` if the `git-version` feature is
+/// enabled, and falls back to the version from Cargo.toml if it is not.
+fn emit_version() -> Result<(), anyhow::Error> {
+    println!("cargo::rerun-if-env-changed=XRIZER_VERSION");
+
+    if let Some(version) = env::var("XRIZER_VERSION").ok().filter(|v| !v.is_empty()) {
+        println!("cargo::rustc-env=XRIZER_VERSION={version}");
+        return Ok(());
+    }
+
+    #[cfg(feature = "git-version")]
+    {
+        use vergen_gitcl::{Emitter, GitclBuilder};
+
+        let builder = GitclBuilder::default().describe(true, true, None).build()?;
+        Emitter::default().add_instructions(&builder)?.emit()?;
+    }
+
+    Ok(())
 }
