@@ -30,14 +30,10 @@ edition = "2024"
 [workspace.lints.clippy]
 all = "deny"
 
-[patch.crates-io]
-openxr = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3" }
-openxr-sys = { git = "https://github.com/ralith/openxrs", rev = "d0afdd3" }
-
 [workspace.dependencies]
 ash = "0.38.0"
-openxr = { version = "0.19.0" }
-openxr-sys = { version = "0.11.0" }
+openxr = { version = "0.21" }
+openxr-sys = { version = "0.13" }
 slotmap = "1.0.7"
 glam = "0.30.4"
 log = "0.4.22"
@@ -53,7 +49,7 @@ env_logger = "0.11.5"
 glam = { workspace = true }
 log = { workspace = true }
 openxr = { workspace = true }
-openxr_mndx_xdev_space = { version = "0.1.1", optional = true }
+openxr_mndx_xdev_space = { version = "0.2", optional = true }
 openvr = { path = "openvr" }
 paste = "1.0.15"
 seq-macro = "0.3.5"

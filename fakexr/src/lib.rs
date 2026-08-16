@@ -6,6 +6,9 @@ pub use monado_xdev::add_trackers;
 use crossbeam_utils::atomic::AtomicCell;
 use glam::{Affine3A, Quat, Vec3};
 use openxr_sys as xr;
+// Handle::{NULL, into_raw, from_raw} are trait items as of openxr-sys 0.13.
+// Imported anonymously to avoid clashing with our own Handle trait.
+use openxr_sys::Handle as _;
 use paste::paste;
 use slotmap::{DefaultKey, Key, KeyData, SlotMap};
 use std::collections::{HashMap, HashSet};

@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use glam::Mat4;
 use openvr as vr;
 use openxr as xr;
+use openxr::sys::Handle;
 
 use crate::input::profiles::knuckles::Knuckles;
 #[cfg(feature = "monado")]
@@ -409,7 +410,7 @@ impl TrackedDeviceList {
         if !xr_data
             .enabled_extensions
             .other
-            .contains(&XR_MNDX_XDEV_SPACE_EXTENSION_NAME.to_string())
+            .contains(&[XR_MNDX_XDEV_SPACE_EXTENSION_NAME.as_bytes(), b"\0"].concat())
         {
             return Ok(());
         }
