@@ -1099,7 +1099,8 @@ impl vr::IVROverlay028_Interface for OverlayMan {
         _: *mut vr::ETrackingUniverseOrigin,
         _: *mut vr::HmdMatrix34_t,
     ) -> vr::EVROverlayError {
-        todo!()
+        crate::warn_unimplemented!("GetOverlayTransformAbsolute");
+        vr::EVROverlayError::None
     }
     fn SetOverlayTransformAbsolute(
         &self,
