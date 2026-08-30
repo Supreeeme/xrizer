@@ -704,6 +704,17 @@ impl PipelineData {
             &include_bytes!(concat!(env!("OUT_DIR"), "/frag_overlay.spv"))[..],
         );
 
+        let decode: vk::Bool32 = needs_srgb_decode(source_format, target_format).into();
+        let decode_bytes = decode.to_ne_bytes();
+        let decode_entry = vk::SpecializationMapEntry::default()
+            .constant_id(0)
+            .offset(0)
+            .size(size_of::<vk::Bool32>());
+        let decode_spec = vk::SpecializationInfo::default()
+            .map_entries(std::slice::from_ref(&decode_entry))
+            .data(&decode_bytes);
+        let frag_stage = frag_stage.specialization_info(&decode_spec);
+
         let binding = vk::DescriptorSetLayoutBinding::default()
             .binding(0)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
@@ -855,6 +866,20 @@ impl PipelineData {
 }
 
 #[inline]
+fn is_srgb(format: vk::Format) -> bool {
+    matches!(
+        format,
+        vk::Format::R8G8B8A8_SRGB | vk::Format::B8G8R8A8_SRGB | vk::Format::BC3_SRGB_BLOCK
+    )
+}
+
+/// The overlay is sampled through a view with the app's raw format, so a UNORM
+/// source holding sRGB data has to be decoded in the shader. Using an sRGB view
+/// instead would need VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT on the app's image.
+fn needs_srgb_decode(source: vk::Format, target: vk::Format) -> bool {
+    is_srgb(target) && !is_srgb(source)
+}
+
 fn get_colorspace_corrected_format(format: vk::Format, color_space: vr::EColorSpace) -> vk::Format {
     static UNSUPPORTED: LazyLock<Mutex<HashSet<vk::Format>>> = LazyLock::new(Mutex::default);
     // https://github.com/ValveSoftware/openvr/wiki/Vulkan#image-formats
@@ -908,5 +933,36 @@ fn new_entry() -> ash::Entry {
         ash::Entry::from_static_fn(ash::StaticFn {
             get_instance_proc_addr: fakexr::vulkan::get_instance_proc_addr,
         })
+    }
+}
+
+#[cfg(test)]
+mod srgb_decode_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_only_when_the_view_leaves_it_encoded() {
+        assert!(needs_srgb_decode(
+            vk::Format::R8G8B8A8_UNORM,
+            vk::Format::R8G8B8A8_SRGB
+        ));
+        assert!(needs_srgb_decode(
+            vk::Format::B8G8R8A8_UNORM,
+            vk::Format::B8G8R8A8_SRGB
+        ));
+    }
+
+    #[test]
+    fn leaves_matching_formats_alone() {
+        // The view already decodes, so decoding again would darken the image.
+        assert!(!needs_srgb_decode(
+            vk::Format::R8G8B8A8_SRGB,
+            vk::Format::R8G8B8A8_SRGB
+        ));
+        // No encode on write, so there is nothing to cancel.
+        assert!(!needs_srgb_decode(
+            vk::Format::R8G8B8A8_UNORM,
+            vk::Format::R8G8B8A8_UNORM
+        ));
     }
 }
