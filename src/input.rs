@@ -164,27 +164,16 @@ impl<C: openxr_data::Compositor> Input<C> {
         debug_assert!(self.left_hand_key.0.as_ffi() != 0);
         debug_assert!(self.right_hand_key.0.as_ffi() != 0);
         let left_state = self.state_from_bindings(action, self.left_hand_key.0.as_ffi());
-
-        match left_state {
-            None => self.state_from_bindings(action, self.right_hand_key.0.as_ffi()),
-            Some((left, _)) => {
-                if left.is_active && left.current_state {
-                    return left_state;
-                }
-                let right_state = self.state_from_bindings(action, self.right_hand_key.0.as_ffi());
-                match right_state {
-                    None => left_state,
-                    Some((right, _)) => {
-                        if right.is_active && right.current_state {
-                            return right_state;
-                        }
-                        if left.is_active {
-                            return left_state;
-                        }
-                        right_state
-                    }
+        let right_state = self.state_from_bindings(action, self.right_hand_key.0.as_ffi());
+        match (left_state, right_state) {
+            (Some((left, _)), Some((right, _))) => {
+                if binding_rank(&right) > binding_rank(&left) {
+                    right_state
+                } else {
+                    left_state
                 }
             }
+            (state @ Some(_), None) | (None, state) => state,
         }
     }
 
@@ -218,20 +207,30 @@ impl<C: openxr_data::Compositor> Input<C> {
             let Ok(Some(state)) = x.state(&session, extra_data, subaction) else {
                 continue;
             };
+            if !state.is_active {
+                continue;
+            }
 
-            if state.is_active
-                && (!best_state.is_some_and(|x| x.is_active)
-                    || state.current_state && !best_state.is_some_and(|x| x.current_state))
-            {
+            if best_state.is_none_or(|best| binding_rank(&state) > binding_rank(&best)) {
                 best_state = Some(state);
-                if state.current_state {
-                    break;
-                }
+            }
+
+            if state.current_state {
+                break;
             }
         }
 
         best_state.map(|x| (x, restrict_to_device))
     }
+}
+
+/// Ranking used to decide which of an action's bindings should represent it. Highest wins.
+fn binding_rank(state: &xr::ActionState<bool>) -> (bool, bool, i64) {
+    (
+        state.current_state,
+        state.changed_since_last_sync,
+        state.last_change_time.as_nanos(),
+    )
 }
 
 #[derive(Default)]
@@ -965,11 +964,12 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
 
         let mut state = action.state(&session_data.session, subaction_path).unwrap();
 
+        // An action can be driven both by a natively bound input and by a custom binding.
         let mut active_hand = restrict_to_device;
         if let Some((binding_state, binding_source)) =
             self.state_from_bindings(handle, restrict_to_device)
             && binding_state.is_active
-            && (binding_state.current_state && !state.current_state || !state.is_active)
+            && (!state.is_active || binding_rank(&binding_state) > binding_rank(&state))
         {
             state = binding_state;
             active_hand = binding_source;
