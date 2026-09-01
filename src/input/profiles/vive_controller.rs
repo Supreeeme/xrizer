@@ -30,6 +30,7 @@ impl InteractionProfile for ViveWands {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::BothHands(c"Vive. MV"),
             openvr_controller_type: c"vive_controller",
+            input_profile_path: Some(c"{htc}/input/vive_controller_profile.json"),
             render_model_name: Property::BothHands(c"vr_controller_vive_1_5"),
             main_axis: MainAxisType::Trackpad,
             registered_device_type: Property::PerHand {

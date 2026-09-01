@@ -33,6 +33,7 @@ impl InteractionProfile for ViveFocus3 {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::BothHands(c"vive_focus3_controller"),
             openvr_controller_type: c"vive_focus3_controller",
+            input_profile_path: Some(c"{htc}/input/vive_focus3_controller_profile.json"),
             render_model_name: Property::PerHand {
                 left: c"vive_focus3_controller_left",
                 right: c"vive_focus3_controller_right",

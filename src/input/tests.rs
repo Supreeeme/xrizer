@@ -1019,6 +1019,40 @@ fn detect_controller_after_manifest_load() {
     assert!(index.is_some_and(|i| f.input.is_device_connected(i)));
 }
 
+/// A controller has to be able to say which input profile it uses.
+///
+/// No Man's Sky asks for this the moment the interaction profile becomes known, and builds every
+/// button prompt from the answer - returning nothing left it showing a placeholder glyph on all of
+/// them.
+#[test]
+fn controller_reports_input_profile_path() {
+    let mut f = Fixture::new();
+    f.load_actions(c"actions.json");
+
+    let input = f.input.clone();
+    let frame = || {
+        input.openxr.poll_events();
+        input.frame_start_update();
+    };
+
+    f.set_interaction_profile::<Knuckles>(fakexr::UserPath::LeftHand);
+    frame();
+    frame();
+
+    let index = f.input.get_controller_device_index(Hand::Left).unwrap();
+    let path = f
+        .input
+        .get_device_string_tracked_property(
+            index,
+            vr::ETrackedDeviceProperty::InputProfilePath_String,
+        )
+        .expect("no input profile path for a connected controller");
+    assert_eq!(
+        path.to_str().unwrap(),
+        "{indexcontroller}/input/index_controller_profile.json"
+    );
+}
+
 #[test]
 fn empty_manifest() {
     let f = Fixture::new();

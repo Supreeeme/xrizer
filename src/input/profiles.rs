@@ -278,6 +278,15 @@ pub struct ProfileProperties {
     /// Corresponds to Prop_ControllerType_String
     /// Can be pulled from a SteamVR System Report
     pub openvr_controller_type: &'static CStr,
+    /// Corresponds to Prop_InputProfilePath_String - the driver relative path of the controller's
+    /// input profile, in the form `{drivername}/input/<device>_profile.json`. The file names can
+    /// be found under `drivers/<driver>/resources/input` in a SteamVR install.
+    ///
+    /// Games use this to work out which physical controller they are drawing button prompts for;
+    /// No Man's Sky asks for it the moment the interaction profile becomes known and then rebuilds
+    /// every prompt. `None` means we have no plausible value, in which case the property falls
+    /// back to the tracking system name - what the OpenVR docs say it defaults to.
+    pub input_profile_path: Option<&'static CStr>,
     /// Corresponds to RenderModelName_String
     /// Can be found in SteamVR under resources/rendermodels (some are in driver subdirs)
     pub render_model_name: Property<&'static CStr>,

@@ -255,6 +255,15 @@ impl TrackedDevice {
         match property {
             // Audica likes to apply controller specific tweaks via this property
             vr::ETrackedDeviceProperty::ControllerType_String => Some(data.openvr_controller_type),
+            // No Man's Sky identifies the controller it draws button prompts for with this, asking
+            // for it the moment the interaction profile becomes known and rebuilding every prompt
+            // straight after. Answering nothing leaves it with a placeholder glyph on every one.
+            //
+            // Per the OpenVR docs this defaults to the tracking system name when a driver doesn't
+            // provide one, so profiles without a plausible SteamVR profile path fall back to that.
+            vr::ETrackedDeviceProperty::InputProfilePath_String => {
+                Some(data.input_profile_path.unwrap_or(data.tracking_system_name))
+            }
             // I Expect You To Die 3 identifies controllers with this property -
             // why it couldn't just use ControllerType instead is beyond me...
             // Because some controllers have different model names for each hand......
