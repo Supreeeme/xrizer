@@ -325,7 +325,7 @@ pub unsafe extern "system" fn get_instance_proc_addr(
                     AttachSessionActionSets,
                     GetCurrentInteractionProfile,
                     SyncActions,
-                    (EnumerateBoundSourcesForAction),
+                    EnumerateBoundSourcesForAction,
                     (GetInputSourceLocalizedName),
                     {mndx::CreateXDevListMNDX},
                     {mndx::GetXDevListGenerationNumberMNDX},
@@ -1285,6 +1285,20 @@ extern "system" fn attach_session_action_sets(
     } else {
         xr::Result::ERROR_ACTIONSETS_ALREADY_ATTACHED
     }
+}
+
+/// The fake runtime reports no bound sources. Real runtimes only answer this once action sets are
+/// attached and synced, so returning nothing here keeps tests honest about what xrizer can serve
+/// from its own manifest data alone.
+extern "system" fn enumerate_bound_sources_for_action(
+    _session: xr::Session,
+    _info: *const xr::BoundSourcesForActionEnumerateInfo,
+    _capacity_input: u32,
+    count_output: *mut u32,
+    _sources: *mut xr::Path,
+) -> xr::Result {
+    unsafe { *count_output = 0 };
+    xr::Result::SUCCESS
 }
 
 extern "system" fn sync_actions(
