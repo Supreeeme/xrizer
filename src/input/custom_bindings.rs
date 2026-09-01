@@ -814,6 +814,28 @@ pub enum BoolBindingType {
 }
 
 impl BoolBindingData {
+    /// The input sources this binding reads, as the runtime reports them.
+    ///
+    /// A dpad direction is driven by an action of its own - the parent stick's xy - shared between
+    /// the four directions, and the game's action is never suggested a binding at all. Asking the
+    /// runtime about that action therefore says nothing, and the dpad's input has to be found
+    /// through the shared action instead.
+    ///
+    /// The other kinds read actions kept in `ExtraActionData`, which is reachable from the action
+    /// handle and enumerated separately.
+    pub fn bound_sources(&self, session: &xr::Session<xr::AnyGraphics>) -> Vec<xr::Path> {
+        match &self.ty {
+            BoolBindingType::Dpad(data) => {
+                data.actions.xy.bound_sources(session).unwrap_or_default()
+            }
+            BoolBindingType::DoubleTap(_)
+            | BoolBindingType::Toggle(_)
+            | BoolBindingType::Grab(_)
+            | BoolBindingType::ThresholdFloat(_)
+            | BoolBindingType::ThresholdVec2(_) => Vec::new(),
+        }
+    }
+
     pub fn unsync(&self) {
         *self.last_state.lock().unwrap() = BindingState::Unsynced;
     }

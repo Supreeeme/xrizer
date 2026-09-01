@@ -113,6 +113,19 @@ fn get_hand_data(hand: UserPath, session: &Session) -> &HandData {
     }
 }
 
+/// Make xrEnumerateBoundSourcesForAction answer with the bindings suggested for the profile in
+/// use, the way a real runtime does once action sets are attached and synced.
+///
+/// Off by default: several things xrizer does exist precisely because the runtime *can't* answer
+/// yet, and tests for those have to see a runtime that reports nothing.
+pub fn report_bound_sources(session: xr::Session, report: bool) {
+    session
+        .to_handle()
+        .unwrap()
+        .report_bound_sources
+        .store(report, Ordering::Relaxed);
+}
+
 pub fn set_interaction_profile(session: xr::Session, hand: UserPath, profile: xr::Path) {
     let s = session.to_handle().unwrap();
     get_hand_data(hand, &s).pending_profile.store(Some(profile));
@@ -539,6 +552,8 @@ struct Session {
     should_render: AtomicBool,
     frame_state: AtomicCell<FrameState>,
     with_trackers: AtomicBool,
+    /// See [`report_bound_sources`].
+    report_bound_sources: AtomicBool,
 }
 
 impl Session {
@@ -883,6 +898,7 @@ extern "system" fn create_session(
         should_render: false.into(),
         frame_state: FrameState::Ended.into(),
         with_trackers: false.into(),
+        report_bound_sources: false.into(),
     });
 
     let tx = sess.event_sender.clone();
@@ -1287,17 +1303,47 @@ extern "system" fn attach_session_action_sets(
     }
 }
 
-/// The fake runtime reports no bound sources. Real runtimes only answer this once action sets are
-/// attached and synced, so returning nothing here keeps tests honest about what xrizer can serve
-/// from its own manifest data alone.
+/// By default the fake runtime reports no bound sources, which keeps tests honest about what
+/// xrizer can serve from its own manifest data alone. [`report_bound_sources`] turns on the
+/// behaviour of a real runtime instead, for testing the paths that go through the runtime.
 extern "system" fn enumerate_bound_sources_for_action(
-    _session: xr::Session,
-    _info: *const xr::BoundSourcesForActionEnumerateInfo,
-    _capacity_input: u32,
+    session: xr::Session,
+    info: *const xr::BoundSourcesForActionEnumerateInfo,
+    capacity_input: u32,
     count_output: *mut u32,
-    _sources: *mut xr::Path,
+    sources: *mut xr::Path,
 ) -> xr::Result {
-    unsafe { *count_output = 0 };
+    let session = get_handle!(session);
+    if !session.report_bound_sources.load(Ordering::Relaxed) {
+        unsafe { *count_output = 0 };
+        return xr::Result::SUCCESS;
+    }
+
+    let action = get_handle!(unsafe { (*info).action });
+
+    // A real runtime reports the bindings in effect, i.e. those suggested for the profile the
+    // controllers are actually using.
+    let profiles = [
+        session.left_hand.profile.load(),
+        session.right_hand.profile.load(),
+    ];
+    let suggested = action.suggested.lock().unwrap();
+    let bound: Vec<xr::Path> = profiles
+        .iter()
+        .filter(|p| **p != xr::Path::NULL)
+        .filter_map(|p| suggested.get(p))
+        .flatten()
+        .copied()
+        .collect();
+
+    unsafe { *count_output = bound.len() as u32 };
+    if capacity_input == 0 {
+        return xr::Result::SUCCESS;
+    }
+    if capacity_input < bound.len() as u32 {
+        return xr::Result::ERROR_SIZE_INSUFFICIENT;
+    }
+    unsafe { std::ptr::copy_nonoverlapping(bound.as_ptr(), sources, bound.len()) };
     xr::Result::SUCCESS
 }
 

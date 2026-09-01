@@ -245,6 +245,25 @@ impl<C: openxr_data::Compositor> Input<C> {
             }
         }
 
+        // A dpad direction isn't reachable that way: its action is shared between the four
+        // directions and hangs off the parent stick rather than off any one direction, so it's
+        // only found through the binding itself.
+        if let Some(LoadedActions::Manifest(loaded)) = session_data.input_data.actions.get() {
+            for hand in [Hand::Left, Hand::Right] {
+                let Ok(profile) =
+                    session.current_interaction_profile(self.get_subaction_path(hand))
+                else {
+                    continue;
+                };
+                let Ok(bindings) = loaded.try_get_bindings(handle, profile) else {
+                    continue;
+                };
+                for binding in bindings {
+                    add(binding.bound_sources(session));
+                }
+            }
+        }
+
         paths
     }
 

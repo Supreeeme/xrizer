@@ -1203,6 +1203,55 @@ fn binding_info_uses_openvr_input_names() {
     );
 }
 
+/// A dpad direction has to be findable through the runtime, not only through the sources recorded
+/// while the manifest was parsed.
+///
+/// The action a dpad direction actually reads is shared between the four directions and belongs to
+/// the parent stick, so the game's own action is never suggested a binding and the runtime has
+/// nothing to say about it. The binding itself is the only way to reach the shared action.
+#[test]
+fn dpad_binding_reports_its_parent_input() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    // In wands_dpad.json, boolact is bound as the north direction of a dpad on the left trackpad,
+    // and to nothing else.
+    let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+    f.load_actions(c"actions_dpad.json");
+    f.set_interaction_profile::<ViveWands>(LeftHand);
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    // Ask the fake runtime to answer the way a real one does once everything is attached, so this
+    // tests the runtime path and not the manifest-recorded sources.
+    fakexr::report_bound_sources(f.raw_session(), true);
+
+    let session_data = f.input.openxr.session_data.get();
+    let loaded = session_data.input_data.get_loaded_actions().unwrap();
+    let profile = f
+        .input
+        .openxr
+        .instance
+        .string_to_path(ViveWands::profile_path())
+        .unwrap();
+
+    let sources: Vec<String> = loaded
+        .try_get_bindings(boolact, profile)
+        .expect("no custom bindings for the dpad action")
+        .iter()
+        .flat_map(|binding| binding.bound_sources(&session_data.session))
+        .map(|path| f.input.openxr.instance.path_to_string(path).unwrap())
+        .collect();
+
+    assert!(
+        sources
+            .iter()
+            .any(|s| s == "/user/hand/left/input/trackpad"),
+        "dpad binding doesn't lead back to the input driving it: {sources:?}"
+    );
+}
+
 /// Each bound input is reported once, however many of its components an action sits on.
 ///
 /// boolact is bound to the click and the touch of the same inputs, and binding info names the
