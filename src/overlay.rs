@@ -1095,11 +1095,26 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     }
     fn GetOverlayTransformAbsolute(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: *mut vr::ETrackingUniverseOrigin,
-        _: *mut vr::HmdMatrix34_t,
+        handle: vr::VROverlayHandle_t,
+        out_origin: *mut vr::ETrackingUniverseOrigin,
+        out_transform: *mut vr::HmdMatrix34_t,
     ) -> vr::EVROverlayError {
-        todo!()
+        get_overlay!(self, handle, overlay);
+        if out_origin.is_null() || out_transform.is_null() {
+            return vr::EVROverlayError::InvalidParameter;
+        }
+        // relative transforms are unimplemented, so stored transform is always absolute
+        let (origin, transform) = if let Some((origin, transform)) = overlay.transform {
+            (origin, transform)
+        } else {
+            // if none, report the identity in the current tracking space
+            (self.openxr.get_tracking_space(), xr::Posef::IDENTITY.into())
+        };
+        unsafe {
+            out_origin.write(origin);
+            out_transform.write(transform);
+        }
+        vr::EVROverlayError::None
     }
     fn SetOverlayTransformAbsolute(
         &self,
