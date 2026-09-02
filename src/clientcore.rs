@@ -246,6 +246,12 @@ impl IVRClientCore003_Interface for ClientCore {
             .or_else(|| self.try_interface(interface, |_| UnknownInterfaces::default()))
             .unwrap_or_else(|| {
                 warn!("app requested unknown interface {interface:?}");
+                // Not found if the interface is unknown.
+                // Invalid if the interface is known but the version is wrong.
+                // We don't have a way to distinguish those cases yet, so just return NotFound.
+                if !error.is_null() {
+                    unsafe { *error = vr::EVRInitError::Init_InterfaceNotFound };
+                }
                 std::ptr::null_mut()
             })
     }
@@ -274,7 +280,10 @@ impl IVRClientCore003_Interface for ClientCore {
             vr::EVRInitError::None
         } else {
             warn!("app asked about unknown interface {interface:?}");
-            vr::EVRInitError::Init_InvalidInterface
+            // Not found if the interface is unknown.
+            // Invalid if the interface is known but the version is wrong.
+            // We don't have a way to distinguish those cases yet, so just return NotFound.
+            vr::EVRInitError::Init_InterfaceNotFound
         }
     }
 }
