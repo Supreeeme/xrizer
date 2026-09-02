@@ -198,8 +198,14 @@ impl IVRClientCore003_Interface for ClientCore {
     fn GetIDForVRInitError(&self, _: vr::EVRInitError) -> *const c_char {
         std::ptr::null()
     }
-    fn GetEnglishStringForHmdError(&self, _: vr::EVRInitError) -> *const c_char {
-        std::ptr::null()
+    fn GetEnglishStringForHmdError(&self, error: vr::EVRInitError) -> *const c_char {
+        let error_string = format!("EVRInitError {error:?}");
+        error!("GetEnglishStringForHmdError({error:?}) called, returning {error_string:?}");
+        // put the error string in a static hashmap so we can return a pointer to it
+        static ERROR_STRINGS: LazyLock<Mutex<HashMap<vr::EVRInitError, CString>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+        let mut error_strings = ERROR_STRINGS.lock().unwrap();
+        let cstring = error_strings.entry(error).or_insert_with(|| CString::new(error_string).unwrap());
+        cstring.as_ptr()
     }
     fn BIsHmdPresent(&self) -> bool {
         true
