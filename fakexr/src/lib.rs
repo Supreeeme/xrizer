@@ -292,7 +292,7 @@ pub unsafe extern "system" fn get_instance_proc_addr(
                     (ResultToString),
                     (StructureTypeToString),
                     (GetInstanceProperties),
-                    (GetSystemProperties),
+                    GetSystemProperties,
                     CreateSwapchain,
                     DestroySwapchain,
                     EnumerateSwapchainImages,
@@ -1094,6 +1094,34 @@ extern "system" fn get_system(
     system_id: *mut xr::SystemId,
 ) -> xr::Result {
     unsafe { *system_id = xr::SystemId::from_raw(1) };
+    xr::Result::SUCCESS
+}
+
+extern "system" fn get_system_properties(
+    _: xr::Instance,
+    system_id: xr::SystemId,
+    properties: *mut xr::SystemProperties,
+) -> xr::Result {
+    let properties = unsafe { properties.as_mut() }.unwrap();
+    properties.system_id = system_id;
+    properties.vendor_id = 0;
+    properties.system_name = [0; xr::MAX_SYSTEM_NAME_SIZE];
+    for (dst, src) in properties
+        .system_name
+        .iter_mut()
+        .zip(c"fakexr".to_bytes_with_nul())
+    {
+        *dst = *src as _;
+    }
+    properties.graphics_properties = xr::SystemGraphicsProperties {
+        max_swapchain_image_height: 2048,
+        max_swapchain_image_width: 2048,
+        max_layer_count: 16,
+    };
+    properties.tracking_properties = xr::SystemTrackingProperties {
+        orientation_tracking: true.into(),
+        position_tracking: true.into(),
+    };
     xr::Result::SUCCESS
 }
 

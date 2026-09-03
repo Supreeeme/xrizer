@@ -162,7 +162,66 @@ mod log_tags {
     pub const TRACKED_PROP: &str = "tracked_property";
 }
 
+struct HmdIdentity {
+    tracking_system: CString,
+    manufacturer: CString,
+    model: CString,
+}
+
 impl System {
+    /// Identity strings the HMD reports, derived from the OpenXR system name.
+    ///
+    /// Games that sniff these match against the handful of device families
+    /// SteamVR shipped, so map the system name to the closest family rather
+    /// than inventing new strings. An unrecognized (or empty) system name
+    /// falls back to Oculus-style strings, since touch-style controllers are
+    /// the modern common case.
+    fn hmd_identity(&self) -> &'static HmdIdentity {
+        static IDENTITY: std::sync::OnceLock<HmdIdentity> = std::sync::OnceLock::new();
+        IDENTITY.get_or_init(|| {
+            let name = self
+                .openxr
+                .instance
+                .system_properties(self.openxr.system_id)
+                .map(|properties| properties.system_name)
+                .unwrap_or_default();
+            let lower = name.to_lowercase();
+            let is_any = |words: &[&str]| words.iter().any(|w| lower.contains(w));
+
+            let (tracking_system, manufacturer, family_model) =
+                if is_any(&["quest", "oculus", "meta", "rift"]) {
+                    ("oculus", "Oculus", "Oculus Quest")
+                // "frame" covers the Steam Frame, whose controllers games
+                // know nothing about; Valve-family strings get sniffing games
+                // onto their Index scheme, the closest match for its
+                // controllers.
+                } else if is_any(&["index", "valve", "lighthouse", "frame"]) {
+                    ("lighthouse", "Valve", "Index")
+                } else if is_any(&["vive", "htc"]) {
+                    ("lighthouse", "HTC", "Vive")
+                } else if is_any(&["reverb", "holographic", "mixed reality", "wmr"]) {
+                    ("holographic", "WindowsMR", "WindowsMR")
+                } else {
+                    ("oculus", "Oculus", "Oculus Quest")
+                };
+
+            // Report the real system name where we have one - games only
+            // substring match on it, and it's more informative in their logs.
+            let model = if name.is_empty() {
+                family_model.to_string()
+            } else {
+                name
+            };
+            log::info!("Reporting HMD identity: {tracking_system}/{manufacturer}/{model:?}");
+
+            HmdIdentity {
+                tracking_system: CString::new(tracking_system).unwrap(),
+                manufacturer: CString::new(manufacturer).unwrap(),
+                model: CString::new(model).unwrap(),
+            }
+        })
+    }
+
     pub fn new(openxr: Arc<RealOpenXrData>, injector: &Injector) -> Self {
         Self {
             openxr,
@@ -578,9 +637,25 @@ impl vr::IVRSystem026_Interface for System {
                 // something to even get the game to recognize the HMD's location. However, the value
                 // itself doesn't appear to be that important.
                 vr::ETrackedDeviceProperty::SerialNumber_String
-                | vr::ETrackedDeviceProperty::ManufacturerName_String
                 | vr::ETrackedDeviceProperty::ControllerType_String => {
                     Some(CString::new("<unknown>").unwrap())
+                }
+                // Some games sniff the HMD's tracking system/model/vendor
+                // strings to decide which motion controller scheme to enable.
+                // If these are empty, such games fall back to "no supported
+                // controllers" or a scheme the actual controllers can't drive
+                // (e.g. SUPERHOT VR's Vive scheme drops items with a trackpad
+                // button) - and they typically sniff once, at startup, before
+                // any controller has connected, so the HMD is the only device
+                // that can answer.
+                vr::ETrackedDeviceProperty::TrackingSystemName_String => {
+                    Some(self.hmd_identity().tracking_system.clone())
+                }
+                vr::ETrackedDeviceProperty::ModelNumber_String => {
+                    Some(self.hmd_identity().model.clone())
+                }
+                vr::ETrackedDeviceProperty::ManufacturerName_String => {
+                    Some(self.hmd_identity().manufacturer.clone())
                 }
                 _ => None,
             },
@@ -1088,5 +1163,7 @@ mod tests {
         test_prop(vr::ETrackedDeviceProperty::SerialNumber_String);
         test_prop(vr::ETrackedDeviceProperty::ManufacturerName_String);
         test_prop(vr::ETrackedDeviceProperty::ControllerType_String);
+        test_prop(vr::ETrackedDeviceProperty::TrackingSystemName_String);
+        test_prop(vr::ETrackedDeviceProperty::ModelNumber_String);
     }
 }
