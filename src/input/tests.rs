@@ -1085,3 +1085,67 @@ fn load_actions_race() {
     let res = f.get_bool_state(boolact);
     assert!(res.is_ok(), "{res:?}");
 }
+
+/// An action bound to a native input *and* a custom (threshold) binding must report the release
+/// edge of whichever one was actually being used.
+///
+/// Half-Life: Alyx binds its grab action this way - grip as a `trigger` mode click, which becomes a
+/// native binding, and trigger as a `button` mode click, which becomes a threshold on
+/// trigger/value. Releasing the threshold binding used to fall back to reporting the native
+/// binding's state: the action correctly read as no longer held, but `bChanged` was false and
+/// `fUpdateTime`'s companion `last_change_time` came from whenever the *grip* last moved. Alyx
+/// never saw the release edge, so held objects dropped straight down instead of being thrown.
+#[test]
+fn release_edge_with_native_and_threshold_bindings() {
+    let mut f = Fixture::new();
+
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+
+    f.load_actions(c"actions_native_and_threshold.json");
+    f.set_interaction_profile::<Knuckles>(LeftHand);
+
+    let native = f.get_action::<bool>(boolact);
+    let threshold = f
+        .get_extra_action(boolact, ExtraActionType::Analog)
+        .expect("grip should have become a threshold binding");
+
+    let sync = |f: &mut Fixture| {
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        })
+    };
+
+    sync(&mut f);
+    let s = f.get_bool_state(boolact).unwrap();
+    assert!(!s.bState, "should start unpressed");
+
+    // The native binding on its own: press and release both report an edge. This half always
+    // worked, and is here to keep the two halves honest against each other.
+    fakexr::set_action_state(native, fakexr::ActionState::Bool(true), LeftHand);
+    sync(&mut f);
+    let s = f.get_bool_state(boolact).unwrap();
+    assert!(s.bState && s.bChanged, "native press: {s:?}");
+
+    fakexr::set_action_state(native, fakexr::ActionState::Bool(false), LeftHand);
+    sync(&mut f);
+    let s = f.get_bool_state(boolact).unwrap();
+    assert!(!s.bState && s.bChanged, "native release: {s:?}");
+
+    // The custom threshold binding, with the native input left alone the whole time. The release
+    // is the regression: it used to come back with bChanged == false.
+    fakexr::set_action_state(threshold, fakexr::ActionState::Float(1.0), LeftHand);
+    sync(&mut f);
+    let s = f.get_bool_state(boolact).unwrap();
+    assert!(s.bState && s.bChanged, "threshold press: {s:?}");
+
+    fakexr::set_action_state(threshold, fakexr::ActionState::Float(0.0), LeftHand);
+    sync(&mut f);
+    let s = f.get_bool_state(boolact).unwrap();
+    assert!(!s.bState, "threshold release should not be held: {s:?}");
+    assert!(
+        s.bChanged,
+        "threshold release must report the edge, not the idle native binding's state: {s:?}"
+    );
+}

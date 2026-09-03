@@ -1,0 +1,22 @@
+{
+	"action_sets": [
+		{
+			"name": "/actions/set1",
+			"usage": "leftright"
+		}
+	],
+	"actions": [
+		{
+			"name": "/actions/set1/in/boolact",
+			"requirement": "mandatory",
+			"type": "boolean"
+		}
+	],
+	"default_bindings": [
+		{
+			"controller_type": "knuckles",
+			"binding_url": "knuckles_native_and_threshold.json"
+		}
+	],
+	"localization": []
+}
