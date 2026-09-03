@@ -107,6 +107,19 @@ impl InteractionProfile for ViveWands {
         }
     }
 
+    fn render_model_component(
+        subpath: crate::input::profiles::paths::DynSubpath,
+    ) -> Option<&'static std::ffi::CStr> {
+        // Component names from SteamVR's vr_controller_vive_1_5 render model.
+        use crate::input::profiles::paths::DynSubpath::*;
+        Some(match subpath {
+            Trigger => c"trigger",
+            Squeeze => c"lgrip",
+            Trackpad => c"trackpad",
+            Menu => c"button",
+            _ => return None,
+        })
+    }
     fn offset_grip_pose(_: Hand) -> Mat4 {
         Mat4::IDENTITY
     }

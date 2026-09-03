@@ -119,6 +119,23 @@ impl InteractionProfile for OculusTouch {
         }
     }
 
+    fn render_model_component(
+        subpath: crate::input::profiles::paths::DynSubpath,
+    ) -> Option<&'static std::ffi::CStr> {
+        // Component names from SteamVR's oculus_quest2_controller_{left,right} render models.
+        use crate::input::profiles::paths::DynSubpath::*;
+        Some(match subpath {
+            Trigger => c"trigger",
+            Squeeze => c"button_grip",
+            Thumbstick => c"thumbstick",
+            A => c"button_a",
+            B => c"button_b",
+            X => c"button_x",
+            Y => c"button_y",
+            Menu => c"button_enter",
+            _ => return None,
+        })
+    }
     fn offset_grip_pose(hand: Hand) -> Mat4 {
         match hand {
             Hand::Left => Mat4::from_rotation_translation(

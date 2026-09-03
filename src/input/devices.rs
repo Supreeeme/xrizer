@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::sync::Mutex;
 
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 use openvr as vr;
 use openxr as xr;
 use openxr::sys::Handle;
@@ -51,6 +51,7 @@ impl std::fmt::Debug for TrackedDeviceType {
 pub struct ProfileData {
     properties: &'static ProfileProperties,
     get_hand_offset: fn(Hand) -> Mat4,
+    get_render_model_component: fn(super::profiles::paths::DynSubpath) -> Option<&'static CStr>,
     /// For Knuckles, the skeleton thumb tries to accurately match where the physical
     /// thumb is, e.g. the curl depends on which part of the touchpad is being touched,
     /// or how the thumbstick is being pushed, but in GetSkeletalSummaryData with
@@ -65,6 +66,7 @@ impl ProfileData {
         Self {
             properties: P::properties(),
             get_hand_offset: P::offset_grip_pose,
+            get_render_model_component: P::render_model_component,
             force_estimated_thumb: TypeId::of::<P>() == TypeId::of::<Knuckles>(),
         }
     }
@@ -72,6 +74,14 @@ impl ProfileData {
     #[inline]
     pub fn hand_offset(&self, hand: Hand) -> Mat4 {
         (self.get_hand_offset)(hand)
+    }
+
+    #[inline]
+    pub fn render_model_component(
+        &self,
+        subpath: super::profiles::paths::DynSubpath,
+    ) -> Option<&'static CStr> {
+        (self.get_render_model_component)(subpath)
     }
 }
 
@@ -115,7 +125,7 @@ fn get_controller_pose(
         Hand::Right => &pose_data.right_space,
     };
 
-    let (location, velocity) = if let Some(raw) =
+    let (location, mut velocity) = if let Some(raw) =
         spaces.try_get_or_init_raw(&controller.profile_data, session_data, pose_data)
     {
         raw.relate(
@@ -127,6 +137,27 @@ fn get_controller_pose(
         trace!("Failed to get raw space, returning empty pose");
         (xr::SpaceLocation::default(), xr::SpaceVelocity::default())
     };
+
+    if crate::quirks::synthesized_velocity()
+        && location
+            .location_flags
+            .contains(xr::SpaceLocationFlags::POSITION_VALID)
+    {
+        let pos = location.pose.position;
+        if let Some(v) = spaces.update_history_and_velocity(
+            xr_data.display_time.get().as_nanos(),
+            Vec3::new(pos.x, pos.y, pos.z),
+            origin,
+        ) {
+            let v = v.clamp_length_max(crate::quirks::MAX_SYNTHESIZED_SPEED);
+            velocity.linear_velocity = xr::Vector3f {
+                x: v.x,
+                y: v.y,
+                z: v.z,
+            };
+            velocity.velocity_flags |= xr::SpaceVelocityFlags::LINEAR_VALID;
+        }
+    }
 
     Some(vr::space_relation_to_openvr_pose(location, velocity))
 }
@@ -419,7 +450,19 @@ impl TrackedDeviceList {
             !matches!(device.device_type, TrackedDeviceType::GenericTracker { .. })
         });
 
-        let max_generic_trackers = vr::k_unMaxTrackedDeviceCount as usize - self.devices.len();
+        // Trackers identify as Vive Trackers, which some games sniff to pick a
+        // controller scheme (e.g. SUPERHOT VR switches to its Vive scheme when
+        // it sees one), so allow capping or disabling them per game.
+        let default_max = if crate::quirks::get().no_generic_trackers {
+            0
+        } else {
+            usize::MAX
+        };
+        let max_generic_trackers = std::env::var("XRIZER_MAX_TRACKERS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default_max)
+            .min(vr::k_unMaxTrackedDeviceCount as usize - self.devices.len());
         let extra_tracker_serials = std::env::var("XRIZER_TRACKER_SERIALS")
             .map_or(vec![], |trackers| {
                 trackers.split(";").map(|t| t.to_string()).collect()
