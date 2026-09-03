@@ -49,10 +49,11 @@ impl InteractionProfile for SimpleController {
         match path {
             DynInputPath {
                 subpath: DynSubpath::Trigger,
-                component: Some(DynComponent::Click),
+                component: Some(DynComponent::Click | DynComponent::Value),
                 ..
             } => Some(DynInputPath {
                 subpath: DynSubpath::Select,
+                component: Some(DynComponent::Click),
                 ..path
             }),
             _ => None,

@@ -7,13 +7,14 @@ use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
 use crate::input::profiles::{legal_paths, paths::*};
 use crate::openxr_data::Hand;
 use glam::Mat4;
-use openvr::EVRButtonId::{ApplicationMenu, Axis0, Axis1, Grip, System};
+use openvr::EVRButtonId;
 
 pub struct ViveWands;
 
 impl InteractionProfile for ViveWands {
     type LegalPaths = legal_paths![
         Both::<
+            (System, Click),
             (Squeeze, Click),
             (Menu, Click),
             (Trigger, Click),
@@ -42,7 +43,7 @@ impl InteractionProfile for ViveWands {
             },
             tracking_system_name: c"lighthouse",
             manufacturer_name: c"HTC",
-            legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, Axis0, Axis1),
+            legacy_buttons_mask: button_mask_from_ids!(EVRButtonId::System, EVRButtonId::ApplicationMenu, EVRButtonId::Grip, EVRButtonId::Axis0, EVRButtonId::Axis1),
         };
         &DEVICE_PROPERTIES
     }

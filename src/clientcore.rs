@@ -198,8 +198,14 @@ impl IVRClientCore003_Interface for ClientCore {
     fn GetIDForVRInitError(&self, _: vr::EVRInitError) -> *const c_char {
         std::ptr::null()
     }
-    fn GetEnglishStringForHmdError(&self, _: vr::EVRInitError) -> *const c_char {
-        std::ptr::null()
+    fn GetEnglishStringForHmdError(&self, error: vr::EVRInitError) -> *const c_char {
+        let error_string = format!("EVRInitError {error:?}");
+        error!("GetEnglishStringForHmdError({error:?}) called, returning {error_string:?}");
+        // put the error string in a static hashmap so we can return a pointer to it
+        static ERROR_STRINGS: LazyLock<Mutex<HashMap<vr::EVRInitError, CString>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+        let mut error_strings = ERROR_STRINGS.lock().unwrap();
+        let cstring = error_strings.entry(error).or_insert_with(|| CString::new(error_string).unwrap());
+        cstring.as_ptr()
     }
     fn BIsHmdPresent(&self) -> bool {
         true
@@ -240,6 +246,12 @@ impl IVRClientCore003_Interface for ClientCore {
             .or_else(|| self.try_interface(interface, |_| UnknownInterfaces::default()))
             .unwrap_or_else(|| {
                 warn!("app requested unknown interface {interface:?}");
+                // Not found if the interface is unknown.
+                // Invalid if the interface is known but the version is wrong.
+                // We don't have a way to distinguish those cases yet, so just return NotFound.
+                if !error.is_null() {
+                    unsafe { *error = vr::EVRInitError::Init_InterfaceNotFound };
+                }
                 std::ptr::null_mut()
             })
     }
@@ -268,7 +280,10 @@ impl IVRClientCore003_Interface for ClientCore {
             vr::EVRInitError::None
         } else {
             warn!("app asked about unknown interface {interface:?}");
-            vr::EVRInitError::Init_InvalidInterface
+            // Not found if the interface is unknown.
+            // Invalid if the interface is known but the version is wrong.
+            // We don't have a way to distinguish those cases yet, so just return NotFound.
+            vr::EVRInitError::Init_InterfaceNotFound
         }
     }
 }
