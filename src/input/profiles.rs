@@ -7,7 +7,8 @@ pub mod vive_focus3;
 #[cfg(feature = "monado")]
 pub mod vive_tracker;
 use super::{
-    action_manifest::ControllerType, legacy::LegacyBindings, skeletal::SkeletalInputBindings,
+    BoundPoseType, action_manifest::ControllerType, legacy::LegacyBindings,
+    skeletal::SkeletalInputBindings,
 };
 use crate::input::profiles::typemagic::ContainsPath;
 use crate::openxr_data::Hand;
@@ -36,6 +37,28 @@ pub trait InteractionProfile: SupportedProfile + Sized + 'static {
     fn skeletal_input_bindings(converter: &InputToXrPath<Self>) -> SkeletalInputBindings;
     /// Can be extracted from SteamVR rendermodel files, it is the inverse of the "grip" or "openxr_grip" value
     fn offset_grip_pose(_: Hand) -> Mat4;
+    /// Can be extracted from SteamVR controller driver JSON, `component.{tip,base,etc}`.
+    ///
+    /// You can use the `resources/generate_pose_transforms.py` script to generate
+    /// these for you.
+    fn pose_transformation(pose: BoundPoseType) -> Option<PoseTransformations>;
+}
+
+/// Helper for generating `offset_grip_pose` methods via `pose_transformation`
+/// & a `BoundPoseType`.
+///
+/// Looks up the proper matrix for the hand+type & inverts it, defaulting back
+/// to the identity matrix.
+fn offset_grip_pose_from_pose_type<P: InteractionProfile>(
+    hand: Hand,
+    pose_type: BoundPoseType,
+) -> Mat4 {
+    P::pose_transformation(pose_type)
+        .map_or(Mat4::IDENTITY, |pose_transform| match hand {
+            Hand::Left => pose_transform.left_hand,
+            Hand::Right => pose_transform.right_hand,
+        })
+        .inverse()
 }
 
 pub(super) trait RunWithProfile {
@@ -298,6 +321,12 @@ pub struct ProfileProperties {
 pub enum MainAxisType {
     Thumbstick,
     Trackpad,
+}
+
+#[derive(Debug)]
+pub struct PoseTransformations {
+    pub left_hand: Mat4,
+    pub right_hand: Mat4,
 }
 
 // Some strong typing for representing input paths.

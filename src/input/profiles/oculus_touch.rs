@@ -1,6 +1,6 @@
 use super::{
-    InteractionProfile, Left, MainAxisType, ProfileProperties, Property, Right,
-    SkeletalInputBindings, legal_paths, paths::*,
+    BoundPoseType, InteractionProfile, Left, MainAxisType, PoseTransformations, ProfileProperties,
+    Property, Right, SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
@@ -120,27 +120,194 @@ impl InteractionProfile for OculusTouch {
     }
 
     fn offset_grip_pose(hand: Hand) -> Mat4 {
-        match hand {
-            Hand::Left => Mat4::from_rotation_translation(
-                Quat::from_euler(
-                    EulerRot::XYZ,
-                    20.6_f32.to_radians(),
-                    0.0_f32.to_radians(),
-                    0.0_f32.to_radians(),
+        super::offset_grip_pose_from_pose_type::<OculusTouch>(hand, BoundPoseType::OpenxrGrip)
+    }
+
+    /// Derived from `SteamVR/resources/rendermodels/oculus_quest2_controller_*/*.json`
+    fn pose_transformation(pose: BoundPoseType) -> Option<PoseTransformations> {
+        match pose {
+            BoundPoseType::Raw => None,
+            BoundPoseType::Gdc2015 => None,
+            BoundPoseType::Tip => Some(PoseTransformations {
+                left_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -37.4_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.016694, -0.02522, 0.024687),
                 ),
-                Vec3::new(0.007, -0.00182941, 0.1019482),
-            )
-            .inverse(),
-            Hand::Right => Mat4::from_rotation_translation(
-                Quat::from_euler(
-                    EulerRot::XYZ,
-                    20.6_f32.to_radians(),
-                    0.0_f32.to_radians(),
-                    0.0_f32.to_radians(),
+                right_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -37.4_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(-0.016694, -0.02522, 0.024687),
                 ),
-                Vec3::new(-0.007, -0.00182941, 0.1019482),
-            )
-            .inverse(),
+            }),
+            BoundPoseType::Base => Some(PoseTransformations {
+                left_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -0.4_f32.to_radians(),
+                        180.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(-0.0034, -0.0034, 0.1491),
+                ),
+                right_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -0.4_f32.to_radians(),
+                        180.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.0034, -0.0034, 0.1491),
+                ),
+            }),
+            BoundPoseType::Handgrip => Some(PoseTransformations {
+                left_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        5.037_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.0, 0.003, 0.097),
+                ),
+                right_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        5.037_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.0, 0.003, 0.097),
+                ),
+            }),
+            BoundPoseType::Grip => Some(PoseTransformations {
+                left_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        5.037_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.0, 0.003, 0.097),
+                ),
+                right_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        5.037_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.0, 0.003, 0.097),
+                ),
+            }),
+            BoundPoseType::OpenxrHandmodel => Some(PoseTransformations {
+                left_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -39.4_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(-0.01125, -0.00182941, 0.1019482),
+                ),
+                right_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -39.4_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.01125, -0.00182941, 0.1019482),
+                ),
+            }),
+            BoundPoseType::OpenxrPinch => Some(PoseTransformations {
+                left_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -90.0_f32.to_radians(),
+                        -39.4_f32.to_radians(),
+                        -90.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.043, -0.015779, 0.037701),
+                ),
+                right_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -90.0_f32.to_radians(),
+                        -39.4_f32.to_radians(),
+                        -90.0_f32.to_radians(),
+                    ),
+                    Vec3::new(-0.043, -0.015779, 0.037701),
+                ),
+            }),
+            BoundPoseType::OpenxrPoke => Some(PoseTransformations {
+                left_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -6.3_f32.to_radians(),
+                        -45.1_f32.to_radians(),
+                        -89.2_f32.to_radians(),
+                    ),
+                    Vec3::new(-0.0225, -0.066903, 0.015636),
+                ),
+                right_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -6.3_f32.to_radians(),
+                        -45.1_f32.to_radians(),
+                        -89.2_f32.to_radians(),
+                    ),
+                    Vec3::new(0.0225, -0.066903, 0.015637),
+                ),
+            }),
+            BoundPoseType::OpenxrAim => Some(PoseTransformations {
+                left_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -39.4_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.007, -0.03894766, 0.00949694),
+                ),
+                right_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        -39.4_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(-0.007, -0.03894766, 0.00949694),
+                ),
+            }),
+            BoundPoseType::OpenxrGrip => Some(PoseTransformations {
+                left_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        20.6_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(0.007, -0.00182941, 0.1019482),
+                ),
+                right_hand: Mat4::from_rotation_translation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        20.6_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                        0.0_f32.to_radians(),
+                    ),
+                    Vec3::new(-0.007, -0.00182941, 0.1019482),
+                ),
+            }),
         }
     }
 }
