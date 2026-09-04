@@ -5,7 +5,7 @@ use derive_more::{From, TryInto};
 pub use gl::GlData;
 use openvr as vr;
 use openxr as xr;
-pub use vulkan::VulkanData;
+pub use vulkan::{AdapterInfo, VulkanData, adapter_info};
 
 pub trait GraphicsBackend: Into<SupportedBackend> {
     type Api: xr::Graphics + 'static;

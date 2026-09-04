@@ -595,6 +595,95 @@ impl VulkanData {
     }
 }
 
+/// The adapter (GPU) the OpenXR runtime is rendering with, used to answer
+/// OpenVR's DirectX adapter queries (GetOutputDevice, GetDXGIOutputInfo,
+/// GetD3D9AdapterIndex).
+pub struct AdapterInfo {
+    /// The adapter LUID (VkPhysicalDeviceIDProperties::deviceLUID), if the
+    /// driver reports a valid one. LUIDs are a Windows concept, so most Linux
+    /// drivers don't.
+    pub luid: Option<u64>,
+    /// The position of the adapter in vkEnumeratePhysicalDevices order, which
+    /// is how DXVK orders DXGI adapters.
+    pub index: Option<u32>,
+}
+
+/// Queries which physical device the OpenXR runtime renders on using a
+/// short-lived Vulkan instance, without requiring one from the app.
+pub fn adapter_info(xr_instance: &xr::Instance, system_id: xr::SystemId) -> Option<AdapterInfo> {
+    struct InstanceGuard(ash::Instance);
+    impl Drop for InstanceGuard {
+        fn drop(&mut self) {
+            unsafe { self.0.destroy_instance(None) };
+        }
+    }
+
+    let entry = new_entry();
+
+    // vkGetPhysicalDeviceProperties2 requires Vulkan 1.1
+    let version = unsafe { entry.try_enumerate_instance_version() }
+        .ok()
+        .flatten()
+        .unwrap_or(vk::API_VERSION_1_0);
+    if version < vk::API_VERSION_1_1 {
+        warn!("Vulkan instance version too old to query adapter info");
+        return None;
+    }
+
+    let inst_exts = xr_instance
+        .vulkan_legacy_instance_extensions(system_id)
+        .inspect_err(|e| warn!("Failed to get required Vulkan instance extensions: {e}"))
+        .ok()?;
+    let inst_exts: Vec<CString> = inst_exts
+        .split_ascii_whitespace()
+        .map(|ext| CString::new(ext).unwrap())
+        .collect();
+    let inst_exts: Vec<*const c_char> = inst_exts.iter().map(|ext| ext.as_ptr()).collect();
+
+    let instance = InstanceGuard(
+        unsafe {
+            entry.create_instance(
+                &vk::InstanceCreateInfo::default()
+                    .application_info(
+                        &vk::ApplicationInfo::default()
+                            .api_version(vk::API_VERSION_1_1)
+                            .application_name(c"XRizer adapter query"),
+                    )
+                    .enabled_extension_names(&inst_exts),
+                None,
+            )
+        }
+        .inspect_err(|e| warn!("Failed to create Vulkan instance for adapter query: {e}"))
+        .ok()?,
+    );
+
+    let physical_device =
+        unsafe { xr_instance.vulkan_graphics_device(system_id, instance.0.handle().as_raw() as _) }
+            .inspect_err(|e| warn!("Failed to get Vulkan physical device for adapter query: {e}"))
+            .ok()?;
+    let physical_device = vk::PhysicalDevice::from_raw(physical_device as _);
+
+    let index = unsafe { instance.0.enumerate_physical_devices() }
+        .inspect_err(|e| warn!("Failed to enumerate physical devices: {e}"))
+        .ok()
+        .and_then(|devices| devices.into_iter().position(|d| d == physical_device))
+        .map(|index| index as u32);
+
+    let mut id_props = vk::PhysicalDeviceIDProperties::default();
+    let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut id_props);
+    unsafe {
+        instance
+            .0
+            .get_physical_device_properties2(physical_device, &mut props);
+    }
+    // DXVK and Proton treat the LUID as 8 raw bytes memcpy'd into a u64, so
+    // native byte order is correct here.
+    let luid =
+        (id_props.device_luid_valid == vk::TRUE).then(|| u64::from_ne_bytes(id_props.device_luid));
+
+    Some(AdapterInfo { luid, index })
+}
+
 struct PipelineData {
     pipeline: vk::Pipeline,
     layout: vk::PipelineLayout,

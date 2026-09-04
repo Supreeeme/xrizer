@@ -40,14 +40,16 @@ pub unsafe extern "system" fn get_instance_proc_addr(
     let name = unsafe { CStr::from_ptr(name) };
 
     if instance.is_null() {
-        get_fn![name => CreateInstance]
+        get_fn![name => CreateInstance, EnumerateInstanceVersion]
     } else {
         get_fn![name =>
             GetPhysicalDeviceQueueFamilyProperties,
             CreateDevice,
             GetDeviceProcAddr,
             GetDeviceQueue,
-            DestroyInstance
+            DestroyInstance,
+            EnumeratePhysicalDevices,
+            GetPhysicalDeviceProperties2
         ]
     }
 }
@@ -65,6 +67,11 @@ extern "system" fn get_device_proc_addr(
 }
 
 struct Instance;
+
+/// The only physical device the fake Vulkan implementation exposes.
+pub const PHYSICAL_DEVICE: u64 = 0xba5eba11;
+/// The LUID reported for [`PHYSICAL_DEVICE`].
+pub const ADAPTER_LUID: u64 = 0x0123_4567_89ab_cdef;
 
 #[repr(C)]
 pub(crate) struct Device {
@@ -135,6 +142,54 @@ extern "system" fn device_wait_idle(_: vk::Device) -> vk::Result {
     vk::Result::SUCCESS
 }
 
+extern "system" fn enumerate_instance_version(version: *mut u32) -> vk::Result {
+    unsafe { *version = vk::API_VERSION_1_1 };
+    vk::Result::SUCCESS
+}
+
+extern "system" fn enumerate_physical_devices(
+    _: vk::Instance,
+    physical_device_count: *mut u32,
+    physical_devices: *mut vk::PhysicalDevice,
+) -> vk::Result {
+    if physical_devices.is_null() {
+        unsafe { *physical_device_count = 1 };
+    } else if unsafe { *physical_device_count } >= 1 {
+        unsafe {
+            *physical_devices = vk::PhysicalDevice::from_raw(PHYSICAL_DEVICE);
+            *physical_device_count = 1;
+        }
+    } else {
+        return vk::Result::INCOMPLETE;
+    }
+    vk::Result::SUCCESS
+}
+
+extern "system" fn get_physical_device_properties2(
+    _: vk::PhysicalDevice,
+    properties: *mut vk::PhysicalDeviceProperties2,
+) {
+    assert!(!properties.is_null());
+    // Walk the chain through raw pointers only - materializing a reference to
+    // a chain struct would invalidate the one we hold on its parent under
+    // Stacked Borrows, and miri rejects that.
+    let mut next;
+    unsafe {
+        (*properties).properties.api_version = vk::API_VERSION_1_1;
+        next = (*properties).p_next as *mut vk::BaseOutStructure;
+    }
+    while !next.is_null() {
+        unsafe {
+            if (*next).s_type == vk::StructureType::PHYSICAL_DEVICE_ID_PROPERTIES {
+                let id_props = next.cast::<vk::PhysicalDeviceIDProperties>();
+                (*id_props).device_luid = ADAPTER_LUID.to_ne_bytes();
+                (*id_props).device_luid_valid = vk::TRUE;
+            }
+            next = (*next).p_next;
+        }
+    }
+}
+
 extern "system" fn get_physical_device_queue_family_properties(
     _physical_device: vk::PhysicalDevice,
     queue_family_property_count: *mut u32,
@@ -199,8 +254,9 @@ pub(crate) mod xr {
         _: xr::Instance,
         _: xr::SystemId,
         _: xr::platform::VkInstance,
-        _: *mut xr::platform::VkPhysicalDevice,
+        physical_device: *mut xr::platform::VkPhysicalDevice,
     ) -> xr::Result {
+        unsafe { *physical_device = super::PHYSICAL_DEVICE as _ };
         xr::Result::SUCCESS
     }
 

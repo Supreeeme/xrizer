@@ -1,16 +1,17 @@
 use crate::{
     clientcore::{Injected, Injector},
+    graphics_backends::AdapterInfo,
     input::Input,
     openxr_data::{Hand, RealOpenXrData, SessionData},
     overlay::OverlayMan,
     tracy_span,
 };
 use glam::{Mat3, Quat, Vec3};
-use log::{debug, error, trace, warn};
+use log::{debug, error, info, trace, warn};
 use openvr as vr;
 use openxr as xr;
 use std::ffi::{CStr, CString};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Copy, Clone)]
 pub struct ViewData {
@@ -156,6 +157,7 @@ pub struct System {
     overlay: Injected<OverlayMan>,
     vtables: Vtables,
     views: Mutex<ViewCache>,
+    adapter_info: OnceLock<Option<AdapterInfo>>,
 }
 
 mod log_tags {
@@ -170,7 +172,27 @@ impl System {
             overlay: injector.inject(),
             vtables: Default::default(),
             views: Mutex::default(),
+            adapter_info: OnceLock::new(),
         }
+    }
+
+    /// The adapter the OpenXR runtime renders on, for answering DirectX
+    /// adapter queries. Cached because querying creates a short-lived Vulkan
+    /// instance.
+    fn adapter_info(&self) -> &Option<AdapterInfo> {
+        self.adapter_info.get_or_init(|| {
+            let info = crate::graphics_backends::adapter_info(
+                &self.openxr.instance,
+                self.openxr.system_id,
+            );
+            match &info {
+                Some(AdapterInfo { luid, index }) => {
+                    info!("HMD adapter: luid: {luid:#x?}, index: {index:?}")
+                }
+                None => warn!("Could not determine the adapter the HMD is connected to"),
+            }
+            info
+        })
     }
 
     pub fn reset_views(&self) {
@@ -853,26 +875,70 @@ impl vr::IVRSystem026_Interface for System {
         texture_type: vr::ETextureType,
         instance: *mut vr::VkInstance_T,
     ) {
-        if texture_type != vr::ETextureType::Vulkan {
-            // Proton doesn't seem to properly translate this function, but it doesn't appear to
-            // actually matter.
-            log::error!("Unsupported texture type: {texture_type:?}");
+        let Some(device) = (unsafe { device.as_mut() }) else {
             return;
-        }
+        };
+        // Callers (including Proton's vrclient) read the output even if we
+        // can't provide a device, so always initialize it. Proton also uses 0
+        // when it can't provide a device.
+        *device = 0;
 
-        unsafe {
-            *device = self
-                .openxr
-                .instance
-                .vulkan_graphics_device(self.openxr.system_id, instance as _)
-                .expect("Failed to get vulkan physical device") as _;
+        match texture_type {
+            vr::ETextureType::Vulkan => {
+                if instance.is_null() {
+                    // Possible through IVRSystem_016, which has no instance
+                    // parameter. A VkPhysicalDevice is meaningless without its
+                    // instance.
+                    error!("Can't get Vulkan output device without a VkInstance");
+                    return;
+                }
+                unsafe {
+                    *device = self
+                        .openxr
+                        .instance
+                        .vulkan_graphics_device(self.openxr.system_id, instance as _)
+                        .expect("Failed to get vulkan physical device")
+                        as _;
+                }
+            }
+            // Direct3D games ask for the LUID of the adapter the HMD is
+            // connected to, then create their device on the DXGI adapter with
+            // the matching LUID. Proton usually rewrites this into a Vulkan
+            // query before it reaches us, but the IVRSystem_016 version comes
+            // through untranslated.
+            vr::ETextureType::DirectX
+            | vr::ETextureType::DirectX12
+            | vr::ETextureType::DXGISharedHandle => {
+                if let Some(AdapterInfo {
+                    luid: Some(luid), ..
+                }) = self.adapter_info()
+                {
+                    *device = *luid;
+                } else {
+                    warn!("No adapter LUID available for GetOutputDevice ({texture_type:?})");
+                }
+            }
+            other => error!("Unsupported texture type: {other:?}"),
         }
     }
-    fn GetDXGIOutputInfo(&self, _: *mut i32) {
-        todo!()
+    fn GetDXGIOutputInfo(&self, adapter_index: *mut i32) {
+        let Some(adapter_index) = (unsafe { adapter_index.as_mut() }) else {
+            return;
+        };
+        // If the adapter can't be determined, 0 is always the right answer on
+        // single GPU systems.
+        *adapter_index = self
+            .adapter_info()
+            .as_ref()
+            .and_then(|info| info.index)
+            .unwrap_or(0) as i32;
     }
     fn GetD3D9AdapterIndex(&self) -> i32 {
-        todo!()
+        // D3D9 adapter ordinals follow the same order as DXGI adapters.
+        self.adapter_info()
+            .as_ref()
+            .and_then(|info| info.index)
+            .unwrap_or(0) as i32
     }
 }
 
@@ -910,9 +976,16 @@ impl vr::IVRSystem017On019 for System {
 }
 
 impl vr::IVRSystem016On017 for System {
-    fn GetOutputDevice(&self, _device: *mut u64, _texture_type: vr::ETextureType) {
-        // TODO: figure out what to pass for the instance...
-        todo!()
+    fn GetOutputDevice(&self, device: *mut u64, texture_type: vr::ETextureType) {
+        // This interface version predates the VkInstance parameter. The
+        // DirectX paths don't need it; the Vulkan path logs an error and
+        // writes 0 without it.
+        <Self as vr::IVRSystem026_Interface>::GetOutputDevice(
+            self,
+            device,
+            texture_type,
+            std::ptr::null_mut(),
+        )
     }
 }
 
@@ -1088,5 +1161,44 @@ mod tests {
         test_prop(vr::ETrackedDeviceProperty::SerialNumber_String);
         test_prop(vr::ETrackedDeviceProperty::ManufacturerName_String);
         test_prop(vr::ETrackedDeviceProperty::ControllerType_String);
+    }
+
+    #[test]
+    fn directx_adapter_queries() {
+        let xr = Arc::new(OpenXrData::new(&Injector::default()).unwrap());
+        let injector = Injector::default();
+        let system = System::new(xr, &injector);
+
+        // D3D11 apps ask for the LUID of the adapter the HMD is connected to.
+        for texture_type in [
+            vr::ETextureType::DirectX,
+            vr::ETextureType::DirectX12,
+            vr::ETextureType::DXGISharedHandle,
+        ] {
+            let mut device = u64::MAX;
+            system.GetOutputDevice(&mut device, texture_type, std::ptr::null_mut());
+            assert_eq!(device, fakexr::vulkan::ADAPTER_LUID);
+        }
+
+        // IVRSystem_016 has no VkInstance parameter but must still answer
+        // DirectX queries.
+        let mut device = u64::MAX;
+        <System as vr::IVRSystem016On017>::GetOutputDevice(
+            &system,
+            &mut device,
+            vr::ETextureType::DirectX,
+        );
+        assert_eq!(device, fakexr::vulkan::ADAPTER_LUID);
+
+        // Vulkan without an instance can't be answered, but must not crash or
+        // leave the output uninitialized.
+        let mut device = u64::MAX;
+        system.GetOutputDevice(&mut device, vr::ETextureType::Vulkan, std::ptr::null_mut());
+        assert_eq!(device, 0);
+
+        let mut adapter_index = -1;
+        system.GetDXGIOutputInfo(&mut adapter_index);
+        assert_eq!(adapter_index, 0);
+        assert_eq!(system.GetD3D9AdapterIndex(), 0);
     }
 }
