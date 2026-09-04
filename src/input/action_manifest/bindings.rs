@@ -516,6 +516,7 @@ pub fn handle_dpad_binding(
                 },
                 direction,
             }),
+            Some(&parent_path),
         );
     }
 
@@ -579,6 +580,7 @@ pub fn handle_sources(
                         action_set_name,
                         action_set,
                         None,
+                        Some(&path),
                     );
 
                     trace!("suggesting {click_path} for {} (toggle)", click.output.path);
@@ -624,6 +626,7 @@ pub fn handle_sources(
                         action_set_name,
                         action_set,
                         None,
+                        Some(&complete_path),
                     );
 
                     context.push_binding(
@@ -683,6 +686,7 @@ pub fn handle_sources(
                             action_set_name,
                             action_set,
                             params,
+                            Some(&complete_path),
                         )
                     } else {
                         context.add_custom_binding::<ThresholdBindingFloat>(
@@ -691,6 +695,7 @@ pub fn handle_sources(
                             action_set_name,
                             action_set,
                             params,
+                            Some(&complete_path),
                         )
                     };
 
@@ -784,6 +789,7 @@ pub fn handle_sources(
                                 action_set_name,
                                 action_set,
                                 Some(&parameters),
+                                Some(&with_pull),
                             );
                         context.push_binding(
                             float_name_with_as,
@@ -868,6 +874,7 @@ pub fn handle_sources(
                     action_set_name,
                     action_set,
                     parameters,
+                    Some(&path),
                 );
 
                 trace!(

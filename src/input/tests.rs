@@ -1019,6 +1019,40 @@ fn detect_controller_after_manifest_load() {
     assert!(index.is_some_and(|i| f.input.is_device_connected(i)));
 }
 
+/// A controller has to be able to say which input profile it uses.
+///
+/// No Man's Sky asks for this the moment the interaction profile becomes known, and builds every
+/// button prompt from the answer - returning nothing left it showing a placeholder glyph on all of
+/// them.
+#[test]
+fn controller_reports_input_profile_path() {
+    let mut f = Fixture::new();
+    f.load_actions(c"actions.json");
+
+    let input = f.input.clone();
+    let frame = || {
+        input.openxr.poll_events();
+        input.frame_start_update();
+    };
+
+    f.set_interaction_profile::<Knuckles>(fakexr::UserPath::LeftHand);
+    frame();
+    frame();
+
+    let index = f.input.get_controller_device_index(Hand::Left).unwrap();
+    let path = f
+        .input
+        .get_device_string_tracked_property(
+            index,
+            vr::ETrackedDeviceProperty::InputProfilePath_String,
+        )
+        .expect("no input profile path for a connected controller");
+    assert_eq!(
+        path.to_str().unwrap(),
+        "{indexcontroller}/input/index_controller_profile.json"
+    );
+}
+
 #[test]
 fn empty_manifest() {
     let f = Fixture::new();
@@ -1084,4 +1118,226 @@ fn load_actions_race() {
 
     let res = f.get_bool_state(boolact);
     assert!(res.is_ok(), "{res:?}");
+}
+
+/// Binding info must be available as soon as the manifest is loaded, not only once the runtime
+/// has attached and synced the action sets.
+///
+/// Games that build their control prompts during startup query before the runtime can report
+/// bound sources, cache the empty answer, and show placeholder glyphs for the rest of the session.
+#[test]
+fn binding_info_available_after_manifest_load() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<Knuckles>(LeftHand);
+    // The profile only becomes current on the next sync.
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    let mut infos = [vr::InputBindingInfo_t {
+        rchDevicePathName: [0; 128],
+        rchInputPathName: [0; 128],
+        rchModeName: [0; 128],
+        rchSlotName: [0; 128],
+        rchInputSourceType: [0; 32],
+    }; 8];
+    let mut count = 0;
+    let err = f.input.GetActionBindingInfo(
+        boolact,
+        infos.as_mut_ptr(),
+        std::mem::size_of::<vr::InputBindingInfo_t>() as u32,
+        infos.len() as u32,
+        &mut count,
+    );
+    assert_eq!(err, vr::EVRInputError::None);
+
+    let as_str = |a: &[std::ffi::c_char]| {
+        let bytes: Vec<u8> = a
+            .iter()
+            .take_while(|c| **c != 0)
+            .map(|c| *c as u8)
+            .collect();
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    assert!(
+        count > 0,
+        "no binding info directly after manifest load - a game asking now gets nothing"
+    );
+    assert_eq!(as_str(&infos[0].rchDevicePathName), "/user/hand/left");
+    // The input path is the relative fragment, e.g. "/input/a" - matching what OpenComposite
+    // reports, which is what games are written against.
+    assert!(
+        as_str(&infos[0].rchInputPathName).starts_with("/input/"),
+        "unexpected input path {:?}",
+        as_str(&infos[0].rchInputPathName)
+    );
+    // Mode comes from the action's type, not the input it lands on.
+    assert_eq!(as_str(&infos[0].rchModeName), "button");
+    assert_eq!(as_str(&infos[0].rchInputSourceType), "button");
+}
+
+/// Binding info has to name inputs the way the game's binding files do, not the way OpenXR does.
+///
+/// A game looks up the glyph for a prompt by the input name it wrote in its own bindings, so
+/// reporting OpenXR's "squeeze" for what the file called "grip" loses the prompt - which is what
+/// No Man's Sky did with every grip binding.
+#[test]
+fn binding_info_uses_openvr_input_names() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    // boolact2 is bound to /user/hand/left/input/grip in the Knuckles bindings.
+    let boolact2 = f.get_action_handle(c"/actions/set1/in/boolact2");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<Knuckles>(LeftHand);
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    let mut infos = [vr::InputBindingInfo_t {
+        rchDevicePathName: [0; 128],
+        rchInputPathName: [0; 128],
+        rchModeName: [0; 128],
+        rchSlotName: [0; 128],
+        rchInputSourceType: [0; 32],
+    }; 8];
+    let mut count = 0;
+    let err = f.input.GetActionBindingInfo(
+        boolact2,
+        infos.as_mut_ptr(),
+        std::mem::size_of::<vr::InputBindingInfo_t>() as u32,
+        infos.len() as u32,
+        &mut count,
+    );
+    assert_eq!(err, vr::EVRInputError::None);
+
+    let as_str = |a: &[std::ffi::c_char]| {
+        let bytes: Vec<u8> = a
+            .iter()
+            .take_while(|c| **c != 0)
+            .map(|c| *c as u8)
+            .collect();
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    let paths: Vec<String> = infos[..count as usize]
+        .iter()
+        .map(|i| as_str(&i.rchInputPathName))
+        .collect();
+    assert!(
+        paths.iter().any(|p| p == "/input/grip"),
+        "grip binding not reported under its OpenVR name: {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p == "/input/squeeze"),
+        "OpenXR input name leaked into binding info: {paths:?}"
+    );
+}
+
+/// A dpad direction has to be findable through the runtime, not only through the sources recorded
+/// while the manifest was parsed.
+///
+/// The action a dpad direction actually reads is shared between the four directions and belongs to
+/// the parent stick, so the game's own action is never suggested a binding and the runtime has
+/// nothing to say about it. The binding itself is the only way to reach the shared action.
+#[test]
+fn dpad_binding_reports_its_parent_input() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    // In wands_dpad.json, boolact is bound as the north direction of a dpad on the left trackpad,
+    // and to nothing else.
+    let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+    f.load_actions(c"actions_dpad.json");
+    f.set_interaction_profile::<ViveWands>(LeftHand);
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    // Ask the fake runtime to answer the way a real one does once everything is attached, so this
+    // tests the runtime path and not the manifest-recorded sources.
+    fakexr::report_bound_sources(f.raw_session(), true);
+
+    let session_data = f.input.openxr.session_data.get();
+    let loaded = session_data.input_data.get_loaded_actions().unwrap();
+    let profile = f
+        .input
+        .openxr
+        .instance
+        .string_to_path(ViveWands::profile_path())
+        .unwrap();
+
+    let sources: Vec<String> = loaded
+        .try_get_bindings(boolact, profile)
+        .expect("no custom bindings for the dpad action")
+        .iter()
+        .flat_map(|binding| binding.bound_sources(&session_data.session))
+        .map(|path| f.input.openxr.instance.path_to_string(path).unwrap())
+        .collect();
+
+    assert!(
+        sources
+            .iter()
+            .any(|s| s == "/user/hand/left/input/trackpad"),
+        "dpad binding doesn't lead back to the input driving it: {sources:?}"
+    );
+}
+
+/// Each bound input is reported once, however many of its components an action sits on.
+///
+/// boolact is bound to the click and the touch of the same inputs, and binding info names the
+/// input rather than the component, so without deduplication those come back as identical entries.
+#[test]
+fn binding_info_reports_each_input_once() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let boolact = f.get_action_handle(c"/actions/set1/in/boolact");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<Knuckles>(LeftHand);
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    let mut infos = [vr::InputBindingInfo_t {
+        rchDevicePathName: [0; 128],
+        rchInputPathName: [0; 128],
+        rchModeName: [0; 128],
+        rchSlotName: [0; 128],
+        rchInputSourceType: [0; 32],
+    }; 32];
+    let mut count = 0;
+    let err = f.input.GetActionBindingInfo(
+        boolact,
+        infos.as_mut_ptr(),
+        std::mem::size_of::<vr::InputBindingInfo_t>() as u32,
+        infos.len() as u32,
+        &mut count,
+    );
+    assert_eq!(err, vr::EVRInputError::None);
+    assert!(count > 0);
+
+    let as_str = |a: &[std::ffi::c_char]| {
+        let bytes: Vec<u8> = a
+            .iter()
+            .take_while(|c| **c != 0)
+            .map(|c| *c as u8)
+            .collect();
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    let entries: Vec<(String, String)> = infos[..count as usize]
+        .iter()
+        .map(|i| (as_str(&i.rchDevicePathName), as_str(&i.rchInputPathName)))
+        .collect();
+
+    let mut seen = HashSet::new();
+    for entry in &entries {
+        assert!(
+            seen.insert(entry.clone()),
+            "input reported more than once: {entry:?} in {entries:?}"
+        );
+    }
 }
