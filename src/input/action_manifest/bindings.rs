@@ -10,7 +10,7 @@ use crate::{
         GrabActions,
         custom_bindings::{
             DoubleTapData, DpadActions, DpadBindingParams, DpadData, GrabBindingData,
-            ThresholdBindingFloat, ThresholdBindingVector2, ToggleData,
+            ThresholdBindingFloat, ThresholdBindingVector2, ToggleData, Vector2Inversion,
         },
     },
     openxr_data::Hand,
@@ -424,12 +424,32 @@ struct Vector2Input {
 
 #[derive(Deserialize)]
 struct Vector2Parameters {
+    #[serde(default)]
+    invert: Vector2Inversion,
     #[allow(unused)]
     deadzone_pct: Option<FromString<u8>>,
     #[allow(unused)]
     maxzone_pct: Option<FromString<u8>>,
     #[allow(unused)]
     sticky_click: Option<FromString<bool>>,
+}
+
+#[cfg(test)]
+#[test]
+fn vector2_inversion_parse_joystick_y() {
+    let binding: ActionBinding = serde_json::from_str(
+        r#"{
+        "mode": "joystick",
+        "path": "/user/hand/left/input/thumbstick",
+        "inputs": { "position": { "output": "/actions/main/in/move" } },
+        "parameters": { "invert": "y" }
+    }"#,
+    )
+    .unwrap();
+    let ActionBinding::Joystick(binding) = binding else {
+        panic!("expected joystick")
+    };
+    assert_eq!(binding.parameters.unwrap().invert, Vector2Inversion::Y);
 }
 
 pub fn handle_dpad_binding(
@@ -904,7 +924,12 @@ pub fn handle_sources(
                     .inspect_err(InvalidActionPath::warn);
             }
             ActionBinding::Trackpad(data) | ActionBinding::Joystick(data) => {
-                let Some(ValidActionBindingData { path, inputs, .. }) = data.validate_path() else {
+                let Some(ValidActionBindingData {
+                    path,
+                    inputs,
+                    parameters,
+                }) = data.validate_path()
+                else {
                     continue;
                 };
 
@@ -923,7 +948,14 @@ pub fn handle_sources(
                 }
 
                 if let Some(position) = position {
-                    let _ = position.try_bind_with_component(path, context, validate_path);
+                    let invert = parameters.map(|p| p.invert).unwrap_or_default();
+                    if invert == Vector2Inversion::None {
+                        let _ = position.try_bind_with_component(path, context, validate_path);
+                    } else if let Some(path) = validate_path(path) {
+                        context.add_vector2_binding(&position.output, path, invert, action_set);
+                    } else {
+                        InvalidActionPath(path, &position.output.path).warn();
+                    }
                 }
             }
         }

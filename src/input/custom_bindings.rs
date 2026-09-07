@@ -2,13 +2,123 @@ use super::action_manifest::{ClickThresholdParams, GrabParameters};
 use crate::AtomicF32;
 use crate::input::{ActionData, ExtraActionData};
 use crate::openxr_data::SessionData;
-use log::error;
+use log::{error, warn};
+use openvr as vr;
 use openxr as xr;
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use xr::{Haptic, HapticVibration};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(from = "String")]
+pub(super) enum Vector2Inversion {
+    #[default]
+    None,
+    X,
+    Y,
+    XY,
+}
+
+impl From<String> for Vector2Inversion {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "" => Self::None,
+            "x" => Self::X,
+            "y" => Self::Y,
+            "xy" => Self::XY,
+            _ => {
+                warn!("Unknown Vector2 invert parameter {value:?}; ignoring inversion");
+                Self::None
+            }
+        }
+    }
+}
+
+impl Vector2Inversion {
+    fn apply(self, value: &mut xr::Vector2f) {
+        if matches!(self, Self::X | Self::XY) {
+            value.x = -value.x;
+        }
+        if matches!(self, Self::Y | Self::XY) {
+            value.y = -value.y;
+        }
+    }
+}
+
+pub(super) struct Vector2BindingData {
+    pub action: xr::Action<xr::Vector2f>,
+    pub profile: xr::Path,
+    pub hand: xr::Path,
+    pub invert: Vector2Inversion,
+}
+
+#[derive(Default)]
+pub(super) struct Vector2ActionData {
+    pub bindings: Vec<Vector2BindingData>,
+    // Left, right, unrestricted. OpenVR deltas are relative to UpdateActionState,
+    // so reads must neither consume deltas nor share history between subactions.
+    pub state: Mutex<[vr::InputAnalogActionData_t; 3]>,
+}
+
+impl Vector2ActionData {
+    pub fn sync(
+        &self,
+        direct: &xr::Action<xr::Vector2f>,
+        session: &xr::Session<xr::AnyGraphics>,
+        hands: [(xr::Path, xr::Path, vr::VRInputValueHandle_t); 2],
+    ) {
+        fn prefer(
+            candidate: &vr::InputAnalogActionData_t,
+            best: &vr::InputAnalogActionData_t,
+        ) -> bool {
+            // Match OpenXR's longest-vector rule. Keep the first source on ties.
+            candidate.bActive
+                && (!best.bActive
+                    || candidate.x * candidate.x + candidate.y * candidate.y
+                        > best.x * best.x + best.y * best.y)
+        }
+
+        let mut next = [vr::InputAnalogActionData_t::default(); 3];
+        for (index, (hand, profile, origin)) in hands.into_iter().enumerate() {
+            let mut consider = |state: xr::ActionState<xr::Vector2f>| {
+                let candidate = vr::InputAnalogActionData_t {
+                    bActive: state.is_active,
+                    activeOrigin: origin,
+                    x: state.current_state.x,
+                    y: state.current_state.y,
+                    // Like other analog actions, fUpdateTime is currently zero.
+                    ..Default::default()
+                };
+                if prefer(&candidate, &next[index]) {
+                    next[index] = candidate;
+                }
+            };
+            consider(direct.state(session, hand).unwrap());
+            for binding in &self.bindings {
+                if binding.hand != hand || binding.profile != profile {
+                    continue;
+                }
+                let mut state = binding.action.state(session, hand).unwrap();
+                binding.invert.apply(&mut state.current_state);
+                consider(state);
+            }
+        }
+        next[2] = if prefer(&next[1], &next[0]) {
+            next[1]
+        } else {
+            next[0]
+        };
+
+        let mut previous = self.state.lock().unwrap();
+        for (next, previous) in next.iter_mut().zip(previous.iter()) {
+            next.deltaX = next.x - previous.x;
+            next.deltaY = next.y - previous.y;
+        }
+        *previous = next;
+    }
+}
 
 mod marker {
     use openxr as xr;
@@ -52,7 +162,7 @@ impl AsActionData for xr::Action<xr::Vector2f> {
     fn as_action_data(&self) -> Vec<ActionData> {
         vec![ActionData::Vector2 {
             action: self.clone(),
-            last_value: (AtomicF32::new(0.), AtomicF32::new(0.)),
+            data: Default::default(),
         }]
     }
 }
