@@ -914,9 +914,13 @@ impl vr::IVRSystem017On019 for System {
 }
 
 impl vr::IVRSystem016On017 for System {
-    fn GetOutputDevice(&self, _device: *mut u64, _texture_type: vr::ETextureType) {
-        // TODO: figure out what to pass for the instance...
-        todo!()
+    fn GetOutputDevice(&self, device: *mut u64, texture_type: vr::ETextureType) {
+        vr::IVRSystem022_Interface::GetOutputDevice(
+            self,
+            device,
+            texture_type,
+            std::ptr::null_mut(),
+        )
     }
 }
 
