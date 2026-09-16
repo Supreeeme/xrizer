@@ -1275,21 +1275,20 @@ dependencies = [
 
 [[package]]
 name = "openxr"
-version = "0.21.1"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c2f814a47d257c79c762bc64042859661b6aa2f57cfa1f0ad4d778f419aeb0e"
+checksum = "53770c8f7d3f185bcb577b78f2ed8e33bbf7cdf5cd57fb68b5ec0b4117b79de6"
 dependencies = [
  "libc",
  "libloading 0.9.0",
- "ndk-context",
  "openxr-sys",
 ]
 
 [[package]]
 name = "openxr-sys"
-version = "0.13.1"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b8d66081de28c2fa40216182a37292fe38aeea20bc184612504d5e64daf5359"
+checksum = "febb5d50cee7b964b69d5b7a810ed9620fc64f41382ffefe05434754c7a48877"
 dependencies = [
  "cmake",
  "libc",
@@ -1297,9 +1296,9 @@ dependencies = [
 
 [[package]]
 name = "openxr_mndx_xdev_space"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1b0e85e7ff61dcce98c9e1981f9181bc935242cb3239bd6ec6cad83aa0c2897"
+checksum = "d7f7d65f829a75e16554c1558e926506f039fe20a0f76fd7581415003d789f13"
 dependencies = [
  "openxr",
 ]

@@ -32,8 +32,8 @@ all = "deny"
 
 [workspace.dependencies]
 ash = "0.38.0"
-openxr = { version = "0.21" }
-openxr-sys = { version = "0.13" }
+openxr = { version = "0.22" }
+openxr-sys = { version = "0.14" }
 slotmap = "1.0.7"
 glam = "0.30.4"
 log = "0.4.22"
@@ -49,7 +49,7 @@ env_logger = "0.11.5"
 glam = { workspace = true }
 log = { workspace = true }
 openxr = { workspace = true }
-openxr_mndx_xdev_space = { version = "0.2", optional = true }
+openxr_mndx_xdev_space = { version = "0.3", optional = true }
 openvr = { path = "openvr" }
 paste = "1.0.15"
 seq-macro = "0.3.5"
