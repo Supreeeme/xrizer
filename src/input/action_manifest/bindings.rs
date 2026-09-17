@@ -493,6 +493,8 @@ pub fn handle_dpad_binding(
 
     let parent_action_key = format!("{parent_path}-{action_set_name}");
 
+    let parent_xr_path = string_to_path(&parent_path.to_string());
+
     let (xy, click_or_touch_data, haptic_data) = context.get_dpad_parent(
         &string_to_path,
         parent_path,
@@ -503,6 +505,11 @@ pub fn handle_dpad_binding(
     );
 
     for (path, direction) in bound_actions {
+        // Dpad directions are driven through the parent path; record it so
+        // GetActionBindingInfo/GetActionOrigins can resolve the input source.
+        if let Some(parent_xr_path) = parent_xr_path {
+            context.push_input_path(&path.path, parent_xr_path);
+        }
         context.add_custom_binding::<DpadData>(
             path,
             parent_path.hand,
@@ -525,10 +532,7 @@ pub fn handle_dpad_binding(
     let haptic_binding = haptic_data
         .as_ref()
         .map(|DpadHapticData { key, binding, .. }| (key.clone(), *binding));
-    context.push_binding(
-        parent_action_key,
-        string_to_path(&parent_path.to_string()).unwrap(),
-    );
+    context.push_binding(parent_action_key, parent_xr_path.unwrap());
     if let Some((s, p)) = activator_binding {
         context.push_binding(s, p);
     }
