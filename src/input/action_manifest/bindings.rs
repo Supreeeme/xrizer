@@ -436,20 +436,18 @@ struct Vector2Parameters {
 
 #[cfg(test)]
 #[test]
-fn vector2_inversion_parse_joystick_y() {
-    let binding: ActionBinding = serde_json::from_str(
-        r#"{
-        "mode": "joystick",
-        "path": "/user/hand/left/input/thumbstick",
-        "inputs": { "position": { "output": "/actions/main/in/move" } },
-        "parameters": { "invert": "y" }
-    }"#,
-    )
-    .unwrap();
-    let ActionBinding::Joystick(binding) = binding else {
-        panic!("expected joystick")
-    };
-    assert_eq!(binding.parameters.unwrap().invert, Vector2Inversion::Y);
+fn vector2_inversion_parse() {
+    for (json, expected) in [
+        (r#"{}"#, Vector2Inversion::None),
+        (r#"{"invert": ""}"#, Vector2Inversion::None),
+        (r#"{"invert": "x"}"#, Vector2Inversion::X),
+        (r#"{"invert": "y"}"#, Vector2Inversion::Y),
+        (r#"{"invert": "xy"}"#, Vector2Inversion::XY),
+        (r#"{"invert": "unknown"}"#, Vector2Inversion::None),
+    ] {
+        let parameters: Vector2Parameters = serde_json::from_str(json).unwrap();
+        assert_eq!(parameters.invert, expected, "{json}");
+    }
 }
 
 pub fn handle_dpad_binding(

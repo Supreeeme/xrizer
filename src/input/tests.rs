@@ -19,8 +19,6 @@ use std::f32::consts::FRAC_PI_4;
 use std::ffi::CStr;
 use std::sync::{Arc, Barrier};
 
-mod vector2_inversion;
-
 static ACTIONS_JSONS_DIR: &CStr = unsafe {
     CStr::from_bytes_with_nul_unchecked(
         concat!(env!("CARGO_MANIFEST_DIR"), "/tests/input_data/\0").as_bytes(),

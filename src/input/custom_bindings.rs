@@ -47,6 +47,15 @@ impl Vector2Inversion {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn vector2_inversion_apply() {
+    let mut value = xr::Vector2f { x: 0.25, y: 0.5 };
+    Vector2Inversion::Y.apply(&mut value);
+    assert_eq!(value.x, 0.25);
+    assert_eq!(value.y, -0.5);
+}
+
 pub(super) struct Vector2BindingData {
     pub action: xr::Action<xr::Vector2f>,
     pub profile: xr::Path,
