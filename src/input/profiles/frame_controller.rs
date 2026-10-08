@@ -1,6 +1,6 @@
 use super::{
-    InteractionProfile, MainAxisType, ProfileProperties, Property, SkeletalInputBindings,
-    legal_paths, paths::*,
+    InteractionProfile, Left, MainAxisType, ProfileProperties, Property, Right,
+    SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
@@ -8,49 +8,72 @@ use crate::input::profiles::DynInputPath;
 use crate::openxr_data::Hand;
 use glam::{EulerRot, Mat4, Quat, Vec3};
 use openvr::EVRButtonId;
-use std::iter::Iterator;
 
-pub struct Knuckles;
+pub struct FrameController;
 
-impl InteractionProfile for Knuckles {
+impl InteractionProfile for FrameController {
     type LegalPaths = legal_paths![
         Both::<
             (System, Click),
             (System, Touch),
+            (Bumper, Click),
+            (Bumper, Touch),
+            (Trigger, Click),
+            (Trigger, Touch),
+            (Trigger, Value),
+            (Squeeze, Click),
+            (Squeeze, Touch),
+            (Squeeze, Value),
+            (Thumbstick, Click),
+            (Thumbstick, Touch),
+            (Thumbstick, Vec2X),
+            (Thumbstick, Vec2Y),
+            (Thumbstick, ()),
+        >,
+        Left::<
+            (DPadUp, Click),
+            (DPadUp, Touch),
+            (DPadLeft, Click),
+            (DPadLeft, Touch),
+            (DPadDown, Click),
+            (DPadDown, Touch),
+            (DPadRight, Click),
+            (DPadRight, Touch),
+            (View, Click),
+            (View, Touch),
+        >,
+        Right::<
             (A, Click),
             (A, Touch),
             (B, Click),
             (B, Touch),
-            (Trigger, Click),
-            (Trigger, Touch),
-            (Trigger, Value),
-            (Squeeze, Value),
-            (Squeeze, Force),
-            (Thumbstick, Click),
-            (Thumbstick, Touch),
-            (Thumbstick, ()),
-            (Trackpad, Force),
-            (Trackpad, Touch),
-            (Trackpad, ()),
+            (X, Click),
+            (X, Touch),
+            (Y, Click),
+            (Y, Touch),
+            (Menu, Click),
+            (Menu, Touch),
         >
     ];
 
     fn profile_path() -> &'static str {
-        "/interaction_profiles/valve/index_controller"
+        "/interaction_profiles/valve/frame_controller_valve"
     }
-    fn has_required_extensions(_: &openxr::ExtensionSet) -> bool {
-        true
+    fn has_required_extensions(enabled_extensions: &openxr::ExtensionSet) -> bool {
+        enabled_extensions
+            .other
+            .contains(&b"XR_VALVE_frame_controller_interaction".to_vec())
     }
     fn properties() -> &'static ProfileProperties {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::PerHand {
-                left: c"Knuckles Left",
-                right: c"Knuckles Right",
+                left: c"Frame Controller Left",
+                right: c"Frame Controller Right",
             },
-            openvr_controller_type: c"knuckles",
+            openvr_controller_type: c"frame_controller",
             render_model_name: Property::PerHand {
-                left: c"{indexcontroller}valve_controller_knu_1_0_left",
-                right: c"{indexcontroller}valve_controller_knu_1_0_right",
+                left: c"{frame_controller}frame_controller_left",
+                right: c"{frame_controller}frame_controller_right",
             },
             main_axis: MainAxisType::Thumbstick,
             registered_device_type: Property::PerHand {
@@ -61,7 +84,7 @@ impl InteractionProfile for Knuckles {
                 left: c"LHR-FFFFFFF1",
                 right: c"LHR-FFFFFFF2",
             },
-            tracking_system_name: c"lighthouse",
+            tracking_system_name: c"cv",
             manufacturer_name: c"Valve",
             legacy_buttons_mask: button_mask_from_ids!(
                 EVRButtonId::System,
@@ -75,20 +98,8 @@ impl InteractionProfile for Knuckles {
         };
         &DEVICE_PROPERTIES
     }
-    fn translate_path(path: DynInputPath) -> Option<DynInputPath> {
-        match path {
-            p @ DynInputPath {
-                subpath: DynSubpath::Trackpad,
-                component: Some(DynComponent::Click),
-                ..
-            } => Some(p.with_component(DynComponent::Force)),
-            p @ DynInputPath {
-                subpath: DynSubpath::Squeeze,
-                component: Some(DynComponent::Touch),
-                ..
-            } => Some(p.with_component(DynComponent::Value)),
-            _ => None,
-        }
+    fn translate_path(_path: DynInputPath) -> Option<DynInputPath> {
+        None
     }
 
     fn legacy_bindings(c: &super::InputToXrPath<Self>) -> LegacyBindings {
@@ -96,8 +107,16 @@ impl InteractionProfile for Knuckles {
             extra: legacy::Bindings {
                 grip_pose: c.pose(),
             },
-            app_menu: c.leftright::<B, Click, _, _>(),
-            a: c.leftright::<A, Click, _, _>(),
+            app_menu: [
+                c.into::<Left<DPadRight, Click>, _>(),
+                c.into::<Right<B, Click>, _>(),
+            ]
+            .concat(),
+            a: [
+                c.into::<Left<DPadDown, Click>, _>(),
+                c.into::<Right<A, Click>, _>(),
+            ]
+            .concat(),
             trigger: c.leftright::<Trigger, Value, _, _>(),
             trigger_click: c.leftright::<Trigger, Click, _, _>(),
             squeeze: c.leftright::<Squeeze, Value, _, _>(),
@@ -111,13 +130,18 @@ impl InteractionProfile for Knuckles {
 
     fn skeletal_input_bindings(c: &super::InputToXrPath<Self>) -> SkeletalInputBindings {
         SkeletalInputBindings {
-            thumb_touch: c
-                .leftright::<Thumbstick, Touch, _, _>()
-                .into_iter()
-                .chain(c.leftright::<Trackpad, Touch, _, _>())
-                .chain(c.leftright::<A, Touch, _, _>())
-                .chain(c.leftright::<B, Touch, _, _>())
-                .collect(),
+            thumb_touch: [
+                c.leftright::<Thumbstick, Touch, _, _>(),
+                c.into::<Left<DPadUp, Touch>, _>(),
+                c.into::<Left<DPadLeft, Touch>, _>(),
+                c.into::<Left<DPadDown, Touch>, _>(),
+                c.into::<Left<DPadRight, Touch>, _>(),
+                c.into::<Right<A, Touch>, _>(),
+                c.into::<Right<B, Touch>, _>(),
+                c.into::<Right<X, Touch>, _>(),
+                c.into::<Right<Y, Touch>, _>(),
+            ]
+            .concat(),
             index_touch: c.leftright::<Trigger, Touch, _, _>(),
             index_curl: c.leftright::<Trigger, Value, _, _>(),
             rest_curl: c.leftright::<Squeeze, Value, _, _>(),
