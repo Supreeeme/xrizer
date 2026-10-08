@@ -2,6 +2,7 @@ mod action_manifest;
 mod custom_bindings;
 mod devices;
 mod legacy;
+mod probe;
 mod profiles;
 mod skeletal;
 
@@ -9,6 +10,7 @@ mod skeletal;
 mod tests;
 
 pub use devices::TrackedDeviceType;
+pub use probe::{ProbedProfiles, probe_interaction_profiles};
 pub use profiles::InteractionProfile;
 
 use devices::{SubactionPaths, TrackedDevice, TrackedDeviceList};
@@ -16,7 +18,7 @@ use skeletal::FingerState;
 use skeletal::SkeletalInputActionData;
 
 use crate::input::devices::ProfileData;
-use crate::input::profiles::RunWithProfile;
+use crate::input::profiles::ProfileProperties;
 use crate::{
     AtomicF32,
     openxr_data::{self, Hand, OpenXrData, SessionData},
@@ -62,6 +64,10 @@ pub struct Input<C: openxr_data::Compositor> {
     subaction_paths: SubactionPaths,
     events: Mutex<VecDeque<InputEvent>>,
     loading_actions: AtomicBool,
+    /// The properties of the most recently seen controller interaction profile. The HMD's
+    /// identity is derived from this, so it needs to survive session restarts (which reset the
+    /// device list) and controllers going to sleep.
+    last_profile_properties: Mutex<Option<&'static ProfileProperties>>,
 }
 
 struct InputEvent {
@@ -117,6 +123,13 @@ impl<C: openxr_data::Compositor> Input<C> {
             .set(pose_data)
             .unwrap_or_else(|_| panic!("PoseData already setup"));
 
+        // Until controllers actually show up, the HMD identity comes from whatever was bound at
+        // init.
+        let probed_profile = [Hand::Left, Hand::Right]
+            .into_iter()
+            .filter_map(|hand| openxr.probed_profiles.get(hand))
+            .find_map(|name| ProfileData::for_profile_name(name).map(|d| d.properties));
+
         Self {
             openxr,
             vtables: Default::default(),
@@ -135,6 +148,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             subaction_paths,
             events: Mutex::default(),
             loading_actions: false.into(),
+            last_profile_properties: Mutex::new(probed_profile),
         }
     }
 
@@ -1380,31 +1394,8 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
             };
 
-            struct Data<'a> {
-                profile_name: &'a str,
-                data: Option<ProfileData>,
-            }
-            impl RunWithProfile for Data<'_> {
-                fn run<P: InteractionProfile>(&mut self) {
-                    if P::profile_path() == self.profile_name {
-                        self.data = Some(ProfileData::new::<P>())
-                    }
-                }
-
-                #[inline]
-                fn keep_running(&self) -> bool {
-                    self.data.is_none()
-                }
-            }
-
-            let mut data = Data {
-                profile_name: &profile_name,
-                data: None,
-            };
-
-            profiles::run_for_all_profiles(&mut data);
-
-            if let Some(data) = data.data {
+            if let Some(data) = ProfileData::for_profile_name(&profile_name) {
+                *self.last_profile_properties.lock().unwrap() = Some(data.properties);
                 if let Some(controller) = controller.as_mut() {
                     controller.profile_data = Some(data);
                 } else {
