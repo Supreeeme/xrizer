@@ -222,7 +222,7 @@ pub fn load_actions(
                 &data.name,
                 Vector2 {
                     action: create_action!(xr::Vector2f, data),
-                    last_value: Default::default(),
+                    data: Default::default(),
                 },
             ),
             ActionType::Vector3(data) => {

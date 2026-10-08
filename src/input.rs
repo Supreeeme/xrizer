@@ -22,7 +22,7 @@ use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span,
 };
-use custom_bindings::{BoolBindingData, GrabActions};
+use custom_bindings::{BoolBindingData, GrabActions, Vector2ActionData};
 use glam::Quat;
 use legacy::LegacyActionData;
 use log::{debug, info, trace, warn};
@@ -274,7 +274,7 @@ enum ActionData {
     },
     Vector2 {
         action: xr::Action<xr::Vector2f>,
-        last_value: (AtomicF32, AtomicF32),
+        data: Vector2ActionData,
     },
     Pose,
     Skeleton(Hand),
@@ -919,13 +919,16 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                     delta,
                 )
             }
-            ActionData::Vector2 { action, last_value } => {
-                let state = action.state(&session_data.session, subaction_path).unwrap();
-                let delta = xr::Vector2f {
-                    x: state.current_state.x - last_value.0.swap(state.current_state.x),
-                    y: state.current_state.y - last_value.1.swap(state.current_state.y),
+            ActionData::Vector2 { data, .. } => {
+                let index = if subaction_path == self.subaction_paths.left {
+                    0
+                } else if subaction_path == self.subaction_paths.right {
+                    1
+                } else {
+                    2
                 };
-                (state, delta)
+                *out.value = data.state.lock().unwrap()[index];
+                return vr::EVRInputError::None;
             }
             _ => return vr::EVRInputError::WrongType,
         };
@@ -1065,6 +1068,33 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         {
             tracy_span!("xrSyncActions");
             data.session.sync_actions(&sync_sets).unwrap();
+        }
+
+        let hands = [
+            (
+                self.subaction_paths.left,
+                self.left_hand_key.data().as_ffi(),
+            ),
+            (
+                self.subaction_paths.right,
+                self.right_hand_key.data().as_ffi(),
+            ),
+        ]
+        .map(|(hand, origin)| {
+            (
+                hand,
+                data.session.current_interaction_profile(hand).unwrap(),
+                origin,
+            )
+        });
+        for (_, action) in &actions.actions {
+            if let ActionData::Vector2 {
+                action,
+                data: vector2,
+            } = action
+            {
+                vector2.sync(action, &data.session, hands);
+            }
         }
 
         let devices = data.input_data.devices.read().unwrap();
