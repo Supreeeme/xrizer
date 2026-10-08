@@ -29,6 +29,7 @@ impl InteractionProfile for SimpleController {
             },
             tracking_system_name: c"lighthouse",
             manufacturer_name: c"HTC",
+            input_profile_path: c"",
             legacy_buttons_mask: button_mask_from_ids!(
                 btn::System,
                 btn::ApplicationMenu,
