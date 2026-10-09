@@ -1,0 +1,28 @@
+{
+	"action_sets": [
+		{
+			"name": "/actions/default",
+			"usage": "leftright"
+		}
+	],
+	"actions": [
+		{
+			"name": "/actions/default/in/use",
+			"type": "boolean"
+		},
+		{
+			"name": "/actions/default/in/grabaxis",
+			"type": "vector1"
+		},
+		{
+			"name": "/actions/default/in/move",
+			"type": "vector2"
+		}
+	],
+	"default_bindings": [
+		{
+			"controller_type": "knuckles",
+			"binding_url": "knuckles_type_mismatch.json"
+		}
+	]
+}

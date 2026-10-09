@@ -127,18 +127,16 @@ pub(super) struct DpadHapticData {
 }
 
 pub trait WithActionPattern {
-    fn check_match(data: &ActionData, name: &str);
+    const PATTERN: &'static str;
+    fn check_match(data: &ActionData) -> bool;
 }
 
 macro_rules! action_match {
     ($ty:ty, $pat:pat) => {
         impl WithActionPattern for $ty {
-            fn check_match(data: &ActionData, name: &str) {
-                assert!(
-                    matches!(data, $pat),
-                    "Data for action {name} didn't match pattern {}",
-                    stringify!($pat),
-                );
+            const PATTERN: &'static str = stringify!($pat);
+            fn check_match(data: &ActionData) -> bool {
+                matches!(data, $pat)
             }
         }
     };
@@ -179,7 +177,13 @@ impl BindingsProfileLoadContext<'_> {
         input_path: DynInputPath,
     ) {
         if self.find_action(&action_path) {
-            T::check_match(&self.actions[&action_path], &action_path);
+            if !T::check_match(&self.actions[&action_path]) {
+                warn!(
+                    "invalid path {input_path} for {action_path}: action data didn't match pattern {}",
+                    T::PATTERN
+                );
+                return;
+            }
             trace!("suggesting {input_path} for {action_path}");
             let binding_path = self
                 .instance

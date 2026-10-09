@@ -693,6 +693,36 @@ fn actions_with_bad_paths() {
 }
 
 #[test]
+fn bindings_with_mismatched_action_type_are_skipped() {
+    let f = Fixture::new();
+    // The binding file binds actions to inputs of a different type than the action:
+    // a boolean action to a trigger's pull (float), a vector1 action to a joystick's position
+    // (vector2) and a vector2 action to a joystick's click (boolean).
+    // These must be skipped without preventing the valid bindings from being suggested.
+    f.load_actions(c"actions_type_mismatch.json");
+
+    let path = Knuckles::profile_path();
+    f.verify_bindings::<bool>(
+        path,
+        c"/actions/default/in/use",
+        [
+            "/user/hand/left/input/trigger/touch".into(),
+            "/user/hand/left/input/thumbstick/touch".into(),
+        ],
+    );
+    f.verify_bindings::<f32>(
+        path,
+        c"/actions/default/in/grabaxis",
+        ["/user/hand/right/input/trigger/value".into()],
+    );
+    f.verify_bindings::<xr::Vector2f>(
+        path,
+        c"/actions/default/in/move",
+        ["/user/hand/right/input/thumbstick".into()],
+    );
+}
+
+#[test]
 fn pose_action_no_restrict() {
     let mut f = Fixture::new();
 
