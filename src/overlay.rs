@@ -9,7 +9,7 @@ use log::{debug, trace};
 use openvr as vr;
 use openxr as xr;
 use slotmap::{Key, KeyData, SecondaryMap, SlotMap, new_key_type};
-use std::f32::consts::{FRAC_1_SQRT_2, PI};
+use std::f32::consts::PI;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{collections::HashMap, ops::Deref};
@@ -72,93 +72,78 @@ impl OverlayMan {
     }
 
     pub fn set_skybox(&self, textures: &[vr::Texture_t]) -> Result<(), vr::EVRCompositorError> {
-        // We don't yet follow HMD position, so the skybox needs to be
-        // big enough so that the user never leaves it
-        const SKYBOX_SIZE: f32 = 500.0;
+        // Port of OpenComposite's SetSkyboxOverride behaviour: submit the first
+        // provided texture as a flat quad in front of the user. This is designed
+        // around rFactor2/GTR2 style loading screens where the "skybox" is really
+        // just a static image the game expects to be displayed while it prepares
+        // the scene. Handles both the 1..=2 (equirect) and 6 (cubemap) counts by
+        // simply taking pTextures[0] in either case.
+        let Some(texture) = textures.first() else {
+            return Err(vr::EVRCompositorError::RequestFailed);
+        };
 
         self.clear_skybox();
 
         let mut overlays = self.overlays.write().unwrap();
         let mut skybox = self.skybox.write().unwrap();
 
-        match textures.len() {
-            1..=2 => {
-                // only single equirect supported for now, ignore any 2nd one
-                let texture = textures.first().unwrap();
-                let name = CString::new("__xrizer_skybox").unwrap();
-                let key = overlays.insert(Overlay::new(name.clone(), name));
-                let overlay = overlays.get_mut(key).unwrap();
+        let name = CString::new("__xrizer_skybox").unwrap();
+        let key = overlays.insert(Overlay::new(name.clone(), name));
+        let overlay = overlays.get_mut(key).unwrap();
 
-                self.get_real_session_data(texture, overlay.bounds)
-                    .and_then(|data| overlay.set_texture(key, data, *texture))
-                    .map_err(|_| vr::EVRCompositorError::InvalidTexture)?;
-                overlay.visible = true;
-                overlay.width = SKYBOX_SIZE; // for equirect this becomes radius
-                overlay.kind = OverlayKind::Sphere;
-                overlay.z_order = SKYBOX_Z_ORDER;
+        overlay.kind = OverlayKind::Curved { curvature: 1.0 };
+        overlay.z_order = SKYBOX_Z_ORDER;
+        overlay.scale = (1.0, 1.0);
+        // Skybox faces come in with V flipped compared to normal overlays.
+        overlay.bounds = vr::VRTextureBounds_t {
+            uMin: 0.0,
+            uMax: 1.0,
+            vMin: 1.0,
+            vMax: 0.0,
+        };
+        // Wide enough to fill most of the forward view; height derived from
+        // texture aspect. Distance is set via the transform below and used as
+        // the cylinder radius (see get_layers).
+        overlay.width = 4.0;
+        overlay.visible = true;
+        // Curved surface a couple of meters in front of the user. The distance
+        // becomes the cylinder radius, so the "forward" texture wraps around
+        // the user's head rather than sitting on a flat plane.
+        overlay.transform = Some((
+            vr::ETrackingUniverseOrigin::Seated,
+            vr::HmdMatrix34_t {
+                m: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, -2.0],
+                ],
+            },
+        ));
+
+        let res = self
+            .get_real_session_data(texture, overlay.bounds)
+            .and_then(|data| overlay.set_texture(key, data, *texture));
+
+        match res {
+            Ok(()) => {
                 skybox.push(key);
+                Ok(())
             }
-            6 => {
-                for (idx, texture) in textures.iter().enumerate() {
-                    // 6 quads forming a cursed box
-                    let name = CString::new(format!("__xrizer_skybox_{idx}")).unwrap();
-                    let key = overlays.insert(Overlay::new(name.clone(), name));
-                    let overlay = overlays.get_mut(key).unwrap();
-                    self.get_real_session_data(texture, overlay.bounds)
-                        .and_then(|data| overlay.set_texture(key, data, *texture))
-                        .map_err(|_| vr::EVRCompositorError::InvalidTexture)?;
-                    overlay.visible = true;
-                    overlay.width = SKYBOX_SIZE * 2.0;
-                    overlay.kind = OverlayKind::Quad;
-                    overlay.z_order = SKYBOX_Z_ORDER;
-
-                    #[rustfmt::skip]
-                    const QUAD_POSES: [xr::Posef; 6] = [
-                        xr::Posef { // front
-                            position: xr::Vector3f { x: 0.0, y: 0.0, z: -SKYBOX_SIZE },
-                            orientation: xr::Quaternionf { x: 0.0, y: 0.0, z: 1.0, w: 0.0 },
-                        },
-                        xr::Posef { // back
-                            position: xr::Vector3f { x: 0.0, y: 0.0, z: SKYBOX_SIZE },
-                            orientation: xr::Quaternionf { x: 1.0, y: 0.0, z: 0.0, w: 0.0 },
-                        },
-                        xr::Posef { // left
-                            position: xr::Vector3f { x: SKYBOX_SIZE, y: 0.0, z: 0.0 },
-                            orientation: xr::Quaternionf { x: -FRAC_1_SQRT_2, y: 0.0, z: FRAC_1_SQRT_2, w: 0.0 },
-                        },
-                        xr::Posef { // right
-                            position: xr::Vector3f { x: -SKYBOX_SIZE, y: 0.0, z: 0.0 },
-                            orientation: xr::Quaternionf { x: FRAC_1_SQRT_2, y: 0.0, z: FRAC_1_SQRT_2, w: 0.0 },
-                        },
-                        xr::Posef { // up
-                            position: xr::Vector3f { x: 0.0, y: SKYBOX_SIZE, z: 0.0 },
-                            orientation: xr::Quaternionf {x: 0.0, y: -FRAC_1_SQRT_2, z: FRAC_1_SQRT_2, w: 0.0 },
-                        },
-                        xr::Posef { // down
-                            position: xr::Vector3f { x: 0.0, y: -SKYBOX_SIZE, z: 0.0 },
-                            orientation: xr::Quaternionf {x: 0.0, y: FRAC_1_SQRT_2, z: FRAC_1_SQRT_2, w: 0.0 },
-                        },
-                    ];
-
-                    overlay.transform = Some((
-                        vr::ETrackingUniverseOrigin::Standing,
-                        QUAD_POSES[idx].into(),
-                    ));
-
-                    skybox.push(key);
-                }
+            Err(_) => {
+                overlays.remove(key);
+                log::warn!("Could not create swapchain for skybox texture; skipping");
+                // Don't fail the game — just silently drop the skybox request.
+                Ok(())
             }
-            _ => unreachable!(),
         }
-
-        Ok(())
     }
 
     pub fn clear_skybox(&self) {
+        let mut skybox = self.skybox.write().unwrap();
         let mut overlays = self.overlays.write().unwrap();
-        self.skybox.write().unwrap().drain(..).for_each(|key| {
+        for key in skybox.drain(..) {
             overlays.remove(key);
-        });
+        }
     }
 
     pub fn get_layers<'a, G: xr::Graphics>(
@@ -186,9 +171,9 @@ impl OverlayMan {
             if !overlay.visible {
                 continue;
             }
-            if overlay.z_order == SKYBOX_Z_ORDER && !render_skybox {
-                continue;
-            }
+            // Skybox is always shown (independent of app_fade_grid) so games that
+            // never enable the fade grid still get their loading-screen image.
+            let _ = render_skybox;
             let Some(rect) = overlay.rect else {
                 continue;
             };
@@ -222,8 +207,7 @@ impl OverlayMan {
                     $ty::new()
                         .space(space)
                         .layer_flags(
-                            xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA
-                                | xr::CompositionLayerFlags::UNPREMULTIPLIED_ALPHA,
+                            xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA,
                         )
                         .eye_visibility(xr::EyeVisibility::BOTH)
                         .sub_image(
@@ -255,12 +239,20 @@ impl OverlayMan {
             match overlay.kind {
                 OverlayKind::Quad => {
                     use xr::CompositionLayerQuad;
+                    // OC-style size: width = widthMeters * scaleX,
+                    //                height = widthMeters * scaleY / aspect
+                    let aspect = if rect.extent.height > 0 {
+                        rect.extent.width as f32 / rect.extent.height as f32
+                    } else {
+                        1.0
+                    };
+                    let quad_w = overlay.width * overlay.scale.0;
+                    let quad_h = overlay.width * overlay.scale.1 / aspect;
                     let layer = layer_init!(CompositionLayerQuad)
                         .pose(pose)
                         .size(xr::Extent2Df {
-                            width: overlay.width,
-                            height: rect.extent.height as f32 * overlay.width
-                                / rect.extent.width as f32,
+                            width: quad_w,
+                            height: quad_h,
                         });
 
                     let layer = lifetime_extend!(CompositionLayerQuad, layer);
@@ -269,9 +261,17 @@ impl OverlayMan {
                     layers.push((overlay.z_order, layer));
                 }
                 // SetOverlayCurvature checks for khr_composition_layer_cylinder
-                OverlayKind::Curved { curvature } => {
-                    let radius = overlay.width / (2.0 * PI * curvature);
+                OverlayKind::Curved { curvature: _ } => {
+                    // OpenVR curvature semantics don't map cleanly to OpenXR's
+                    // cylinder radius. Instead, curve the overlay around the
+                    // user's origin in the overlay's reference space: use the
+                    // distance from origin to the requested pose position as
+                    // the cylinder radius. This produces a natural "curved
+                    // screen" effect wrapping around the user's head.
+                    let width = overlay.width * overlay.scale.0;
                     let pos = vec3(pose.position.x, pose.position.y, pose.position.z);
+                    let distance = pos.length().max(0.01);
+                    let radius = distance;
                     let rot = Quat::from_xyzw(
                         pose.orientation.x,
                         pose.orientation.y,
@@ -280,13 +280,13 @@ impl OverlayMan {
                     );
 
                     let center = pos + rot.mul_vec3(Vec3::Z * radius);
-                    let angle = 2.0 * (overlay.width / (2.0 * radius));
+                    let angle = 2.0 * (width / (2.0 * radius));
 
                     use xr::CompositionLayerCylinderKHR;
                     let layer = layer_init!(CompositionLayerCylinderKHR)
                         .radius(radius)
                         .central_angle(angle)
-                        .aspect_ratio(rect.extent.height as f32 / rect.extent.width as f32)
+                        .aspect_ratio(rect.extent.width as f32 / rect.extent.height as f32)
                         .pose(xr::Posef {
                             orientation: pose.orientation,
                             position: xr::Vector3f {
@@ -298,25 +298,6 @@ impl OverlayMan {
 
                     let layer = lifetime_extend!(CompositionLayerCylinderKHR, layer);
                     let mut layer = OverlayLayer::from(OverlayLayerInner::Cylinder(layer));
-                    overlay.alpha.iter().for_each(|a| layer.set_alpha(*a));
-                    layers.push((overlay.z_order, layer));
-                }
-                // SetSkyboxOverride checks for khr_composition_layer_equirect2
-                OverlayKind::Sphere => {
-                    const HORIZONTAL_RAD: f32 = 2.0 * PI;
-                    const VERTICAL_RAD_HIGH: f32 = 0.5 * PI;
-                    const VERTICAL_RAD_LOW: f32 = -0.5 * PI;
-
-                    use xr::CompositionLayerEquirect2KHR;
-                    let layer = layer_init!(CompositionLayerEquirect2KHR)
-                        .radius(overlay.width)
-                        .central_horizontal_angle(HORIZONTAL_RAD)
-                        .upper_vertical_angle(VERTICAL_RAD_HIGH)
-                        .lower_vertical_angle(VERTICAL_RAD_LOW)
-                        .pose(pose);
-
-                    let layer = lifetime_extend!(CompositionLayerEquirect2KHR, layer);
-                    let mut layer = OverlayLayer::from(OverlayLayerInner::Equirect2(layer));
                     overlay.alpha.iter().for_each(|a| layer.set_alpha(*a));
                     layers.push((overlay.z_order, layer));
                 }
@@ -426,7 +407,8 @@ pub enum OverlayLayerInner<'a, G: xr::Graphics> {
     Quad(xr::CompositionLayerQuad<'a, G>),
     // Curved overlays
     Cylinder(xr::CompositionLayerCylinderKHR<'a, G>),
-    // Skybox
+    // Skybox (reserved for KHR_composition_layer_equirect2)
+    #[allow(dead_code)]
     Equirect2(xr::CompositionLayerEquirect2KHR<'a, G>),
 }
 
@@ -462,7 +444,6 @@ pub struct OverlaySessionData {
 enum OverlayKind {
     Quad,
     Curved { curvature: f32 },
-    Sphere,
 }
 
 struct Overlay {
@@ -471,6 +452,10 @@ struct Overlay {
     /// Only allowed to be Some if KHR_composition_layer_color_scale_bias is active
     alpha: Option<f32>,
     width: f32,
+    /// Scale factors from the transform matrix diagonal (m[0][0], m[1][1]).
+    /// Applied to the quad size like OpenComposite does, so games that encode
+    /// non-unit scale in the transform get the size they expect.
+    scale: (f32, f32),
     visible: bool,
     kind: OverlayKind,
     z_order: i64,
@@ -487,6 +472,7 @@ impl Overlay {
             name,
             alpha: None,
             width: 1.0,
+            scale: (1.0, 1.0),
             visible: false,
             kind: OverlayKind::Quad,
             z_order: 0,
@@ -553,14 +539,18 @@ impl Overlay {
                 debug!("received invalid overlay texture handle");
                 return Err(vr::EVROverlayError::InvalidTexture);
             };
-            let tex_swapchain_info =
+            let mut tex_swapchain_info =
                 backend.swapchain_info_for_texture(b_texture, texture_bounds, texture.eColorSpace);
+            // OpenComposite creates overlay swapchains with arraySize=1; some runtimes (e.g. Monado)
+            // do not render quad layers correctly when a multi-array swapchain is used.
+            tex_swapchain_info.array_size = 1;
             let mut create_swapchain = || {
                 let mut info = backend.swapchain_info_for_texture(
                     b_texture,
                     texture_bounds,
                     texture.eColorSpace,
                 );
+                info.array_size = 1;
                 let initial_format = info.format;
                 session_data.check_format::<G>(&mut info);
                 let swapchain = session_data.create_swapchain(&info).unwrap();
@@ -1127,6 +1117,9 @@ impl vr::IVROverlay028_Interface for OverlayMan {
             vr::EVROverlayError::InvalidParameter
         } else {
             let transform = unsafe { transform.read() };
+            // Preserve the diagonal scale (like OpenComposite does) before
+            // decomposing to a pose which discards it.
+            let scale = (transform.m[0][0], transform.m[1][1]);
             let xr_transform: xr::Posef = transform.into();
             let o = xr_transform.orientation;
             let q = Quat::from_xyzw(o.x, o.y, o.z, o.w).normalize();
@@ -1139,6 +1132,7 @@ impl vr::IVROverlay028_Interface for OverlayMan {
                     w: q.w,
                 },
             };
+            overlay.scale = scale;
             overlay.transform = Some((origin, transform.into()));
             debug!(
                 "set overlay transform origin to {origin:?} for {:?} ({transform:?})",
@@ -1231,9 +1225,15 @@ impl vr::IVROverlay028_Interface for OverlayMan {
             .khr_composition_layer_cylinder
         {
             get_overlay!(self, handle, mut overlay);
-            overlay.kind = OverlayKind::Curved {
-                curvature: value.clamp(0.0, 1.0),
-            };
+            // Zero (or near-zero) curvature means "flat" in OpenVR semantics.
+            // Treat as a plain quad rather than a degenerate cylinder (radius=inf).
+            if value <= f32::EPSILON {
+                overlay.kind = OverlayKind::Quad;
+            } else {
+                overlay.kind = OverlayKind::Curved {
+                    curvature: value.clamp(0.0, 1.0),
+                };
+            }
         }
         vr::EVROverlayError::None
     }
