@@ -132,7 +132,7 @@ impl GraphicsBackend for VulkanData {
         }
     }
 
-    fn swapchain_info_for_texture(
+    fn raw_swapchain_info_for_texture(
         &self,
         texture: *const vr::VRVulkanTextureData_t,
         bounds: vr::VRTextureBounds_t,

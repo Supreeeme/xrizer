@@ -170,7 +170,7 @@ impl GraphicsBackend for GlData {
     }
 
     #[inline]
-    fn swapchain_info_for_texture(
+    fn raw_swapchain_info_for_texture(
         &self,
         texture: Self::OpenVrTexture,
         bounds: vr::VRTextureBounds_t,

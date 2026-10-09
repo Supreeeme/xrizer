@@ -1417,6 +1417,7 @@ mod tests {
         static SWAPCHAIN_WIDTH: Cell<u32> = const { Cell::new(10) };
         static SWAPCHAIN_HEIGHT: Cell<u32> = const { Cell::new(10) };
         static SWAPCHAIN_FORMAT: Cell<u32> = const { Cell::new(0) };
+        static SWAPCHAIN_SAMPLE_COUNT: Cell<u32> = const { Cell::new(1) };
     }
 
     pub enum FakeApi {}
@@ -1472,7 +1473,7 @@ mod tests {
             VulkanData::get_texture(texture)
         }
 
-        fn swapchain_info_for_texture(
+        fn raw_swapchain_info_for_texture(
             &self,
             _: Self::OpenVrTexture,
             _: openvr::VRTextureBounds_t,
@@ -1482,7 +1483,7 @@ mod tests {
                 create_flags: xr::SwapchainCreateFlags::EMPTY,
                 usage_flags: xr::SwapchainUsageFlags::EMPTY,
                 format: SWAPCHAIN_FORMAT.get(),
-                sample_count: 1,
+                sample_count: SWAPCHAIN_SAMPLE_COUNT.get(),
                 width: SWAPCHAIN_WIDTH.get(),
                 height: SWAPCHAIN_HEIGHT.get(),
                 face_count: 1,
@@ -1753,6 +1754,31 @@ mod tests {
             (&raw mut (*timing.as_mut_ptr()).m_nSize).write(0);
         }
         assert!(!f.comp.GetFrameTiming(timing.as_mut_ptr(), 1));
+    }
+
+    #[test]
+    fn zero_sample_count_texture() {
+        // Games submit sample count 0 when MSAA is disabled (e.g. HL2VR with
+        // antialiasing set to None) - it should be treated as 1, not crash
+        // swapchain creation.
+        let f = Fixture::new();
+        SWAPCHAIN_SAMPLE_COUNT.set(0);
+
+        assert_eq!(f.wait_get_poses(), None);
+        assert_eq!(f.submit(vr::EVREye::Left), None);
+        assert_eq!(f.submit(vr::EVREye::Right), None);
+
+        assert_eq!(f.wait_get_poses(), None);
+        {
+            let data = f.comp.openxr.session_data.get();
+            let lock = data.comp_data.0.lock().unwrap();
+            let DynFrameController::Fake(ctrl) = lock.as_ref().unwrap() else {
+                panic!("Frame controller was not set up or not faked!");
+            };
+            let swapchain_data = ctrl.swapchain_data.as_ref().expect("no swapchain created");
+            assert_eq!(swapchain_data.info.sample_count, 1);
+        }
+        SWAPCHAIN_SAMPLE_COUNT.set(1);
     }
 
     #[test]
