@@ -191,9 +191,20 @@ impl IVRClientCore003_Interface for ClientCore {
     fn Cleanup(&self) {
         self.interface_store.lock().unwrap().clear();
 
-        let mut openxr = self.openxr.write().unwrap();
-        assert_eq!(Arc::strong_count(openxr.as_ref().unwrap()), 1);
-        openxr.take();
+        let Some(data) = self.openxr.write().unwrap().take() else {
+            warn!("ClientCore::Cleanup called without a prior successful Init");
+            return;
+        };
+
+        // Panicking here would abort the app, so just report it. Whatever is still holding a
+        // reference keeps the OpenXR data alive until it lets go; the data gets destroyed then.
+        let count = Arc::strong_count(&data);
+        if count != 1 {
+            error!(
+                "OpenXR data still has {count} strong references during Cleanup (expected 1) - \
+                 something is still using it. Releasing our reference anyway."
+            );
+        }
     }
     fn GetIDForVRInitError(&self, _: vr::EVRInitError) -> *const c_char {
         std::ptr::null()
@@ -388,6 +399,42 @@ mod tests {
         core.clone().Cleanup();
         core.clone()
             .Init(vr::EVRApplicationType::Scene, std::ptr::null());
+    }
+
+    #[test]
+    fn cleanup_with_outstanding_openxr_references() {
+        let core = ClientCore::new(c"IVRClientCore_003").unwrap();
+        assert_eq!(
+            core.clone()
+                .Init(vr::EVRApplicationType::Scene, std::ptr::null()),
+            vr::EVRInitError::None
+        );
+
+        // Something other than ClientCore is still holding on to the OpenXR data.
+        let outstanding = core.openxr.read().unwrap().as_ref().unwrap().clone();
+        assert_eq!(Arc::strong_count(&outstanding), 2);
+
+        core.clone().Cleanup();
+
+        // We must have let go of our reference, but not destroyed data that is still in use.
+        assert!(core.openxr.read().unwrap().is_none());
+        assert_eq!(Arc::strong_count(&outstanding), 1);
+
+        // And the app must still be able to initialize again.
+        assert_eq!(
+            core.clone()
+                .Init(vr::EVRApplicationType::Scene, std::ptr::null()),
+            vr::EVRInitError::None
+        );
+        let new = core.openxr.read().unwrap().as_ref().unwrap().clone();
+        assert!(!Arc::ptr_eq(&new, &outstanding));
+    }
+
+    #[test]
+    fn cleanup_without_init() {
+        let core = ClientCore::new(c"IVRClientCore_003").unwrap();
+        core.clone().Cleanup();
+        assert!(core.openxr.read().unwrap().is_none());
     }
 
     #[test]
