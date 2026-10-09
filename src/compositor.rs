@@ -582,8 +582,29 @@ impl vr::IVRCompositor029_Interface for Compositor {
         crate::warn_unimplemented!("GetFrameTimeRemaining");
         0.0
     }
-    fn GetFrameTimings(&self, _pTiming: *mut vr::Compositor_FrameTiming, _nFrames: u32) -> u32 {
-        todo!()
+    fn GetFrameTimings(&self, pTiming: *mut vr::Compositor_FrameTiming, nFrames: u32) -> u32 {
+        if pTiming.is_null() || nFrames == 0 {
+            return 0;
+        }
+
+        // Only the first entry's size is set by the application, the rest is inferred from it.
+        let size = unsafe { (&raw const (*pTiming).m_nSize).read_unaligned() } as usize;
+        for i in 0..nFrames {
+            let entry = unsafe { pTiming.cast::<u8>().add(i as usize * size) }
+                .cast::<vr::Compositor_FrameTiming>();
+            if i > 0 {
+                unsafe { (&raw mut (*entry).m_nSize).write_unaligned(size as u32) };
+            }
+            // Frames are returned from oldest to newest.
+            if !<Self as vr::IVRCompositor029_Interface>::GetFrameTiming(
+                self,
+                entry,
+                nFrames - 1 - i,
+            ) {
+                return i;
+            }
+        }
+        nFrames
     }
     fn GetFrameTiming(&self, timing: *mut vr::Compositor_FrameTiming, _frames_ago: u32) -> bool {
         if timing.is_null() || !timing.is_aligned() {
@@ -1695,6 +1716,37 @@ mod tests {
 
         assert_eq!(f.wait_get_poses(), None);
         assert_eq!(f.wait_get_poses(), None);
+    }
+
+    #[test]
+    fn get_frame_timings() {
+        let f = Fixture::new();
+        assert_eq!(f.wait_get_poses(), None);
+        assert_eq!(f.submit(vr::EVREye::Left), None);
+        assert_eq!(f.submit(vr::EVREye::Right), None);
+
+        let size = std::mem::size_of::<vr::Compositor_FrameTiming>() as u32;
+        let mut timings: [vr::Compositor_FrameTiming; 3] =
+            std::array::from_fn(|_| Default::default());
+        // Only the first entry's size is set, the rest is inferred from it.
+        timings[0].m_nSize = size;
+        assert_eq!(
+            vr::IVRCompositor029_Interface::GetFrameTimings(&*f.comp, timings.as_mut_ptr(), 3),
+            3
+        );
+        assert_eq!(timings[1].m_nSize, size);
+        assert_eq!(timings[2].m_nSize, size);
+
+        assert_eq!(
+            vr::IVRCompositor029_Interface::GetFrameTimings(&*f.comp, std::ptr::null_mut(), 3),
+            0
+        );
+
+        timings[0].m_nSize = 0;
+        assert_eq!(
+            vr::IVRCompositor029_Interface::GetFrameTimings(&*f.comp, timings.as_mut_ptr(), 3),
+            0
+        );
     }
 
     #[test]
