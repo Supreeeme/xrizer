@@ -1,0 +1,36 @@
+{
+    "bindings": {
+        "/actions/set1": {
+            "sources": [
+                {
+                    "mode": "button",
+                    "path": "/user/hand/left/input/grip",
+                    "inputs": {
+                        "grab": {
+                            "output": "/actions/set1/in/boolact"
+                        }
+                    },
+                    "parameters": {
+                        "click_activate_threshold": "0.8",
+                        "click_deactivate_threshold": "0.8",
+                        "haptic_amplitude": "0"
+                    }
+                },
+                {
+                    "mode": "button",
+                    "path": "/user/hand/right/input/grip",
+                    "inputs": {
+                        "grab": {
+                            "output": "/actions/set1/in/boolact"
+                        }
+                    },
+                    "parameters": {
+                        "click_activate_threshold": "0.8",
+                        "click_deactivate_threshold": "0.8",
+                        "haptic_amplitude": "0"
+                    }
+                }
+            ]
+        }
+    }
+}
