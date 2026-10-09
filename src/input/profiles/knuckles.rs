@@ -46,6 +46,7 @@ impl InteractionProfile for Knuckles {
                 right: c"Knuckles Right",
             },
             openvr_controller_type: c"knuckles",
+            input_profile_path: Some(c"{indexcontroller}/input/index_controller_profile.json"),
             render_model_name: Property::PerHand {
                 left: c"{indexcontroller}valve_controller_knu_1_0_left",
                 right: c"{indexcontroller}valve_controller_knu_1_0_right",

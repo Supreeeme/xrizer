@@ -16,6 +16,7 @@ impl InteractionProfile for SimpleController {
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::BothHands(c"generic"),
             openvr_controller_type: c"<unknown>",
+            input_profile_path: None,
             render_model_name: Property::BothHands(c"generic_controller"),
             main_axis: MainAxisType::Thumbstick,
             // TODO: These are just from the vive_controller. I'm not certain whether that's correct here
