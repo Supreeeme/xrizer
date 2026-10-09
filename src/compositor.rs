@@ -343,10 +343,10 @@ impl vr::IVRCompositor029_Interface for Compositor {
         false
     }
     fn IsMotionSmoothingSupported(&self) -> bool {
-        todo!()
+        false
     }
     fn IsMotionSmoothingEnabled(&self) -> bool {
-        todo!()
+        false
     }
     fn SubmitExplicitTimingData(&self) -> vr::EVRCompositorError {
         if *self.timing_mode.lock().unwrap() == vr::EVRCompositorTimingMode::Implicit {
@@ -397,28 +397,36 @@ impl vr::IVRCompositor029_Interface for Compositor {
     }
 
     fn UnlockGLSharedTextureForAccess(&self, _glSharedTextureHandle: vr::glSharedTextureHandle_t) {
-        todo!()
+        crate::warn_unimplemented!("UnlockGLSharedTextureForAccess");
     }
     fn LockGLSharedTextureForAccess(&self, _glSharedTextureHandle: vr::glSharedTextureHandle_t) {
-        todo!()
+        crate::warn_unimplemented!("LockGLSharedTextureForAccess");
     }
     fn ReleaseSharedGLTexture(
         &self,
         _glTextureId: vr::glUInt_t,
         _glSharedTextureHandle: vr::glSharedTextureHandle_t,
     ) -> bool {
-        todo!()
+        crate::warn_unimplemented!("ReleaseSharedGLTexture");
+        false
     }
     fn GetMirrorTextureGL(
         &self,
         _eEye: vr::EVREye,
-        _pglTextureId: *mut vr::glUInt_t,
-        _pglSharedTextureHandle: *mut vr::glSharedTextureHandle_t,
+        pglTextureId: *mut vr::glUInt_t,
+        pglSharedTextureHandle: *mut vr::glSharedTextureHandle_t,
     ) -> vr::EVRCompositorError {
-        todo!()
+        crate::warn_unimplemented!("GetMirrorTextureGL");
+        if let Some(id) = unsafe { pglTextureId.as_mut() } {
+            *id = 0;
+        }
+        if let Some(handle) = unsafe { pglSharedTextureHandle.as_mut() } {
+            *handle = std::ptr::null_mut();
+        }
+        vr::EVRCompositorError::IncompatibleVersion
     }
     fn ReleaseMirrorTextureD3D11(&self, _pD3D11ShaderResourceView: *mut std::ffi::c_void) {
-        todo!()
+        crate::warn_unimplemented!("ReleaseMirrorTextureD3D11");
     }
     fn GetMirrorTextureD3D11(
         &self,
@@ -449,7 +457,7 @@ impl vr::IVRCompositor029_Interface for Compositor {
             .for_each(|ctrl| ctrl.with_any_graphics_mut::<set_suspend_render>(bSuspend));
     }
     fn ForceReconnectProcess(&self) {
-        todo!()
+        crate::warn_unimplemented!("ForceReconnectProcess");
     }
     fn ForceInterleavedReprojectionOn(&self, _: bool) {
         crate::warn_unimplemented!("ForceInterleavedReprojectionOn");
@@ -459,31 +467,31 @@ impl vr::IVRCompositor029_Interface for Compositor {
         false
     }
     fn CompositorDumpImages(&self) {
-        todo!()
+        crate::warn_unimplemented!("CompositorDumpImages");
     }
     fn IsMirrorWindowVisible(&self) -> bool {
-        todo!()
+        false
     }
     fn HideMirrorWindow(&self) {
-        todo!()
+        crate::warn_unimplemented!("HideMirrorWindow");
     }
     fn ShowMirrorWindow(&self) {
-        todo!()
+        crate::warn_unimplemented!("ShowMirrorWindow");
     }
     fn CanRenderScene(&self) -> bool {
         true
     }
     fn GetLastFrameRenderer(&self) -> u32 {
-        todo!()
+        std::process::id()
     }
     fn GetCurrentSceneFocusProcess(&self) -> u32 {
-        todo!()
+        std::process::id()
     }
     fn IsFullscreen(&self) -> bool {
         true
     }
     fn CompositorQuit(&self) {
-        todo!()
+        crate::warn_unimplemented!("CompositorQuit");
     }
     fn CompositorGoToBack(&self) {
         crate::warn_unimplemented!("CompositorGoToBack");
@@ -558,7 +566,7 @@ impl vr::IVRCompositor029_Interface for Compositor {
             .for_each(|ctrl| ctrl.with_any_graphics_mut::<set_fade_grid>(bFadeGridIn));
     }
     fn GetCurrentFadeColor(&self, _bBackground: bool) -> vr::HmdColor_t {
-        todo!()
+        vr::HmdColor_t::default()
     }
     fn FadeToColor(
         &self,
@@ -573,10 +581,14 @@ impl vr::IVRCompositor029_Interface for Compositor {
     }
     fn GetCumulativeStats(
         &self,
-        _pStats: *mut vr::Compositor_CumulativeStats,
-        _nStatsSizeInBytes: u32,
+        pStats: *mut vr::Compositor_CumulativeStats,
+        nStatsSizeInBytes: u32,
     ) {
-        todo!()
+        crate::warn_unimplemented!("GetCumulativeStats");
+        if !pStats.is_null() {
+            let len = (nStatsSizeInBytes as usize).min(size_of::<vr::Compositor_CumulativeStats>());
+            unsafe { pStats.cast::<u8>().write_bytes(0, len) };
+        }
     }
     fn GetFrameTimeRemaining(&self) -> f32 {
         crate::warn_unimplemented!("GetFrameTimeRemaining");
@@ -962,10 +974,11 @@ impl vr::IVRCompositor015On016 for Compositor {
         _dest_file_name: *const std::ffi::c_char,
         _vr_dest_file_name: *const std::ffi::c_char,
     ) -> vr::EVRCompositorError {
-        todo!("RequestScreenshot (v1.0.1)");
+        crate::warn_unimplemented!("RequestScreenshot (v1.0.1)");
+        vr::EVRCompositorError::RequestFailed
     }
     fn GetCurrentScreenshotType(&self) -> vr::EVRScreenshotType {
-        todo!("GetCurrentScreenshotType (v1.0.1)");
+        vr::EVRScreenshotType::None
     }
 }
 
@@ -1988,5 +2001,140 @@ mod tests {
         assert_eq!(overlays.ShowOverlay(overlay), vr::EVROverlayError::None);
         f.comp.PostPresentHandoff();
         f.check_frame_state(fakexr::FrameState::Ended);
+    }
+
+    #[test]
+    fn compositor_stub_queries() {
+        use vr::IVRCompositor029_Interface as C29;
+        let f = Fixture::new();
+        let c = &*f.comp;
+
+        assert!(!C29::IsMotionSmoothingSupported(c));
+        assert!(!C29::IsMotionSmoothingEnabled(c));
+        assert!(!C29::IsMirrorWindowVisible(c));
+        assert_eq!(C29::GetLastFrameRenderer(c), std::process::id());
+        assert_eq!(C29::GetCurrentSceneFocusProcess(c), std::process::id());
+        for background in [false, true] {
+            let color = C29::GetCurrentFadeColor(c, background);
+            assert_eq!([color.r, color.g, color.b, color.a], [0.0; 4]);
+        }
+    }
+
+    #[test]
+    fn compositor_stub_noops() {
+        use vr::IVRCompositor029_Interface as C29;
+        let f = Fixture::new();
+        let c = &*f.comp;
+
+        C29::UnlockGLSharedTextureForAccess(c, std::ptr::null_mut());
+        C29::LockGLSharedTextureForAccess(c, std::ptr::null_mut());
+        assert!(!C29::ReleaseSharedGLTexture(c, 1, std::ptr::null_mut()));
+        C29::ReleaseMirrorTextureD3D11(c, std::ptr::null_mut());
+        C29::ForceReconnectProcess(c);
+        C29::CompositorDumpImages(c);
+        C29::HideMirrorWindow(c);
+        C29::ShowMirrorWindow(c);
+        C29::CompositorQuit(c);
+    }
+
+    #[test]
+    fn get_mirror_texture_gl_zeroes_outputs() {
+        use vr::IVRCompositor029_Interface as C29;
+        let f = Fixture::new();
+        let c = &*f.comp;
+        let eye = vr::EVREye::Left;
+        let handle: vr::glSharedTextureHandle_t = std::ptr::dangling_mut();
+
+        let (mut tex, mut shared) = (7, handle);
+        assert_eq!(
+            C29::GetMirrorTextureGL(c, eye, &mut tex, &mut shared),
+            IncompatibleVersion
+        );
+        assert_eq!(tex, 0);
+        assert!(shared.is_null());
+
+        // each output pointer is optional
+        let (mut tex, mut shared) = (7, handle);
+        assert_eq!(
+            C29::GetMirrorTextureGL(c, eye, &mut tex, std::ptr::null_mut()),
+            IncompatibleVersion
+        );
+        assert_eq!(tex, 0);
+        assert_eq!(
+            C29::GetMirrorTextureGL(c, eye, std::ptr::null_mut(), &mut shared),
+            IncompatibleVersion
+        );
+        assert!(shared.is_null());
+        let (null_tex, null_shared) = (std::ptr::null_mut(), std::ptr::null_mut());
+        assert_eq!(
+            C29::GetMirrorTextureGL(c, eye, null_tex, null_shared),
+            IncompatibleVersion
+        );
+    }
+
+    #[test]
+    fn get_cumulative_stats_zeroes_requested_bytes() {
+        use vr::IVRCompositor029_Interface as C29;
+        // The canary sits right after the stats and must never be written.
+        #[repr(C)]
+        struct Buffer {
+            stats: vr::Compositor_CumulativeStats,
+            canary: u64,
+        }
+        fn buffer() -> Buffer {
+            let mut buf = MaybeUninit::<Buffer>::uninit();
+            unsafe {
+                buf.as_mut_ptr().write_bytes(0xff, 1);
+                buf.assume_init()
+            }
+        }
+        let size = size_of::<vr::Compositor_CumulativeStats>();
+        let f = Fixture::new();
+        let c = &*f.comp;
+
+        // a size larger than the struct is clamped to the struct
+        let mut buf = buffer();
+        C29::GetCumulativeStats(c, &mut buf.stats, size_of::<Buffer>() as u32);
+        assert_eq!(buf.stats.m_nPid, 0);
+        assert_eq!(buf.stats.m_nNumFrameSubmits, 0);
+        assert_eq!(buf.stats.m_flSumCompositorCPUTimeMS, 0.0);
+        assert_eq!(buf.canary, u64::MAX);
+
+        // an older, smaller struct only has its own bytes zeroed
+        let mut buf = buffer();
+        C29::GetCumulativeStats(c, &mut buf.stats, 8);
+        assert_eq!(buf.stats.m_nPid, 0);
+        assert_eq!(buf.stats.m_nNumFramePresents, 0);
+        assert_eq!(buf.stats.m_nNumDroppedFrames, u32::MAX);
+
+        C29::GetCumulativeStats(c, std::ptr::null_mut(), size as u32);
+    }
+
+    #[test]
+    fn legacy_screenshot_stubs() {
+        let f = Fixture::new();
+
+        assert_eq!(
+            <Compositor as vr::IVRCompositor015On016>::RequestScreenshot(
+                &f.comp,
+                vr::EVRScreenshotType::Stereo,
+                c"/tmp/shot.png".as_ptr(),
+                c"/tmp/shot_vr.png".as_ptr()
+            ),
+            RequestFailed
+        );
+        assert_eq!(
+            <Compositor as vr::IVRCompositor015On016>::RequestScreenshot(
+                &f.comp,
+                vr::EVRScreenshotType::None,
+                std::ptr::null(),
+                std::ptr::null()
+            ),
+            RequestFailed
+        );
+        assert_eq!(
+            <Compositor as vr::IVRCompositor015On016>::GetCurrentScreenshotType(&f.comp),
+            vr::EVRScreenshotType::None
+        );
     }
 }
