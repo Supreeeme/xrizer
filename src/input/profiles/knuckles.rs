@@ -15,6 +15,8 @@ pub struct Knuckles;
 impl InteractionProfile for Knuckles {
     type LegalPaths = legal_paths![
         Both::<
+            (System, Click),
+            (System, Touch),
             (A, Click),
             (A, Touch),
             (B, Click),
