@@ -377,7 +377,7 @@ impl vr::IVRSystem026_Interface for System {
                     .input
                     .get()
                     .unwrap()
-                    .get_controller_pose(hand, Some(origin))
+                    .get_controller_pose(hand, Some(origin), None)
                     .unwrap_or_default();
             }
             true
@@ -524,7 +524,7 @@ impl vr::IVRSystem026_Interface for System {
         if got_event && !pose.is_null() {
             unsafe {
                 let index = (&raw const (*event).trackedDeviceIndex).read();
-                pose.write(input.get_device_pose(index, Some(origin)).unwrap());
+                pose.write(input.get_device_pose(index, Some(origin), None).unwrap());
             }
         }
         got_event
