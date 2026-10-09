@@ -1,6 +1,7 @@
 use std::any::TypeId;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
+use std::mem::MaybeUninit;
 use std::sync::Mutex;
 
 use glam::Mat4;
@@ -21,12 +22,18 @@ use log::trace;
 
 use super::{Input, InteractionProfile, profiles::MainAxisType};
 
+#[derive(Clone)]
+pub struct HandSkeleton {
+    pub joints: xr::HandJointLocations,
+    pub data_source: xr::HandTrackingDataSourceEXT,
+}
+
 pub enum TrackedDeviceType {
     Hmd,
     Controller {
         hand: Hand,
         hand_tracker: Option<xr::HandTracker>,
-        skeleton_cache: Mutex<HashMap<u64, Option<xr::HandJointLocations>>>,
+        skeleton_cache: Mutex<HashMap<u64, Option<HandSkeleton>>>,
     },
     #[cfg(feature = "monado")]
     GenericTracker {
@@ -131,6 +138,50 @@ fn get_controller_pose(
     Some(vr::space_relation_to_openvr_pose(location, velocity))
 }
 
+// We must use the unsafe API if we want the data source, as openxrs
+// does not provide a safe API similar to `xr::space::Space::locate_hand_joints` that returns the data source state.
+fn get_joints_with_data_source(
+    base: &xr::Space,
+    tracker: &xr::HandTracker,
+    time: xr::Time,
+) -> xr::Result<Option<HandSkeleton>> {
+    let Some(ext) = base.instance().exts().ext_hand_tracking.as_ref() else {
+        return Err(xr::sys::Result::ERROR_EXTENSION_NOT_PRESENT);
+    };
+
+    let locate_info = xr::sys::HandJointsLocateInfoEXT {
+        ty: xr::sys::HandJointsLocateInfoEXT::TYPE,
+        next: std::ptr::null(),
+        base_space: base.as_raw(),
+        time,
+    };
+    let mut source_state = xr::sys::HandTrackingDataSourceStateEXT {
+        ty: xr::sys::HandTrackingDataSourceStateEXT::TYPE,
+        next: std::ptr::null_mut(),
+        ..unsafe { std::mem::zeroed() }
+    };
+    let mut locations = MaybeUninit::<[xr::HandJointLocation; xr::HAND_JOINT_COUNT]>::uninit();
+    let mut location_info = xr::sys::HandJointLocationsEXT {
+        ty: xr::sys::HandJointLocationsEXT::TYPE,
+        next: &mut source_state as *mut _ as _,
+        joint_count: xr::HAND_JOINT_COUNT as u32,
+        joint_locations: locations.as_mut_ptr() as _,
+        ..unsafe { std::mem::zeroed() }
+    };
+    let r = unsafe { (ext.locate_hand_joints)(tracker.as_raw(), &locate_info, &mut location_info) };
+    if r.into_raw() < 0 {
+        return Err(r);
+    }
+    Ok(if location_info.is_active.into() {
+        Some(HandSkeleton {
+            joints: unsafe { locations.assume_init() },
+            data_source: source_state.data_source,
+        })
+    } else {
+        None
+    })
+}
+
 #[cfg(feature = "monado")]
 fn get_generic_tracker_pose(
     xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
@@ -197,7 +248,7 @@ impl TrackedDevice {
         &self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         base: &xr::Space,
-    ) -> Option<xr::HandJointLocations> {
+    ) -> Option<HandSkeleton> {
         let TrackedDeviceType::Controller {
             hand_tracker,
             skeleton_cache,
@@ -208,14 +259,24 @@ impl TrackedDevice {
         };
         let mut skeleton_cache = skeleton_cache.lock().unwrap();
         if let Some(skeleton) = skeleton_cache.get(&base.as_raw().into_raw()) {
-            return *skeleton;
+            return skeleton.clone();
         }
 
-        let joints = base
-            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.display_time.get())
-            .unwrap_or_default();
-        skeleton_cache.insert(base.as_raw().into_raw(), joints);
-        joints
+        let display_time = xr_data.display_time.get();
+        let r = if xr_data.enabled_extensions.ext_hand_tracking_data_source {
+            get_joints_with_data_source(base, hand_tracker.as_ref()?, display_time)
+                .unwrap_or_default()
+        } else {
+            base.locate_hand_joints(hand_tracker.as_ref()?, display_time)
+                .unwrap_or_default()
+                .map(|joints| HandSkeleton {
+                    joints,
+                    data_source: xr::HandTrackingDataSourceEXT::UNOBSTRUCTED,
+                })
+        };
+
+        skeleton_cache.insert(base.as_raw().into_raw(), r.clone());
+        r
     }
 
     pub fn clear_pose_cache(&self) {
