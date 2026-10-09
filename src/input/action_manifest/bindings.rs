@@ -239,33 +239,73 @@ where
 
 #[repr(transparent)]
 #[derive(Copy, Clone, derive_more::Deref)]
-pub struct FromString<T>(T);
+pub struct StringOrTyped<T>(T);
 
-impl<T: FromStr> FromStr for FromString<T> {
+impl<T: FromStr> FromStr for StringOrTyped<T> {
     type Err = T::Err;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         T::from_str(s).map(Self)
     }
 }
 
-impl<T> From<T> for FromString<T> {
+impl<T> From<T> for StringOrTyped<T> {
     fn from(t: T) -> Self {
-        FromString(t)
+        StringOrTyped(t)
     }
 }
 
-impl<'de, T: Deserialize<'de> + FromStr> Deserialize<'de> for FromString<T> {
+impl<'de, T: Deserialize<'de> + FromStr> Deserialize<'de> for StringOrTyped<T>
+where
+    T::Err: std::fmt::Display,
+{
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let ret = <&str>::deserialize(deserializer)?;
-        ret.parse().map_err(|_| {
-            D::Error::custom(format_args!(
-                "invalid value: expected {}, got {ret}",
-                std::any::type_name::<T>()
-            ))
-        })
+        use serde::de::{self, Visitor};
+
+        struct StringOrTypedVisitor<T>(PhantomData<T>);
+
+        impl<'de, T> Visitor<'de> for StringOrTypedVisitor<T>
+        where
+            T: FromStr + Deserialize<'de>,
+            T::Err: std::fmt::Display,
+        {
+            type Value = StringOrTyped<T>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "a {} or string", std::any::type_name::<T>())
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                T::from_str(value)
+                    .map(StringOrTyped)
+                    .map_err(|_| E::custom("parse error"))
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let value = T::deserialize(serde::de::value::I64Deserializer::<E>::new(value))
+                    .map_err(E::custom)?;
+                Ok(StringOrTyped(value))
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let value = T::deserialize(serde::de::value::F64Deserializer::<E>::new(value))
+                    .map_err(E::custom)?;
+                Ok(StringOrTyped(value))
+            }
+        }
+
+        deserializer.deserialize_any(StringOrTypedVisitor(PhantomData))
     }
 }
 
@@ -279,8 +319,8 @@ struct ButtonInput {
 
 #[derive(Deserialize)]
 pub struct ClickThresholdParams {
-    pub click_activate_threshold: Option<FromString<f32>>,
-    pub click_deactivate_threshold: Option<FromString<f32>>,
+    pub click_activate_threshold: Option<StringOrTyped<f32>>,
+    pub click_deactivate_threshold: Option<StringOrTyped<f32>>,
 }
 
 impl ClickThresholdParams {
@@ -345,18 +385,18 @@ struct DpadInput {
 #[serde(default)]
 pub struct DpadParameters {
     pub sub_mode: DpadSubMode,
-    pub deadzone_pct: FromString<u8>,
-    pub overlap_pct: FromString<u8>,
-    pub sticky: FromString<bool>,
+    pub deadzone_pct: StringOrTyped<u8>,
+    pub overlap_pct: StringOrTyped<u8>,
+    pub sticky: StringOrTyped<bool>,
 }
 
 impl Default for DpadParameters {
     fn default() -> Self {
         Self {
             sub_mode: DpadSubMode::Touch,
-            deadzone_pct: FromString(50),
-            overlap_pct: FromString(50),
-            sticky: FromString(false),
+            deadzone_pct: StringOrTyped(50),
+            overlap_pct: StringOrTyped(50),
+            sticky: StringOrTyped(false),
         }
     }
 }
@@ -398,8 +438,8 @@ struct GrabInput {
 
 #[derive(Deserialize)]
 pub struct GrabParameters {
-    pub value_hold_threshold: Option<FromString<f32>>,
-    pub value_release_threshold: Option<FromString<f32>>,
+    pub value_hold_threshold: Option<StringOrTyped<f32>>,
+    pub value_release_threshold: Option<StringOrTyped<f32>>,
 }
 
 #[derive(Deserialize)]
@@ -425,11 +465,11 @@ struct Vector2Input {
 #[derive(Deserialize)]
 struct Vector2Parameters {
     #[allow(unused)]
-    deadzone_pct: Option<FromString<u8>>,
+    deadzone_pct: Option<StringOrTyped<u8>>,
     #[allow(unused)]
-    maxzone_pct: Option<FromString<u8>>,
+    maxzone_pct: Option<StringOrTyped<u8>>,
     #[allow(unused)]
-    sticky_click: Option<FromString<bool>>,
+    sticky_click: Option<StringOrTyped<bool>>,
 }
 
 pub fn handle_dpad_binding(
