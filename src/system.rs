@@ -868,11 +868,15 @@ impl vr::IVRSystem026_Interface for System {
                 .expect("Failed to get vulkan physical device") as _;
         }
     }
-    fn GetDXGIOutputInfo(&self, _: *mut i32) {
-        todo!()
+    fn GetDXGIOutputInfo(&self, output_info: *mut i32) {
+        crate::warn_unimplemented!("GetDXGIOutputInfo");
+        if !output_info.is_null() {
+            unsafe { output_info.write(0) };
+        }
     }
     fn GetD3D9AdapterIndex(&self) -> i32 {
-        todo!()
+        crate::warn_unimplemented!("GetD3D9AdapterIndex");
+        0
     }
 }
 
@@ -910,9 +914,13 @@ impl vr::IVRSystem017On019 for System {
 }
 
 impl vr::IVRSystem016On017 for System {
-    fn GetOutputDevice(&self, _device: *mut u64, _texture_type: vr::ETextureType) {
-        // TODO: figure out what to pass for the instance...
-        todo!()
+    fn GetOutputDevice(&self, device: *mut u64, texture_type: vr::ETextureType) {
+        vr::IVRSystem022_Interface::GetOutputDevice(
+            self,
+            device,
+            texture_type,
+            std::ptr::null_mut(),
+        )
     }
 }
 
