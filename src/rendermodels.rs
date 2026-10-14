@@ -599,7 +599,7 @@ impl OwnedRenderModel {
 
         let mut normals = vec![Vec3::ZERO; verts.len()];
 
-        for tri in indices.chunks_exact(3) {
+        for tri in indices.as_chunks::<3>().0 {
             let ia = tri[0] as usize;
             let ib = tri[1] as usize;
             let ic = tri[2] as usize;
