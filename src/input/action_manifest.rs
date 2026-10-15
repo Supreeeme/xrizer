@@ -155,6 +155,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             extra_actions,
             per_profile_bindings,
             per_profile_pose_bindings,
+            per_profile_input_paths,
             ..
         } = binding_context;
 
@@ -226,6 +227,11 @@ impl<C: openxr_data::Compositor> Input<C> {
             .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
             .collect();
 
+        let per_profile_input_paths = per_profile_input_paths
+            .into_iter()
+            .map(|(k, v)| (k, action_map_to_secondary(&mut act_guard, v)))
+            .collect();
+
         let loaded = super::ManifestLoadedActions {
             sets,
             actions,
@@ -233,6 +239,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             extra_actions,
             per_profile_bindings,
             per_profile_pose_bindings,
+            per_profile_input_paths,
             _info_action: info_action,
             info_set,
             haptic_action,
@@ -242,7 +249,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         session_data
             .input_data
             .actions
-            .set(super::LoadedActions::Manifest(loaded))
+            .set(super::LoadedActions::Manifest(Box::new(loaded)))
             .unwrap_or_else(|_| unreachable!());
         Ok(())
     }

@@ -46,6 +46,7 @@ impl InteractionProfile for OculusTouch {
             },
             tracking_system_name: c"oculus",
             manufacturer_name: c"Oculus",
+            input_profile_path: c"{oculus}/input/touch_profile.json",
             main_axis: MainAxisType::Thumbstick,
             legacy_buttons_mask: button_mask_from_ids!(
                 System,
