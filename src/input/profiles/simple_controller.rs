@@ -1,5 +1,5 @@
 use super::{
-    DynInputPath, InteractionProfile, MainAxisType, ProfileProperties, Property,
+    DynInputPath, HmdProperties, InteractionProfile, MainAxisType, ProfileProperties, Property,
     SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
@@ -36,6 +36,11 @@ impl InteractionProfile for SimpleController {
                 btn::Axis0,
                 btn::Axis1
             ),
+            hmd: HmdProperties {
+                model: c"generic",
+                controller_type: c"<unknown>",
+                serial_number: c"LHR-00000000",
+            },
         };
         &DEVICE_PROPERTIES
     }

@@ -43,6 +43,9 @@ pub struct OpenXrData<C: Compositor> {
     pub display_time: AtomicXrTime,
     pub display_period_nanos: AtomicI64,
     pub enabled_extensions: xr::ExtensionSet,
+    /// The interaction profiles that were bound when we probed at init - see
+    /// [crate::input::probe_interaction_profiles].
+    pub probed_profiles: crate::input::ProbedProfiles,
 
     /// should only be externally accessed for testing
     pub(crate) input: Injected<crate::input::Input<C>>,
@@ -170,6 +173,8 @@ impl<C: Compositor> OpenXrData<C> {
             .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
             .map_err(InitError::SystemCreationFailed)?;
 
+        let probed_profiles = crate::input::probe_interaction_profiles(&instance, system_id, &exts);
+
         let session_data = SessionReadGuard(RwLock::new(ManuallyDrop::new(
             SessionData::new(
                 &instance,
@@ -194,6 +199,7 @@ impl<C: Compositor> OpenXrData<C> {
             display_time: AtomicXrTime(display_time.into()), // This will get replaced on the first WaitGetPoses
             display_period_nanos: 11111111.into(), // This will get replaced on the first WaitGetPoses
             enabled_extensions: exts,
+            probed_profiles,
             input: injector.inject(),
             compositor: injector.inject(),
         })
@@ -465,7 +471,7 @@ pub enum SessionCreationError {
 }
 
 impl SessionData {
-    fn new(
+    pub(crate) fn new(
         instance: &xr::Instance,
         system_id: xr::SystemId,
         current_origin: vr::ETrackingUniverseOrigin,
