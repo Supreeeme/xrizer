@@ -276,6 +276,11 @@ impl<C: openxr_data::Compositor> Input<C> {
             const MAX_CURL: f32 = 0.8;
             *out_curl = (curl / MAX_CURL).clamp(0.0, 1.0);
         }
+
+        log::trace!(
+            "skeletal summary for {hand:?} (hand tracking): curls {:?}",
+            summary_data.flFingerCurl
+        );
     }
 
     pub(super) fn get_estimated_bones(
@@ -344,6 +349,11 @@ impl<C: openxr_data::Compositor> Input<C> {
                 state.pinky,
             ],
         };
+
+        log::trace!(
+            "skeletal summary for {hand:?} (estimated): curls {:?}",
+            summary_data.flFingerCurl
+        );
     }
 
     fn get_finger_state(&self, session_data: &SessionData, hand: Hand) -> FingerState {

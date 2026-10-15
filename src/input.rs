@@ -930,6 +930,20 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             _ => return vr::EVRInputError::WrongType,
         };
 
+        if log::log_enabled!(log::Level::Trace) {
+            let action_map = self.action_map.read().unwrap();
+            let action_key = ActionKey::from(KeyData::from_ffi(handle));
+            trace!(
+                "analog action {:?}: x {} y {} (dx {} dy {}, active: {})",
+                action_map.get(action_key).map(|a| &a.path),
+                state.current_state.x,
+                state.current_state.y,
+                delta.x,
+                delta.y,
+                state.is_active
+            );
+        }
+
         *out.value = vr::InputAnalogActionData_t {
             bActive: state.is_active,
             activeOrigin: active_hand,
@@ -973,6 +987,18 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         {
             state = binding_state;
             active_hand = binding_source;
+        }
+
+        if log::log_enabled!(log::Level::Trace) {
+            let action_map = self.action_map.read().unwrap();
+            let action_key = ActionKey::from(KeyData::from_ffi(handle));
+            trace!(
+                "digital action {:?}: {} (changed: {}, active: {})",
+                action_map.get(action_key).map(|a| &a.path),
+                state.current_state,
+                state.changed_since_last_sync,
+                state.is_active
+            );
         }
 
         *out.value = vr::InputDigitalActionData_t {
@@ -1691,11 +1717,13 @@ impl PoseData {
                 hand: Hand::Left,
                 hand_path: left_path,
                 raw: RwLock::default(),
+                pose_history: Mutex::default(),
             },
             right_space: HandSpace {
                 hand: Hand::Right,
                 hand_path: right_path,
                 raw: RwLock::default(),
+                pose_history: Mutex::default(),
             },
         }
     }
@@ -1712,6 +1740,10 @@ struct HandSpace {
     /// Based on the controller jsons in SteamVR, the "raw" pose
     /// This is stored as a space so we can locate hand joints relative to it for skeletal data.
     raw: RwLock<Option<xr::Space>>,
+
+    /// Recent (time, position, origin) samples of the raw pose, for synthesizing
+    /// linear velocities from position deltas (see the synthesized_velocity quirk).
+    pose_history: Mutex<std::collections::VecDeque<(i64, glam::Vec3, vr::ETrackingUniverseOrigin)>>,
 }
 
 struct SpaceReadGuard<'a>(RwLockReadGuard<'a, Option<xr::Space>>);
@@ -1723,6 +1755,46 @@ impl Deref for SpaceReadGuard<'_> {
 }
 
 impl HandSpace {
+    /// Record a position sample and return a finite-difference velocity over
+    /// the recent window, if enough history exists.
+    pub fn update_history_and_velocity(
+        &self,
+        time_ns: i64,
+        position: glam::Vec3,
+        origin: vr::ETrackingUniverseOrigin,
+    ) -> Option<glam::Vec3> {
+        const WINDOW_NS: i64 = 60_000_000; // 60ms
+        const MIN_SPAN_NS: i64 = 8_000_000; // don't divide over tiny spans
+
+        let mut history = self.pose_history.lock().unwrap();
+        match history.back() {
+            // several queries per frame share the same predicted time
+            Some(&(t, _, o)) if t == time_ns && o == origin => {}
+            Some(&(_, _, o)) if o != origin => {
+                // origin switched; old samples are in a different space
+                history.clear();
+                history.push_back((time_ns, position, origin));
+            }
+            _ => {
+                history.push_back((time_ns, position, origin));
+            }
+        }
+        while let Some(&(t, ..)) = history.front() {
+            if time_ns - t > WINDOW_NS && history.len() > 2 {
+                history.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        let &(t0, p0, _) = history.front()?;
+        let span = time_ns - t0;
+        if span < MIN_SPAN_NS {
+            return None;
+        }
+        Some((position - p0) / (span as f32 / 1e9))
+    }
+
     pub fn try_get_or_init_raw(
         &self,
         hand_profile: &Option<ProfileData>,
