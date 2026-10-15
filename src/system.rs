@@ -74,21 +74,44 @@ impl ViewCache {
             )
             .expect("Couldn't locate views");
 
-        let original_orientations = views
-            .iter_mut()
-            .map(
-                |xr::View {
-                     pose: xr::Posef { orientation: o, .. },
-                     ..
-                 }| {
-                    let ret = Quat::from_xyzw(o.x, o.y, o.z, o.w).inverse();
-                    *o = xr::Quaternionf::IDENTITY; // parallel views
-                    ret
-                },
-            )
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        // Canted-view handling.
+        //
+        // Runtimes for HMDs with canted displays (Pimax etc.) report per-eye
+        // rotations in the VIEW reference space to describe the tilt of each
+        // panel. By default xrizer normalises those away by forcing VIEW-space
+        // views to identity ("parallel views") and multiplying the inverse back
+        // into LOCAL/STAGE views. On canted HMDs that also flattens the FOV,
+        // which is not what the user wants.
+        //
+        // Opt-in via XRIZER_PRESERVE_VIEW_CANTING=1 to preserve the canted
+        // orientations end-to-end (fixes Pimax FOV; may confuse games that
+        // assume parallel views).
+        static PRESERVE_CANTING: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+            std::env::var("XRIZER_PRESERVE_VIEW_CANTING")
+                .ok()
+                .filter(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
+                .is_some()
+        });
+
+        let original_orientations: [Quat; 2] = if *PRESERVE_CANTING {
+            [Quat::IDENTITY, Quat::IDENTITY]
+        } else {
+            views
+                .iter_mut()
+                .map(
+                    |xr::View {
+                         pose: xr::Posef { orientation: o, .. },
+                         ..
+                     }| {
+                        let ret = Quat::from_xyzw(o.x, o.y, o.z, o.w).inverse();
+                        *o = xr::Quaternionf::IDENTITY;
+                        ret
+                    },
+                )
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap()
+        };
 
         ViewDataViewSpace {
             data: ViewData {
