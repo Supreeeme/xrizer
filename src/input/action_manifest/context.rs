@@ -16,6 +16,12 @@ pub(super) struct BindingsLoadContext<'a> {
     pub actions: LoadedActionDataMap,
     pub extra_actions: HashMap<String, ExtraActionData>,
     pub per_profile_bindings: HashMap<xr::Path, HashMap<String, Vec<BoolBindingData>>>,
+    /// Input source paths each action was bound to, per profile, recorded as the manifest is
+    /// parsed. The runtime can also report these via xrEnumerateBoundSourcesForAction, but only
+    /// once the action sets are attached and synced - too late for games that build their
+    /// control prompts during startup. Keeping them here means GetActionOrigins and
+    /// GetActionBindingInfo can answer from the moment the manifest is loaded.
+    pub per_profile_sources: HashMap<xr::Path, HashMap<String, Vec<String>>>,
     pub per_profile_pose_bindings: HashMap<xr::Path, HashMap<String, BoundPose>>,
     pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
@@ -37,6 +43,7 @@ impl<'a> BindingsLoadContext<'a> {
             actions,
             extra_actions: Default::default(),
             per_profile_bindings: Default::default(),
+            per_profile_sources: Default::default(),
             per_profile_pose_bindings: Default::default(),
             grip_action,
             info_action,
@@ -80,11 +87,16 @@ impl BindingsLoadContext<'_> {
             .per_profile_pose_bindings
             .entry(interaction_profile)
             .or_default();
+        let sources = self
+            .per_profile_sources
+            .entry(interaction_profile)
+            .or_default();
         Some(BindingsProfileLoadContext {
             action_sets: self.action_sets,
             actions: &mut self.actions,
             extra_actions: &mut self.extra_actions,
             bindings_parsed,
+            sources,
             pose_bindings,
             grip_action: self.grip_action,
             info_action: self.info_action,
@@ -103,6 +115,7 @@ pub(super) struct BindingsProfileLoadContext<'a> {
     pub actions: &'a mut LoadedActionDataMap,
     extra_actions: &'a mut HashMap<String, ExtraActionData>,
     bindings_parsed: &'a mut HashMap<String, Vec<BoolBindingData>>,
+    sources: &'a mut HashMap<String, Vec<String>>,
     pub pose_bindings: &'a mut HashMap<String, BoundPose>,
     pub grip_action: &'a xr::Action<xr::Posef>,
     pub info_action: &'a xr::Action<bool>,
@@ -185,7 +198,16 @@ impl BindingsProfileLoadContext<'_> {
                 .instance
                 .string_to_path(&input_path.to_string())
                 .unwrap();
+            self.record_source(&action_path, &input_path.to_string());
             self.bindings.push((action_path, binding_path));
+        }
+    }
+
+    /// Note that `action_path` is bound to `input_path` under the profile being loaded.
+    pub fn record_source(&mut self, action_path: &str, input_path: &str) {
+        let entry = self.sources.entry(action_path.to_owned()).or_default();
+        if !entry.iter().any(|p| p == input_path) {
+            entry.push(input_path.to_owned());
         }
     }
 
@@ -196,7 +218,14 @@ impl BindingsProfileLoadContext<'_> {
         action_set_name: &str,
         action_set: &xr::ActionSet,
         params: Option<&T::BindingParams>,
+        source: Option<&DynInputPath>,
     ) -> T::ExtraActions<Names> {
+        // Synthesised bindings live on a separate OpenXR action, so the runtime never reports
+        // them as sources of `output`. Record them here so they're still discoverable.
+        if let Some(source) = source {
+            let path = source.to_string();
+            self.record_source(&output.path.clone(), &path);
+        }
         let extra_data = self.extra_actions.entry(output.path.clone()).or_default();
         let names = T::extra_action_names(&output.cleaned_name());
         let full_names: Vec<String> = names
