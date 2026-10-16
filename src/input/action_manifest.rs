@@ -255,11 +255,26 @@ impl<C: openxr_data::Compositor> Input<C> {
         bindings: Vec<actions::DefaultBindings>,
         context: &mut context::BindingsLoadContext,
     ) {
-        let custom_bindings_dir = if let Ok(custom_bindings_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
-            PathBuf::from(custom_bindings_dir)
-        } else {
-            current_dir().unwrap().join("xrizer")
-        };
+        let custom_bindings_dir =
+            if let Ok(custom_bindings_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
+                PathBuf::from(custom_bindings_dir)
+            } else {
+                current_dir().unwrap().join("xrizer")
+            };
+
+        let mut bindings = bindings.clone();
+        if let Ok(additional_bindings) = std::env::var("XRIZER_ADDITIONAL_BINDINGS") {
+            bindings.extend(additional_bindings.split(';').map(|s| {
+                // additional_bindings is a semicolon-separated list of controller_type names.
+                let controller_type = s.parse().unwrap_or_else(|_| {
+                    panic!("Invalid controller type in XRIZER_ADDITIONAL_BINDINGS: {s}")
+                });
+                actions::DefaultBindings {
+                    binding_url: PathBuf::from(format!("bindings_{controller_type}.json")),
+                    controller_type,
+                }
+            }));
+        }
 
         let mut it = bindings.into_iter().peekable();
         while let Some(actions::DefaultBindings {

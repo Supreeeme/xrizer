@@ -27,7 +27,7 @@ pub struct ActionManifest {
     // localization_files
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct DefaultBindings {
     pub binding_url: PathBuf,
     pub controller_type: ControllerType,
