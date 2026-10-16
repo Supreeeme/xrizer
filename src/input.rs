@@ -591,7 +591,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         unsafe {
             // Make sure knuckles are always Partial
             // TODO: Remove in favor of using XR_EXT_hand_tracking_data_source
-            if controller_type.as_deref() == Some(c"knuckles") {
+            if controller_type.as_deref() == Some(c"knuckles")
+                || controller_type.as_deref() == Some(c"frame_controller")
+            {
                 *level = vr::EVRSkeletalTrackingLevel::Partial;
             } else {
                 *level = *self.skeletal_tracking_level.read().unwrap();

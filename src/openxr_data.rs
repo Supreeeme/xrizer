@@ -140,6 +140,14 @@ impl<C: Compositor> OpenXrData<C> {
         exts.meta_touch_controller_plus = supported_exts.meta_touch_controller_plus;
         exts.fb_display_refresh_rate = supported_exts.fb_display_refresh_rate;
 
+        if supported_exts
+            .other
+            .contains(&b"XR_VALVE_frame_controller_interaction".to_vec())
+        {
+            exts.other
+                .push(b"XR_VALVE_frame_controller_interaction".to_vec());
+        }
+
         // Extension that enables simple full body tracking support via generic tracked devices.
         // Available only in the Monado OpenXR runtime.
         #[cfg(feature = "monado")]

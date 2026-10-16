@@ -49,10 +49,11 @@ impl InteractionProfile for SimpleController {
         match path {
             DynInputPath {
                 subpath: DynSubpath::Trigger,
-                component: Some(DynComponent::Click),
+                component: Some(DynComponent::Click | DynComponent::Value),
                 ..
             } => Some(DynInputPath {
                 subpath: DynSubpath::Select,
+                component: Some(DynComponent::Click),
                 ..path
             }),
             _ => None,
@@ -135,7 +136,14 @@ mod tests {
             ],
         );
 
-        f.verify_no_bindings::<f32>(path, c"/actions/set1/in/vec1act");
+        f.verify_bindings::<f32>(
+            path,
+            c"/actions/set1/in/vec1act",
+            [
+                "/user/hand/left/input/select/click".into(),
+                "/user/hand/right/input/select/click".into(),
+            ],
+        );
 
         f.verify_no_bindings::<xr::Vector2f>(path, c"/actions/set1/in/vec2act");
 
