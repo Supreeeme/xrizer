@@ -46,6 +46,35 @@ pub enum ControllerType {
     Unknown(String),
 }
 
+impl std::str::FromStr for ControllerType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Ok(match value {
+            "vive_controller" => Self::ViveController,
+            "vive_focus3_controller" => Self::ViveFocus3,
+            "knuckles" => Self::Knuckles,
+            "frame_controller" => Self::FrameController,
+            "oculus_touch" => Self::OculusTouch,
+            other => Self::Unknown(other.to_owned()),
+        })
+    }
+}
+
+impl std::fmt::Display for ControllerType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            Self::ViveController => "vive_controller",
+            Self::ViveFocus3 => "vive_focus3_controller",
+            Self::Knuckles => "knuckles",
+            Self::FrameController => "frame_controller",
+            Self::OculusTouch => "oculus_touch",
+            Self::Unknown(value) => value,
+        };
+        f.write_str(value)
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ActionSetJson {
     #[serde(rename = "name")]
