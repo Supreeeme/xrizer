@@ -154,6 +154,14 @@ impl<C: Compositor> OpenXrData<C> {
                 .push([XR_MNDX_XDEV_SPACE_EXTENSION_NAME.as_bytes(), b"\0"].concat());
         }
 
+        if supported_exts
+            .other
+            .contains(&b"XR_VALVE_frame_controller_interaction\0".to_vec())
+        {
+            exts.other
+                .push(b"XR_VALVE_frame_controller_interaction\0".to_vec());
+        }
+
         let instance = entry
             .create_instance(
                 &xr::ApplicationInfo {

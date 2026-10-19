@@ -9,6 +9,7 @@ use openvr as vr;
 use openxr as xr;
 use openxr::sys::Handle;
 
+use crate::input::profiles::frame_controller::FrameController;
 use crate::input::profiles::knuckles::Knuckles;
 #[cfg(feature = "monado")]
 use crate::input::profiles::vive_tracker::ViveTracker;
@@ -77,7 +78,8 @@ impl ProfileData {
             properties: P::properties(),
             get_hand_offset: P::offset_grip_pose,
             force_estimated_thumb: TypeId::of::<P>() == TypeId::of::<Knuckles>(),
-            force_synthesise_skeleton: TypeId::of::<P>() != TypeId::of::<Knuckles>(), /* && TypeId::of::<P>() != TypeId::of::<FrameController>() */
+            force_synthesise_skeleton: TypeId::of::<P>() != TypeId::of::<Knuckles>()
+                && TypeId::of::<P>() != TypeId::of::<FrameController>(),
         }
     }
 
