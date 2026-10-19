@@ -1,3 +1,4 @@
+pub mod frame_controller;
 pub mod knuckles;
 pub mod meta_touch_plus;
 pub mod oculus_touch;
@@ -11,6 +12,7 @@ use super::{
 };
 use crate::input::profiles::typemagic::ContainsPath;
 use crate::openxr_data::Hand;
+use frame_controller::FrameController;
 use glam::Mat4;
 use knuckles::Knuckles;
 use meta_touch_plus::MetaTouchPlus;
@@ -58,6 +60,7 @@ impl ControllerType {
                 runner.run::<OculusTouch>();
             }
             Self::Knuckles => runner.run::<Knuckles>(),
+            Self::FrameController => runner.run::<FrameController>(),
             Self::ViveFocus3 => runner.run::<ViveFocus3>(),
             Self::Unknown(_) => {}
         }
@@ -92,6 +95,7 @@ pub fn run_for_all_profiles(runner: &mut impl RunWithProfile) {
 
     profile!(ViveWands);
     profile!(Knuckles);
+    profile!(FrameController);
     profile!(MetaTouchPlus);
     profile!(OculusTouch);
     profile!(ViveFocus3);
@@ -526,7 +530,7 @@ pub mod paths {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                     paste::paste! {
                         let s = match self {
-                            $(Self::$name => stringify!([<$name:lower>]),)+
+                            $(Self::$name => stringify!([<$name:snake>]),)+
                         };
                     }
                     f.write_str(s)
@@ -541,8 +545,14 @@ pub mod paths {
         B::<Click, Touch>,
         X::<Click, Touch>,
         Y::<Click, Touch>,
-        Menu::<Click>,
+        DpadUp::<Click, Touch>,
+        DpadLeft::<Click, Touch>,
+        DpadDown::<Click, Touch>,
+        DpadRight::<Click, Touch>,
+        Menu::<Click, Touch>,
+        View::<Click, Touch>,
         Select::<Click>,
+        Bumper::<Click, Touch>,
         Trigger::<Click, Value, Force, Touch>,
         Squeeze::<Click, Value, Force, Touch>,
         Thumbstick::<Click, Touch, Vec2X, Vec2Y>,
@@ -561,7 +571,13 @@ pub mod paths {
                 "b" => Some(Self::B),
                 "x" => Some(Self::X),
                 "y" => Some(Self::Y),
-                "application_menu" => Some(Self::Menu),
+                "dpad_up" => Some(Self::DpadUp),
+                "dpad_down" => Some(Self::DpadDown),
+                "dpad_left" => Some(Self::DpadLeft),
+                "dpad_right" => Some(Self::DpadRight),
+                "view" => Some(Self::View),
+                "application_menu" | "menu" => Some(Self::Menu),
+                "bumper" => Some(Self::Bumper),
                 "trigger" => Some(Self::Trigger),
                 "grip" => Some(Self::Squeeze),
                 "thumbstick" | "joystick" => Some(Self::Thumbstick),
