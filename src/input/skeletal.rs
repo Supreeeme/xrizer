@@ -50,6 +50,16 @@ impl<C: openxr_data::Compositor> Input<C> {
             return;
         };
 
+        if data_source == xr::HandTrackingDataSourceEXT::CONTROLLER
+            && controller
+                .profile_data
+                .as_ref()
+                .is_some_and(|p| p.force_synthesise_skeleton)
+        {
+            self.get_estimated_bones(session_data, space, hand, transforms);
+            return;
+        }
+
         let mut joints: Box<[_]> = joints
             .into_iter()
             .map(|joint_location| {

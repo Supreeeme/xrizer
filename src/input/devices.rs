@@ -65,6 +65,10 @@ pub struct ProfileData {
     /// or thumbstick is being touched, so just use the skeletal input actions to
     /// determine the curl value for the thumb.
     pub force_estimated_thumb: bool,
+    /// There is no equivalent to OpenVR's separate Estimated and Partial tracking levels
+    /// in OpenXR, we only want to consume the skeletal data from a CONTROLLER source
+    /// for devices that actually have some sort of finger-sensing.
+    pub force_synthesise_skeleton: bool,
 }
 
 impl ProfileData {
@@ -73,6 +77,7 @@ impl ProfileData {
             properties: P::properties(),
             get_hand_offset: P::offset_grip_pose,
             force_estimated_thumb: TypeId::of::<P>() == TypeId::of::<Knuckles>(),
+            force_synthesise_skeleton: TypeId::of::<P>() != TypeId::of::<Knuckles>(), /* && TypeId::of::<P>() != TypeId::of::<FrameController>() */
         }
     }
 
