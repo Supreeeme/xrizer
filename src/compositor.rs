@@ -891,8 +891,15 @@ impl vr::IVRCompositor029_Interface for Compositor {
             }
 
             if *self.frame_state.lock().unwrap() == FrameState::Waited {
-                // discard frame
+                // Auto-flush pending overlay-only frame: begin it and immediately
+                // submit so overlay layers reach the compositor for games that
+                // never call Submit / PostPresentHandoff (e.g. menu-only frames).
+                // Normal games that submit each frame don't end up in Waited
+                // state here, so this is transparent to them.
                 self.maybe_begin_frame(&session_data);
+                if *self.frame_state.lock().unwrap() == FrameState::Begun {
+                    self.PostPresentHandoff();
+                }
             }
             self.maybe_wait_frame(&session_data);
 
