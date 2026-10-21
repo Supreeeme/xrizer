@@ -1,6 +1,6 @@
 use super::{
-    InteractionProfile, MainAxisType, ProfileProperties, Property, SkeletalInputBindings,
-    legal_paths, paths::*,
+    HmdProperties, InteractionProfile, MainAxisType, ProfileProperties, Property,
+    SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
@@ -70,6 +70,11 @@ impl InteractionProfile for Knuckles {
                 EVRButtonId::Axis1,
                 EVRButtonId::Axis2
             ),
+            hmd: HmdProperties {
+                model: c"Index",
+                controller_type: c"indexhmd",
+                serial_number: c"LHR-FFFFFFF0",
+            },
         };
         &DEVICE_PROPERTIES
     }

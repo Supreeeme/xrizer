@@ -1,5 +1,5 @@
 use super::{
-    DynInputPath, InteractionProfile, MainAxisType, ProfileProperties, Property,
+    DynInputPath, HmdProperties, InteractionProfile, MainAxisType, ProfileProperties, Property,
     SkeletalInputBindings,
 };
 use crate::button_mask_from_ids;
@@ -43,6 +43,11 @@ impl InteractionProfile for ViveWands {
             tracking_system_name: c"lighthouse",
             manufacturer_name: c"HTC",
             legacy_buttons_mask: button_mask_from_ids!(System, ApplicationMenu, Grip, Axis0, Axis1),
+            hmd: HmdProperties {
+                model: c"Vive. MV",
+                controller_type: c"vive",
+                serial_number: c"LHR-00000000",
+            },
         };
         &DEVICE_PROPERTIES
     }

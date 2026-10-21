@@ -11,6 +11,7 @@ use openxr_sys as xr;
 use openxr_sys::Handle as _;
 use paste::paste;
 use slotmap::{DefaultKey, Key, KeyData, SlotMap};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString, c_char};
 use std::sync::{
@@ -119,6 +120,18 @@ fn get_hand_data(hand: UserPath, session: &Session) -> &HandData {
 pub fn set_interaction_profile(session: xr::Session, hand: UserPath, profile: xr::Path) {
     let s = session.to_handle().unwrap();
     get_hand_data(hand, &s).pending_profile.store(Some(profile));
+}
+
+thread_local! {
+    static DEFAULT_PROFILES: RefCell<[Option<String>; 2]> = const { RefCell::new([None, None]) };
+}
+
+/// Sets the interaction profile that new sessions created on this thread will bind for `hand`
+/// on their first action sync, for testing code that runs before a session handle is available.
+pub fn set_default_interaction_profile(hand: UserPath, profile: Option<&str>) {
+    DEFAULT_PROFILES.with_borrow_mut(|profiles| {
+        profiles[hand as usize] = profile.map(ToOwned::to_owned);
+    });
 }
 
 pub fn set_grip(session: xr::Session, path: UserPath, pose: xr::Posef) {
@@ -482,6 +495,20 @@ struct Instance {
 }
 
 impl Instance {
+    fn get_or_create_path(&self, s: &str) -> xr::Path {
+        let mut string_to_path = self.string_to_path.lock().unwrap();
+        let key = match string_to_path.get(s) {
+            Some(p) => *p,
+            None => {
+                let mut paths = self.paths.lock().unwrap();
+                let key = paths.insert(s.to_string());
+                string_to_path.insert(s.to_string(), key);
+                key
+            }
+        };
+        xr::Path::from_raw(key.data().as_ffi())
+    }
+
     fn get_path_value(&self, path: xr::Path) -> Result<Option<String>, ()> {
         if path == xr::Path::NULL {
             Ok(None)
@@ -568,6 +595,22 @@ impl Session {
                 s.should_render.store(true, Ordering::Relaxed);
             })),
         );
+
+        // Like a real runtime, immediately grant visibility and focus to the only session.
+        for state in [xr::SessionState::VISIBLE, xr::SessionState::FOCUSED] {
+            send_event(
+                &self.event_sender,
+                xr::EventDataSessionStateChanged {
+                    ty: xr::EventDataSessionStateChanged::TYPE,
+                    next: std::ptr::null_mut(),
+                    session,
+                    state,
+                    time: xr::Time::from_nanos(0),
+                },
+                None,
+            );
+        }
+        self.state.store(xr::SessionState::FOCUSED);
     }
 
     fn add_space(&self, space: Arc<Space>) -> xr::Space {
@@ -888,6 +931,18 @@ extern "system" fn create_session(
         with_trackers: false.into(),
     });
 
+    DEFAULT_PROFILES.with_borrow(|profiles| {
+        for (hand, profile) in [&sess.left_hand, &sess.right_hand]
+            .into_iter()
+            .zip(profiles)
+        {
+            if let Some(profile) = profile {
+                hand.pending_profile
+                    .store(Some(instance.get_or_create_path(profile)));
+            }
+        }
+    });
+
     let tx = sess.event_sender.clone();
     unsafe {
         *session = sess.to_xr();
@@ -1171,18 +1226,7 @@ extern "system" fn string_to_path(
 ) -> xr::Result {
     let instance = get_handle!(instance);
     let s = unsafe { CStr::from_ptr(string) }.to_str().unwrap();
-    let mut string_to_path = instance.string_to_path.lock().unwrap();
-    let key = match string_to_path.get(s) {
-        Some(p) => *p,
-        None => {
-            let mut paths = instance.paths.lock().unwrap();
-            let key = paths.insert(s.to_string());
-            string_to_path.insert(s.to_string(), key);
-            key
-        }
-    };
-
-    unsafe { path.write(xr::Path::from_raw(key.data().as_ffi())) };
+    unsafe { path.write(instance.get_or_create_path(s)) };
 
     xr::Result::SUCCESS
 }

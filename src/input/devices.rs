@@ -19,7 +19,10 @@ use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use crate::tracy_span;
 use log::trace;
 
-use super::{Input, InteractionProfile, profiles::MainAxisType};
+use super::{
+    Input, InteractionProfile,
+    profiles::{self, MainAxisType, RunWithProfile},
+};
 
 pub enum TrackedDeviceType {
     Hmd,
@@ -49,7 +52,7 @@ impl std::fmt::Debug for TrackedDeviceType {
 }
 
 pub struct ProfileData {
-    properties: &'static ProfileProperties,
+    pub properties: &'static ProfileProperties,
     get_hand_offset: fn(Hand) -> Mat4,
     /// For Knuckles, the skeleton thumb tries to accurately match where the physical
     /// thumb is, e.g. the curl depends on which part of the touchpad is being touched,
@@ -67,6 +70,34 @@ impl ProfileData {
             get_hand_offset: P::offset_grip_pose,
             force_estimated_thumb: TypeId::of::<P>() == TypeId::of::<Knuckles>(),
         }
+    }
+
+    /// Looks up the profile data for an interaction profile path, e.g.
+    /// "/interaction_profiles/oculus/touch_controller".
+    pub fn for_profile_name(profile_name: &str) -> Option<Self> {
+        struct Data<'a> {
+            profile_name: &'a str,
+            data: Option<ProfileData>,
+        }
+        impl RunWithProfile for Data<'_> {
+            fn run<P: InteractionProfile>(&mut self) {
+                if P::profile_path() == self.profile_name {
+                    self.data = Some(ProfileData::new::<P>())
+                }
+            }
+
+            #[inline]
+            fn keep_running(&self) -> bool {
+                self.data.is_none()
+            }
+        }
+
+        let mut data = Data {
+            profile_name,
+            data: None,
+        };
+        profiles::run_for_all_profiles(&mut data);
+        data.data
     }
 
     #[inline]
@@ -245,13 +276,49 @@ impl TrackedDevice {
         }
     }
 
-    fn get_string_property(&self, property: vr::ETrackedDeviceProperty) -> Option<&CStr> {
+    /// Returns the properties of the interaction profile this device's identity
+    /// should be derived from.
+    fn get_profile_properties(
+        &self,
+        devices: &TrackedDeviceList,
+        last_profile: Option<&'static ProfileProperties>,
+    ) -> Option<&'static ProfileProperties> {
+        match self.device_type {
+            TrackedDeviceType::Hmd => [Hand::Left, Hand::Right]
+                .into_iter()
+                .filter_map(|hand| devices.get_controller(hand))
+                .find_map(|controller| controller.profile_data.as_ref())
+                .map(|data| data.properties)
+                .or(last_profile),
+            _ => self.profile_data.as_ref().map(|data| data.properties),
+        }
+    }
+
+    fn get_string_property(
+        &self,
+        devices: &TrackedDeviceList,
+        last_profile: Option<&'static ProfileProperties>,
+        property: vr::ETrackedDeviceProperty,
+    ) -> Option<&CStr> {
         let hand = match self.device_type {
             TrackedDeviceType::Controller { hand, .. } => hand,
             _ => Hand::Left,
         };
 
-        let data = self.profile_data.as_ref()?.properties;
+        let data = self.get_profile_properties(devices, last_profile)?;
+
+        if let TrackedDeviceType::Hmd = self.device_type {
+            return match property {
+                vr::ETrackedDeviceProperty::ControllerType_String => Some(data.hmd.controller_type),
+                vr::ETrackedDeviceProperty::ModelNumber_String => Some(data.hmd.model),
+                vr::ETrackedDeviceProperty::SerialNumber_String => Some(data.hmd.serial_number),
+                vr::ETrackedDeviceProperty::TrackingSystemName_String => {
+                    Some(data.tracking_system_name)
+                }
+                vr::ETrackedDeviceProperty::ManufacturerName_String => Some(data.manufacturer_name),
+                _ => None,
+            };
+        }
 
         match property {
             // Audica likes to apply controller specific tweaks via this property
@@ -575,7 +642,10 @@ impl<C: openxr_data::Compositor> Input<C> {
         let devices = session_data.input_data.devices.read().unwrap();
         let device = devices.get_device(index)?;
 
-        device.get_string_property(property).map(|s| s.to_owned())
+        let last_profile = *self.last_profile_properties.lock().unwrap();
+        device
+            .get_string_property(&devices, last_profile, property)
+            .map(|s| s.to_owned())
     }
 
     pub fn get_device_int_tracked_property(
@@ -663,5 +733,60 @@ mod tests {
             .get_device_string_tracked_property(2, vr::ETrackedDeviceProperty::SerialNumber_String)
             .unwrap();
         assert_eq!(serial.to_str().unwrap(), "FAKEXR-SERIAL");
+    }
+
+    #[test]
+    fn hmd_properties_follow_controller_profile() {
+        use crate::input::profiles::oculus_touch::OculusTouch;
+        use vr::ETrackedDeviceProperty::*;
+
+        let mut f = Fixture::new();
+        f.load_actions(c"actions.json");
+
+        let get = |f: &Fixture, prop| {
+            f.input
+                .get_device_string_tracked_property(vr::k_unTrackedDeviceIndex_Hmd, prop)
+                .map(|s| s.to_str().unwrap().to_owned())
+        };
+
+        // No controllers connected yet - nothing to derive HMD identity from.
+        assert_eq!(get(&f, TrackingSystemName_String), None);
+
+        let set = f.get_action_set_handle(c"/actions/set1");
+        // profile changes are only applied by the runtime after an action sync
+        let sync = |f: &mut Fixture| {
+            f.sync(vr::VRActiveActionSet_t {
+                ulActionSet: set,
+                ..Default::default()
+            })
+        };
+
+        f.set_interaction_profile::<OculusTouch>(fakexr::UserPath::RightHand);
+        sync(&mut f);
+
+        assert_eq!(
+            get(&f, TrackingSystemName_String).as_deref(),
+            Some("oculus")
+        );
+        assert_eq!(get(&f, ManufacturerName_String).as_deref(), Some("Oculus"));
+        assert_eq!(
+            get(&f, ModelNumber_String).as_deref(),
+            Some("Oculus Quest2")
+        );
+        assert_eq!(get(&f, ControllerType_String).as_deref(), Some("rift"));
+        assert_eq!(
+            get(&f, SerialNumber_String).as_deref(),
+            Some("WMHD315M3010GV")
+        );
+
+        f.set_interaction_profile::<Knuckles>(fakexr::UserPath::RightHand);
+        sync(&mut f);
+
+        assert_eq!(
+            get(&f, TrackingSystemName_String).as_deref(),
+            Some("lighthouse")
+        );
+        assert_eq!(get(&f, ModelNumber_String).as_deref(), Some("Index"));
+        assert_eq!(get(&f, ControllerType_String).as_deref(), Some("indexhmd"));
     }
 }
