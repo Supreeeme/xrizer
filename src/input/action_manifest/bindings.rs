@@ -113,7 +113,15 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
     let pose = match pose {
         "raw" => BoundPoseType::Raw,
         "tip" => BoundPoseType::Tip,
+        "base" => BoundPoseType::Base,
         "gdc2015" => BoundPoseType::Gdc2015,
+        "handgrip" => BoundPoseType::Handgrip,
+        "grip" => BoundPoseType::Grip,
+        "openxr_handmodel" => BoundPoseType::OpenxrHandmodel,
+        "openxr_pinch" => BoundPoseType::OpenxrPinch,
+        "openxr_poke" => BoundPoseType::OpenxrPoke,
+        "openxr_aim" => BoundPoseType::OpenxrAim,
+        "openxr_grip" => BoundPoseType::OpenxrGrip,
         other => {
             warn!("Unknown pose type: {other:?}");
             BoundPoseType::Raw
