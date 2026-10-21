@@ -1,6 +1,7 @@
 use std::any::TypeId;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
+use std::mem::MaybeUninit;
 use std::sync::Mutex;
 
 use glam::Mat4;
@@ -21,12 +22,18 @@ use log::trace;
 
 use super::{Input, InteractionProfile, profiles::MainAxisType};
 
+#[derive(Clone)]
+pub struct HandSkeleton {
+    pub joints: xr::HandJointLocations,
+    pub data_source: xr::HandTrackingDataSourceEXT,
+}
+
 pub enum TrackedDeviceType {
     Hmd,
     Controller {
         hand: Hand,
         hand_tracker: Option<xr::HandTracker>,
-        skeleton_cache: Mutex<HashMap<u64, Option<xr::HandJointLocations>>>,
+        skeleton_cache: Mutex<HashMap<u64, Option<HandSkeleton>>>,
     },
     #[cfg(feature = "monado")]
     GenericTracker {
@@ -58,6 +65,10 @@ pub struct ProfileData {
     /// or thumbstick is being touched, so just use the skeletal input actions to
     /// determine the curl value for the thumb.
     pub force_estimated_thumb: bool,
+    /// There is no equivalent to OpenVR's separate Estimated and Partial tracking levels
+    /// in OpenXR, we only want to consume the skeletal data from a CONTROLLER source
+    /// for devices that actually have some sort of finger-sensing.
+    pub force_synthesise_skeleton: bool,
 }
 
 impl ProfileData {
@@ -66,6 +77,7 @@ impl ProfileData {
             properties: P::properties(),
             get_hand_offset: P::offset_grip_pose,
             force_estimated_thumb: TypeId::of::<P>() == TypeId::of::<Knuckles>(),
+            force_synthesise_skeleton: TypeId::of::<P>() != TypeId::of::<Knuckles>(), /* && TypeId::of::<P>() != TypeId::of::<FrameController>() */
         }
     }
 
@@ -129,6 +141,50 @@ fn get_controller_pose(
     };
 
     Some(vr::space_relation_to_openvr_pose(location, velocity))
+}
+
+// We must use the unsafe API if we want the data source, as openxrs does not provide
+// a safe API similar to `xr::space::Space::locate_hand_joints` that returns the data source state.
+fn get_joints_with_data_source(
+    base: &xr::Space,
+    tracker: &xr::HandTracker,
+    time: xr::Time,
+) -> xr::Result<Option<HandSkeleton>> {
+    let Some(ext) = base.instance().exts().ext_hand_tracking.as_ref() else {
+        return Err(xr::sys::Result::ERROR_EXTENSION_NOT_PRESENT);
+    };
+
+    let locate_info = xr::sys::HandJointsLocateInfoEXT {
+        ty: xr::sys::HandJointsLocateInfoEXT::TYPE,
+        next: std::ptr::null(),
+        base_space: base.as_raw(),
+        time,
+    };
+    let mut source_state = xr::sys::HandTrackingDataSourceStateEXT {
+        ty: xr::sys::HandTrackingDataSourceStateEXT::TYPE,
+        next: std::ptr::null_mut(),
+        ..unsafe { std::mem::zeroed() }
+    };
+    let mut locations = MaybeUninit::<[xr::HandJointLocation; xr::HAND_JOINT_COUNT]>::uninit();
+    let mut location_info = xr::sys::HandJointLocationsEXT {
+        ty: xr::sys::HandJointLocationsEXT::TYPE,
+        next: &mut source_state as *mut _ as _,
+        joint_count: xr::HAND_JOINT_COUNT as u32,
+        joint_locations: locations.as_mut_ptr() as _,
+        ..unsafe { std::mem::zeroed() }
+    };
+    let r = unsafe { (ext.locate_hand_joints)(tracker.as_raw(), &locate_info, &mut location_info) };
+    if r.into_raw() < 0 {
+        return Err(r);
+    }
+    Ok(if location_info.is_active.into() {
+        Some(HandSkeleton {
+            joints: unsafe { locations.assume_init() },
+            data_source: source_state.data_source,
+        })
+    } else {
+        None
+    })
 }
 
 #[cfg(feature = "monado")]
@@ -197,7 +253,7 @@ impl TrackedDevice {
         &self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
         base: &xr::Space,
-    ) -> Option<xr::HandJointLocations> {
+    ) -> Option<HandSkeleton> {
         let TrackedDeviceType::Controller {
             hand_tracker,
             skeleton_cache,
@@ -208,14 +264,24 @@ impl TrackedDevice {
         };
         let mut skeleton_cache = skeleton_cache.lock().unwrap();
         if let Some(skeleton) = skeleton_cache.get(&base.as_raw().into_raw()) {
-            return *skeleton;
+            return skeleton.clone();
         }
 
-        let joints = base
-            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.display_time.get())
-            .unwrap_or_default();
-        skeleton_cache.insert(base.as_raw().into_raw(), joints);
-        joints
+        let display_time = xr_data.display_time.get();
+        let r = if xr_data.enabled_extensions.ext_hand_tracking_data_source {
+            get_joints_with_data_source(base, hand_tracker.as_ref()?, display_time)
+                .unwrap_or_default()
+        } else {
+            base.locate_hand_joints(hand_tracker.as_ref()?, display_time)
+                .unwrap_or_default()
+                .map(|joints| HandSkeleton {
+                    joints,
+                    data_source: xr::HandTrackingDataSourceEXT::UNOBSTRUCTED,
+                })
+        };
+
+        skeleton_cache.insert(base.as_raw().into_raw(), r.clone());
+        r
     }
 
     pub fn clear_pose_cache(&self) {
@@ -605,8 +671,92 @@ impl<C: openxr_data::Compositor> Input<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::input::{profiles::knuckles::Knuckles, tests::Fixture};
-    use openvr as vr;
+    use std::mem::MaybeUninit;
+
+    use crate::{
+        input::{
+            TrackedDeviceType, profiles::knuckles::Knuckles, skeletal::HandSkeletonBone,
+            tests::Fixture,
+        },
+        openxr_data::Hand,
+    };
+    use openvr::{self as vr, IVRInput011_Interface};
+    use openxr as xr;
+
+    #[test]
+    fn skeletal_tracking_level() {
+        let mut f = Fixture::new();
+        let skel_handle_l = f.get_action_handle(c"/actions/set1/in/skellyl");
+        let skel_handle_r = f.get_action_handle(c"/actions/set1/in/skellyr");
+        f.load_actions(c"actions.json");
+        f.set_interaction_profile::<Knuckles>(fakexr::UserPath::LeftHand);
+        f.set_interaction_profile::<Knuckles>(fakexr::UserPath::RightHand);
+
+        let frame = || {
+            f.input.openxr.poll_events();
+            f.input.frame_start_update();
+        };
+
+        frame();
+        frame();
+        let data = f.input.openxr.session_data.get();
+        let devices = data.input_data.devices.read().unwrap();
+        let left_controller = devices.get_controller(Hand::Left).unwrap();
+        let right_controller = devices.get_controller(Hand::Right).unwrap();
+        assert!(left_controller.connected && right_controller.connected);
+
+        let left_hand_tracker = match left_controller.get_type() {
+            TrackedDeviceType::Controller { hand_tracker, .. } => hand_tracker.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+        let right_hand_tracker = match right_controller.get_type() {
+            TrackedDeviceType::Controller { hand_tracker, .. } => hand_tracker.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+
+        let probe_tracking_level = |action, source| {
+            let mut _transforms: [vr::VRBoneTransform_t; HandSkeletonBone::Count as usize] =
+                Default::default();
+            let mut level = MaybeUninit::<vr::EVRSkeletalTrackingLevel>::uninit();
+
+            assert_eq!(
+                f.input.GetSkeletalBoneData(
+                    action,
+                    vr::EVRSkeletalTransformSpace::Parent,
+                    vr::EVRSkeletalMotionRange::WithoutController,
+                    _transforms.as_mut_ptr(),
+                    _transforms.len() as u32,
+                ),
+                vr::EVRInputError::None
+            );
+            assert_eq!(
+                f.input.GetSkeletalTrackingLevel(action, level.as_mut_ptr()),
+                vr::EVRInputError::None
+            );
+            assert_eq!(
+                unsafe { level.assume_init() },
+                match source {
+                    xr::HandTrackingDataSourceEXT::CONTROLLER =>
+                        vr::EVRSkeletalTrackingLevel::Partial,
+                    xr::HandTrackingDataSourceEXT::UNOBSTRUCTED =>
+                        vr::EVRSkeletalTrackingLevel::Full,
+                    _ => unreachable!(),
+                }
+            );
+        };
+
+        fakexr::set_hand_tracker_data_source(
+            left_hand_tracker.as_raw(),
+            xr::HandTrackingDataSourceEXT::CONTROLLER,
+        );
+        fakexr::set_hand_tracker_data_source(
+            right_hand_tracker.as_raw(),
+            xr::HandTrackingDataSourceEXT::UNOBSTRUCTED,
+        );
+        frame();
+        probe_tracking_level(skel_handle_l, xr::HandTrackingDataSourceEXT::CONTROLLER);
+        probe_tracking_level(skel_handle_r, xr::HandTrackingDataSourceEXT::UNOBSTRUCTED);
+    }
 
     #[test]
     #[cfg_attr(not(feature = "monado"), ignore)]
