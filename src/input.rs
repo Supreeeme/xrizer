@@ -1,6 +1,7 @@
 mod action_manifest;
 mod custom_bindings;
 mod devices;
+mod hand_tracking;
 mod legacy;
 mod profiles;
 mod skeletal;
@@ -57,7 +58,6 @@ pub struct Input<C: openxr_data::Compositor> {
     set_map: RwLock<SlotMap<ActionSetKey, String>>,
     loaded_actions_path: OnceLock<PathBuf>,
     legacy_state: legacy::LegacyState,
-    skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
     estimated_finger_state: [Mutex<FingerState>; 2],
     subaction_paths: SubactionPaths,
     events: Mutex<VecDeque<InputEvent>>,
@@ -127,7 +127,6 @@ impl<C: openxr_data::Compositor> Input<C> {
             left_hand_key,
             right_hand_key,
             legacy_state: Default::default(),
-            skeletal_tracking_level: RwLock::new(vr::EVRSkeletalTrackingLevel::Estimated),
             estimated_finger_state: [
                 Mutex::new(FingerState::new()),
                 Mutex::new(FingerState::new()),
@@ -550,7 +549,7 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         &self,
         handle: vr::VRActionHandle_t,
         transform_space: vr::EVRSkeletalTransformSpace,
-        _motion_range: vr::EVRSkeletalMotionRange,
+        motion_range: vr::EVRSkeletalMotionRange,
         transform_array: *mut vr::VRBoneTransform_t,
         transform_array_count: u32,
     ) -> vr::EVRInputError {
@@ -566,7 +565,13 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             return vr::EVRInputError::WrongType;
         };
 
-        self.get_bones_from_hand_tracking(&session_data, transform_space, *hand, transforms);
+        self.get_bones_from_hand_tracking(
+            &session_data,
+            transform_space,
+            motion_range,
+            *hand,
+            transforms,
+        );
         vr::EVRInputError::None
     }
     fn GetSkeletalTrackingLevel(
@@ -579,24 +584,31 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             return vr::EVRInputError::WrongType;
         };
 
-        let Some(index) = self.get_controller_device_index(*hand) else {
+        let Some(level) = (unsafe { level.as_mut() }) else {
+            return vr::EVRInputError::InvalidParam;
+        };
+        let devices = data.input_data.devices.read().unwrap();
+        let Some(controller) = devices.get_controller(*hand) else {
             return vr::EVRInputError::InvalidDevice;
         };
-
-        let controller_type = self.get_device_string_tracked_property(
-            index,
-            vr::ETrackedDeviceProperty::ControllerType_String,
-        );
-
-        unsafe {
-            // Make sure knuckles are always Partial
-            // TODO: Remove in favor of using XR_EXT_hand_tracking_data_source
-            if controller_type.as_deref() == Some(c"knuckles") {
-                *level = vr::EVRSkeletalTrackingLevel::Partial;
-            } else {
-                *level = *self.skeletal_tracking_level.read().unwrap();
-            }
-        }
+        let pose_data = data.input_data.pose_data.get().unwrap();
+        let spaces = match hand {
+            Hand::Left => &pose_data.left_space,
+            Hand::Right => &pose_data.right_space,
+        };
+        *level = spaces
+            .try_get_or_init_raw(&controller.profile_data, &data, pose_data)
+            .and_then(|raw| {
+                controller.get_hand_skeleton(
+                    &self.openxr,
+                    &data,
+                    &raw,
+                    vr::EVRSkeletalMotionRange::WithoutController,
+                )
+            })
+            .map_or(vr::EVRSkeletalTrackingLevel::Estimated, |s| {
+                s.tracking_level()
+            });
         vr::EVRInputError::None
     }
     fn GetSkeletalReferenceTransforms(
@@ -1408,9 +1420,7 @@ impl<C: openxr_data::Compositor> Input<C> {
                 if let Some(controller) = controller.as_mut() {
                     controller.profile_data = Some(data);
                 } else {
-                    let hand_tracker = session_data
-                        .session
-                        .create_hand_tracker(hand.into())
+                    let hand_tracker = hand_tracking::create_tracker(session_data, hand.into())
                         .inspect_err(|e| {
                             if !matches!(
                                 *e,

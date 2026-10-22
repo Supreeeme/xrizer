@@ -18,6 +18,7 @@ impl<C: openxr_data::Compositor> Input<C> {
         &self,
         session_data: &SessionData,
         space: vr::EVRSkeletalTransformSpace,
+        motion_range: vr::EVRSkeletalMotionRange,
         hand: Hand,
         transforms: &mut [vr::VRBoneTransform_t],
     ) {
@@ -40,12 +41,15 @@ impl<C: openxr_data::Compositor> Input<C> {
             return;
         };
 
-        let Some(joints) = controller.get_hand_skeleton(&self.openxr, &raw) else {
+        let Some(skeleton) =
+            controller.get_hand_skeleton(&self.openxr, session_data, &raw, motion_range)
+        else {
             self.get_estimated_bones(session_data, space, hand, transforms);
             return;
         };
 
-        let mut joints: Box<[_]> = joints
+        let mut joints: Box<[_]> = skeleton
+            .joints
             .into_iter()
             .map(|joint_location| {
                 let position = joint_location.pose.position;
@@ -158,8 +162,6 @@ impl<C: openxr_data::Compositor> Input<C> {
                 transform.orientation = rot.into();
             }
         }
-
-        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Full;
     }
 
     pub(super) fn get_bone_summary_from_hand_tracking(
@@ -186,12 +188,19 @@ impl<C: openxr_data::Compositor> Input<C> {
             return;
         };
 
-        let Some(joints) = controller.get_hand_skeleton(&self.openxr, &raw) else {
+        let motion_range = match summary_type {
+            vr::EVRSummaryType::FromAnimation => vr::EVRSkeletalMotionRange::WithoutController,
+            vr::EVRSummaryType::FromDevice => vr::EVRSkeletalMotionRange::WithController,
+        };
+        let Some(skeleton) =
+            controller.get_hand_skeleton(&self.openxr, session_data, &raw, motion_range)
+        else {
             self.get_estimated_bone_summary(session_data, summary_type, summary_data, hand);
             return;
         };
 
-        let joints: Box<[_]> = joints
+        let joints: Box<[_]> = skeleton
+            .joints
             .into_iter()
             .map(|joint_location| {
                 let position = joint_location.pose.position;
@@ -208,6 +217,8 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         for (i, out_curl) in summary_data.flFingerCurl.iter_mut().enumerate() {
             if i == 0
+                && summary_type == vr::EVRSummaryType::FromDevice
+                && skeleton.motion_range() == vr::EVRSkeletalMotionRange::WithController
                 && controller
                     .profile_data
                     .as_ref()
@@ -322,7 +333,6 @@ impl<C: openxr_data::Compositor> Input<C> {
         });
 
         finalize_transforms(bone_it, space, transforms);
-        *self.skeletal_tracking_level.write().unwrap() = vr::EVRSkeletalTrackingLevel::Estimated;
     }
 
     pub(super) fn get_estimated_bone_summary(

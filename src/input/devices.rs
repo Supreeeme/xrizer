@@ -19,14 +19,18 @@ use crate::openxr_data::{self, Hand, OpenXrData, SessionData};
 use crate::tracy_span;
 use log::trace;
 
-use super::{Input, InteractionProfile, profiles::MainAxisType};
+use super::{
+    Input, InteractionProfile,
+    hand_tracking::{self, HandSkeleton},
+    profiles::MainAxisType,
+};
 
 pub enum TrackedDeviceType {
     Hmd,
     Controller {
         hand: Hand,
         hand_tracker: Option<xr::HandTracker>,
-        skeleton_cache: Mutex<HashMap<u64, Option<xr::HandJointLocations>>>,
+        skeleton_cache: Mutex<HashMap<(u64, bool), Option<HandSkeleton>>>,
     },
     #[cfg(feature = "monado")]
     GenericTracker {
@@ -196,8 +200,10 @@ impl TrackedDevice {
     pub fn get_hand_skeleton(
         &self,
         xr_data: &OpenXrData<impl crate::openxr_data::Compositor>,
+        session_data: &SessionData,
         base: &xr::Space,
-    ) -> Option<xr::HandJointLocations> {
+        motion_range: vr::EVRSkeletalMotionRange,
+    ) -> Option<HandSkeleton> {
         let TrackedDeviceType::Controller {
             hand_tracker,
             skeleton_cache,
@@ -207,14 +213,44 @@ impl TrackedDevice {
             return None;
         };
         let mut skeleton_cache = skeleton_cache.lock().unwrap();
-        if let Some(skeleton) = skeleton_cache.get(&base.as_raw().into_raw()) {
+        let key = (
+            base.as_raw().into_raw(),
+            motion_range == vr::EVRSkeletalMotionRange::WithController,
+        );
+        if let Some(skeleton) = skeleton_cache.get(&key) {
             return *skeleton;
         }
 
-        let joints = base
-            .locate_hand_joints(hand_tracker.as_ref()?, xr_data.display_time.get())
-            .unwrap_or_default();
-        skeleton_cache.insert(base.as_raw().into_raw(), joints);
+        let joints = hand_tracking::locate_skeleton(
+            &xr_data.instance,
+            hand_tracker.as_ref()?,
+            base,
+            xr_data.display_time.get(),
+            motion_range,
+        )
+        .unwrap_or_default()
+        .map(|mut skeleton| {
+            if skeleton.data_source.is_none() {
+                let pose_data = session_data.input_data.pose_data.get().unwrap();
+                let path = match self.get_controller_hand().unwrap() {
+                    Hand::Left => pose_data.left_space.hand_path,
+                    Hand::Right => pose_data.right_space.hand_path,
+                };
+                let controller_active = self.connected
+                    && pose_data
+                        .grip
+                        .is_active(&session_data.session, path)
+                        .unwrap_or(true);
+                // no data_source ext: decide based on controller activity
+                skeleton.data_source = Some(if controller_active {
+                    xr::HandTrackingDataSourceEXT::CONTROLLER
+                } else {
+                    xr::HandTrackingDataSourceEXT::UNOBSTRUCTED
+                });
+            }
+            skeleton
+        });
+        skeleton_cache.insert(key, joints);
         joints
     }
 

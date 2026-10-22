@@ -1085,3 +1085,120 @@ fn load_actions_race() {
     let res = f.get_bool_state(boolact);
     assert!(res.is_ok(), "{res:?}");
 }
+
+#[test]
+fn skeletal_tracking_levels_follow_each_hands_current_source() {
+    let mut f = Fixture::new();
+    f.load_actions(c"actions.json");
+    let left = f.get_action_handle(c"/actions/set1/in/skellyl");
+    let right = f.get_action_handle(c"/actions/set1/in/skellyr");
+    f.set_interaction_profile::<Knuckles>(LeftHand);
+    f.set_interaction_profile::<OculusTouch>(RightHand);
+    for _ in 0..2 {
+        f.input.openxr.poll_events();
+        f.input.frame_start_update();
+    }
+    let level = |action| {
+        let mut level = vr::EVRSkeletalTrackingLevel::Estimated;
+        assert_eq!(
+            f.input.GetSkeletalTrackingLevel(action, &mut level),
+            vr::EVRInputError::None
+        );
+        level
+    };
+    fakexr::set_hand_tracking(
+        f.raw_session(),
+        LeftHand,
+        Some(xr::HandTrackingDataSourceEXT::UNOBSTRUCTED),
+    );
+    fakexr::set_hand_tracking(
+        f.raw_session(),
+        RightHand,
+        Some(xr::HandTrackingDataSourceEXT::CONTROLLER),
+    );
+    assert_eq!(level(left), vr::EVRSkeletalTrackingLevel::Full);
+    assert_eq!(level(right), vr::EVRSkeletalTrackingLevel::Partial);
+    assert_eq!(level(left), vr::EVRSkeletalTrackingLevel::Full);
+    assert_eq!(
+        f.input.GetSkeletalTrackingLevel(left, std::ptr::null_mut()),
+        vr::EVRInputError::InvalidParam
+    );
+
+    fakexr::set_hand_tracking(
+        f.raw_session(),
+        LeftHand,
+        Some(xr::HandTrackingDataSourceEXT::CONTROLLER),
+    );
+    fakexr::set_hand_tracking(f.raw_session(), RightHand, None);
+    f.input.frame_start_update();
+    assert_eq!(level(left), vr::EVRSkeletalTrackingLevel::Partial);
+    assert_eq!(level(right), vr::EVRSkeletalTrackingLevel::Estimated);
+}
+
+#[test]
+fn skeletal_tracking_handles_optional_extensions() {
+    for (data_source, motion_range) in [(false, false), (false, true), (true, false)] {
+        let mut f = fakexr::with_hand_tracking_extensions(data_source, motion_range, Fixture::new);
+        f.load_actions(c"actions.json");
+        let action = f.get_action_handle(c"/actions/set1/in/skellyl");
+        let right = f.get_action_handle(c"/actions/set1/in/skellyr");
+        let active_set = vr::VRActiveActionSet_t {
+            ulActionSet: f.get_action_set_handle(c"/actions/set1"),
+            ..Default::default()
+        };
+        f.set_interaction_profile::<OculusTouch>(LeftHand);
+        f.set_interaction_profile::<OculusTouch>(RightHand);
+        for _ in 0..2 {
+            f.input.openxr.poll_events();
+            f.input.frame_start_update();
+        }
+        f.sync(active_set);
+        for hand in [LeftHand, RightHand] {
+            fakexr::set_hand_tracking(
+                f.raw_session(),
+                hand,
+                Some(xr::HandTrackingDataSourceEXT::UNOBSTRUCTED),
+            );
+        }
+        let read_level = |f: &Fixture, action| {
+            let mut level = vr::EVRSkeletalTrackingLevel::Estimated;
+            assert_eq!(
+                f.input.GetSkeletalTrackingLevel(action, &mut level),
+                vr::EVRInputError::None
+            );
+            level
+        };
+        let active_level = if data_source {
+            vr::EVRSkeletalTrackingLevel::Full
+        } else {
+            vr::EVRSkeletalTrackingLevel::Partial
+        };
+        assert_eq!(read_level(&f, action), active_level);
+        assert_eq!(read_level(&f, right), active_level);
+
+        fakexr::set_controller_active(f.raw_session(), LeftHand, false);
+        f.sync(active_set);
+        f.input.frame_start_update();
+        assert_eq!(read_level(&f, action), vr::EVRSkeletalTrackingLevel::Full);
+        assert_eq!(read_level(&f, right), active_level);
+
+        if data_source {
+            fakexr::set_hand_tracking(
+                f.raw_session(),
+                LeftHand,
+                Some(xr::HandTrackingDataSourceEXT::CONTROLLER),
+            );
+            f.input.frame_start_update();
+            assert_eq!(
+                read_level(&f, action),
+                vr::EVRSkeletalTrackingLevel::Partial
+            );
+        }
+        fakexr::set_hand_tracking(f.raw_session(), LeftHand, None);
+        f.input.frame_start_update();
+        assert_eq!(
+            read_level(&f, action),
+            vr::EVRSkeletalTrackingLevel::Estimated
+        );
+    }
+}

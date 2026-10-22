@@ -1,5 +1,11 @@
 pub mod vulkan;
 
+mod hand_tracking;
+use hand_tracking::{
+    create_hand_tracker_e_x_t, destroy_hand_tracker_e_x_t, locate_hand_joints_e_x_t,
+};
+pub use hand_tracking::{set_controller_active, set_hand_tracking, with_hand_tracking_extensions};
+
 mod monado_xdev;
 pub use monado_xdev::add_trackers;
 
@@ -270,6 +276,9 @@ pub unsafe extern "system" fn get_instance_proc_addr(
         unsafe {
             {
                 *function = get_fn![[
+                    CreateHandTrackerEXT,
+                    DestroyHandTrackerEXT,
+                    LocateHandJointsEXT,
                     GetInstanceProcAddr,
                     CreateInstance,
                     DestroyInstance,
@@ -319,7 +328,7 @@ pub unsafe extern "system" fn get_instance_proc_addr(
                     GetActionStateBoolean,
                     GetActionStateFloat,
                     GetActionStateVector2f,
-                    (GetActionStatePose),
+                    GetActionStatePose,
                     CreateActionSet,
                     DestroyActionSet,
                     CreateAction,
@@ -357,54 +366,38 @@ extern "system" fn enumerate_instance_extension_properties(
     properties: *mut xr::ExtensionProperties,
 ) -> xr::Result {
     assert!(layer_name.is_null());
-    unsafe { *property_count_output = 4 };
-    if property_capacity_input >= 4 {
-        let props =
-            unsafe { std::slice::from_raw_parts_mut(properties, property_capacity_input as usize) };
-
-        props[0] = xr::ExtensionProperties {
+    let mut names = vec![
+        xr::KHR_VULKAN_ENABLE_EXTENSION_NAME,
+        openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME.as_bytes(),
+        xr::HTC_VIVE_FOCUS3_CONTROLLER_INTERACTION_EXTENSION_NAME,
+        xr::META_TOUCH_CONTROLLER_PLUS_EXTENSION_NAME,
+        xr::EXT_HAND_TRACKING_EXTENSION_NAME,
+    ];
+    let (data_source, motion_range) = hand_tracking::enabled_extensions();
+    if data_source {
+        names.push(xr::EXT_HAND_TRACKING_DATA_SOURCE_EXTENSION_NAME);
+    }
+    if motion_range {
+        names.push(xr::EXT_HAND_JOINTS_MOTION_RANGE_EXTENSION_NAME);
+    }
+    unsafe { *property_count_output = names.len() as u32 };
+    if property_capacity_input == 0 {
+        return xr::Result::SUCCESS;
+    }
+    if property_capacity_input < names.len() as u32 {
+        return xr::Result::ERROR_SIZE_INSUFFICIENT;
+    }
+    let props = unsafe { std::slice::from_raw_parts_mut(properties, names.len()) };
+    for (prop, name) in props.iter_mut().zip(names) {
+        *prop = xr::ExtensionProperties {
             ty: xr::ExtensionProperties::TYPE,
             next: std::ptr::null_mut(),
             extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
             extension_version: 1,
         };
-        let name = xr::KHR_VULKAN_ENABLE_EXTENSION_NAME;
         let name =
             unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
-        props[0].extension_name[..name.len()].copy_from_slice(name);
-
-        props[1] = xr::ExtensionProperties {
-            ty: xr::ExtensionProperties::TYPE,
-            next: std::ptr::null_mut(),
-            extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
-            extension_version: 1,
-        };
-        let name = openxr_mndx_xdev_space::XR_MNDX_XDEV_SPACE_EXTENSION_NAME;
-        let name =
-            unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
-        props[1].extension_name[..name.len()].copy_from_slice(name);
-
-        props[2] = xr::ExtensionProperties {
-            ty: xr::ExtensionProperties::TYPE,
-            next: std::ptr::null_mut(),
-            extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
-            extension_version: 1,
-        };
-        let name = xr::HTC_VIVE_FOCUS3_CONTROLLER_INTERACTION_EXTENSION_NAME;
-        let name =
-            unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
-        props[2].extension_name[..name.len()].copy_from_slice(name);
-
-        props[3] = xr::ExtensionProperties {
-            ty: xr::ExtensionProperties::TYPE,
-            next: std::ptr::null_mut(),
-            extension_name: [0 as c_char; xr::MAX_EXTENSION_NAME_SIZE],
-            extension_version: 1,
-        };
-        let name = xr::META_TOUCH_CONTROLLER_PLUS_EXTENSION_NAME;
-        let name =
-            unsafe { std::slice::from_raw_parts(name.as_ptr() as *const c_char, name.len()) };
-        props[3].extension_name[..name.len()].copy_from_slice(name);
+        prop.extension_name[..name.len()].copy_from_slice(name);
     }
     xr::Result::SUCCESS
 }
@@ -509,6 +502,8 @@ struct HandData {
     profile: AtomicCell<xr::Path>,
     grip_pose: AtomicCell<xr::Posef>,
     aim_pose: AtomicCell<xr::Posef>,
+    hand_tracking_source: AtomicCell<Option<xr::HandTrackingDataSourceEXT>>,
+    controller_active: AtomicCell<bool>,
 }
 
 impl Default for HandData {
@@ -518,6 +513,8 @@ impl Default for HandData {
             profile: Default::default(),
             grip_pose: xr::Posef::IDENTITY.into(),
             aim_pose: xr::Posef::IDENTITY.into(),
+            hand_tracking_source: Default::default(),
+            controller_active: true.into(),
         }
     }
 }
@@ -1386,6 +1383,36 @@ extern "system" fn sync_actions(
         }
     }
 
+    xr::Result::SUCCESS
+}
+
+extern "system" fn get_action_state_pose(
+    session: xr::Session,
+    info: *const xr::ActionStateGetInfo,
+    state: *mut xr::ActionStatePose,
+) -> xr::Result {
+    let session = get_handle!(session);
+    let Some((set, action)) = session.get_action_if_attached(info) else {
+        return xr::Result::ERROR_ACTIONSET_NOT_ATTACHED;
+    };
+    let info = unsafe { &*info };
+    let instance = session.instance.upgrade().unwrap();
+    let active_for_hand = |hand| {
+        let data = get_hand_data(hand, &session);
+        let profile = data.profile.load();
+        profile != xr::Path::NULL
+            && data.controller_active.load()
+            && action.suggested.lock().unwrap().contains_key(&profile)
+    };
+    let active = match instance.get_user_path(info.subaction_path) {
+        Ok(Some(hand)) => active_for_hand(hand),
+        Ok(None) => active_for_hand(UserPath::LeftHand) || active_for_hand(UserPath::RightHand),
+        Err(_) => return xr::Result::ERROR_PATH_INVALID,
+    };
+    if !matches!(action.state.left.load().state, ActionState::Pose(_)) {
+        return xr::Result::ERROR_ACTION_TYPE_MISMATCH;
+    }
+    unsafe { (*state).is_active = (set.active.load(Ordering::Relaxed) && active).into() };
     xr::Result::SUCCESS
 }
 
