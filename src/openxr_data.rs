@@ -139,6 +139,8 @@ impl<C: Compositor> OpenXrData<C> {
             supported_exts.htc_vive_focus3_controller_interaction;
         exts.meta_touch_controller_plus = supported_exts.meta_touch_controller_plus;
         exts.fb_display_refresh_rate = supported_exts.fb_display_refresh_rate;
+        exts.ext_view_configuration_views_change =
+            supported_exts.ext_view_configuration_views_change;
 
         // Extension that enables simple full body tracking support via generic tracked devices.
         // Available only in the Monado OpenXR runtime.
