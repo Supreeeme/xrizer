@@ -93,7 +93,14 @@ impl From<xr::Posef> for HmdMatrix34_t {
             pose.orientation.x,
             pose.orientation.y,
             pose.orientation.z,
-            pose.orientation.w,
+            // Valve sample code doesn't hande correctly matrix->quaternion conversion when w is
+            // close to 0:
+            // https://github.com/ValveSoftware/openvr/blob/0924064316de3effbcd1acf1e309182a2deb1c05/samples/unity_teleport_sample/Assets/SteamVR/Scripts/SteamVR_Utils.cs#L142
+            if pose.orientation.w.abs() > 1e-4 {
+                pose.orientation.w
+            } else {
+                1e-4
+            },
         ))
         .transpose();
 
