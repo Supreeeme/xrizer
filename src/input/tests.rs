@@ -1200,3 +1200,58 @@ fn analog_any_query_reports_origin_hand() {
     );
     assert_eq!(s.activeOrigin, left);
 }
+
+/// A "scroll" mode binding turns the stick into a scroll wheel: apps (e.g. Blade &
+/// Sorcery menus) read the scroll amount from deltaX/deltaY every frame, so holding
+/// the stick has to keep scrolling instead of reporting a delta of 0.
+#[test]
+fn scroll_binding_reports_scroll_amount_per_frame() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let scroll = f.get_action_handle(c"/actions/set1/in/scrollact");
+    let vec2 = f.get_action_handle(c"/actions/set1/in/vec2act");
+    let left = f.get_input_source_handle(c"/user/hand/left");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<Knuckles>(LeftHand);
+    f.set_interaction_profile::<Knuckles>(RightHand);
+    let scroll_act = f.get_action::<xr::Vector2f>(scroll);
+    let vec2_act = f.get_action::<xr::Vector2f>(vec2);
+
+    let get = |f: &Fixture, handle| {
+        let mut s = vr::InputAnalogActionData_t::default();
+        assert_eq!(
+            f.input.GetAnalogActionData(
+                handle,
+                &mut s,
+                std::mem::size_of::<vr::InputAnalogActionData_t>() as u32,
+                left,
+            ),
+            vr::EVRInputError::None
+        );
+        s
+    };
+    let frame = |f: &mut Fixture, y: f32| {
+        fakexr::set_action_state(scroll_act, fakexr::ActionState::Vector2(0.0, y), LeftHand);
+        fakexr::set_action_state(vec2_act, fakexr::ActionState::Vector2(0.0, y), LeftHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+        (get(f, scroll), get(f, vec2))
+    };
+
+    frame(&mut f, 0.0);
+    for _ in 0..3 {
+        let (s, j) = frame(&mut f, 0.5);
+        assert!(s.bActive);
+        assert_eq!(s.y, 0.5);
+        assert_eq!(s.deltaY, 0.5, "held stick must keep scrolling");
+        // A normal joystick binding still reports the change since the last frame.
+        assert_eq!(j.y, 0.5);
+    }
+    let (_, j) = frame(&mut f, 0.5);
+    assert_eq!(j.deltaY, 0.0, "joystick delta while held");
+
+    let (s, _) = frame(&mut f, 0.0);
+    assert_eq!(s.deltaY, 0.0, "released stick stops scrolling");
+}

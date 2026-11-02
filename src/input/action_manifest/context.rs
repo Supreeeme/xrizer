@@ -5,7 +5,9 @@ use crate::input::custom_bindings::{
 };
 use crate::input::profiles::{DynInputPath, paths};
 use crate::input::skeletal::SkeletalInputActionData;
-use crate::input::{ActionData, BoundPose, ExtraActionData, Input, InteractionProfile};
+use crate::input::{
+    ActionData, BoundPose, ExtraActionData, Input, InteractionProfile, ScrollSettings,
+};
 use crate::openxr_data::{self, Hand};
 use log::{info, trace, warn};
 use openxr as xr;
@@ -156,6 +158,14 @@ fn hand_to_path(hand: Hand) -> &'static str {
 }
 
 impl BindingsProfileLoadContext<'_> {
+    /// Marks `action` as bound in "scroll" mode (see [`ScrollSettings`]).
+    pub fn set_scroll(&mut self, action: &str, settings: ScrollSettings) {
+        self.extra_actions
+            .entry(action.to_string())
+            .or_default()
+            .scroll = Some(settings);
+    }
+
     pub fn get_action_set(&self, p0: &String) -> Option<&xr::ActionSet> {
         self.action_sets.get(p0)
     }

@@ -361,8 +361,23 @@ enum ActionData {
     Haptic(xr::Action<xr::Haptic>),
 }
 
+/// Settings of a "scroll" mode binding (SteamVR input). A scroll binding turns a
+/// joystick/trackpad into a scroll wheel: the app reads the scroll amount for this
+/// frame from deltaX/deltaY, so a held stick has to keep producing a delta.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ScrollSettings {
+    pub multiplier: f32,
+}
+
+impl Default for ScrollSettings {
+    fn default() -> Self {
+        Self { multiplier: 1.0 }
+    }
+}
+
 #[derive(Default)]
 struct ExtraActionData {
+    scroll: Option<ScrollSettings>,
     toggle_action: Option<xr::Action<bool>>,
     analog_action: Option<xr::Action<f32>>,
     double_action: Option<xr::Action<bool>>,
@@ -1006,7 +1021,16 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                     generation,
                     [state.current_state.x, state.current_state.y],
                 );
-                let delta = xr::Vector2f { x: dx, y: dy };
+                let scroll = loaded.try_get_extra(handle).ok().and_then(|e| e.scroll);
+                let delta = match scroll {
+                    // Scroll binding: the delta is the scroll amount for this frame,
+                    // proportional to the stick deflection (smooth scrolling).
+                    Some(ScrollSettings { multiplier }) if state.is_active => xr::Vector2f {
+                        x: state.current_state.x * multiplier,
+                        y: state.current_state.y * multiplier,
+                    },
+                    _ => xr::Vector2f { x: dx, y: dy },
+                };
                 (state, delta)
             }
             _ => return vr::EVRInputError::WrongType,

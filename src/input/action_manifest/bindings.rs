@@ -4,7 +4,7 @@ use super::context::{BindingsProfileLoadContext, DpadActivatorData, DpadHapticDa
 use crate::input::action_manifest::context;
 use crate::input::profiles::paths::DynComponent;
 use crate::input::profiles::{Component, DynInputPath, paths};
-use crate::input::{ActionData, BoundPoseType, custom_bindings::DpadDirection};
+use crate::input::{ActionData, BoundPoseType, ScrollSettings, custom_bindings::DpadDirection};
 use crate::{
     input::{
         GrabActions,
@@ -412,10 +412,8 @@ struct ScrollInput {
 
 #[derive(Deserialize)]
 struct ScrollParameters {
-    #[allow(unused)]
     scroll_mode: Option<String>,
-    #[allow(unused)]
-    smooth_scroll_multiplier: Option<String>, // float
+    smooth_scroll_multiplier: Option<FromString<f32>>,
 }
 
 #[derive(Deserialize)]
@@ -896,16 +894,32 @@ pub fn handle_sources(
                 let Some(ValidActionBindingData {
                     inputs,
                     path,
-                    parameters: _,
+                    parameters,
                 }) = data.validate_path()
                 else {
                     continue;
                 };
                 let ScrollInput { scroll } = inputs;
                 // TODO: custom scrolling for trackpads
-                let _ = scroll
+                let bound = scroll
                     .try_bind_with_component(path, context, validate_path)
-                    .inspect_err(InvalidActionPath::warn);
+                    .inspect_err(InvalidActionPath::warn)
+                    .is_ok();
+                if bound && context.find_action(&scroll.output.path) {
+                    let mode = parameters.and_then(|p| p.scroll_mode.as_deref());
+                    if mode.is_some_and(|m| m != "smooth") {
+                        // Discrete (step-wise) scrolling is not emulated yet; scroll smoothly.
+                        warn!(
+                            "scroll mode {mode:?} for {} not supported, using smooth",
+                            scroll.output.path
+                        );
+                    }
+                    let multiplier = parameters
+                        .and_then(|p| p.smooth_scroll_multiplier.as_ref())
+                        .map(|m| **m)
+                        .unwrap_or(1.0);
+                    context.set_scroll(&scroll.output.path, ScrollSettings { multiplier });
+                }
             }
             ActionBinding::Trackpad(data) | ActionBinding::Joystick(data) => {
                 let Some(ValidActionBindingData { path, inputs, .. }) = data.validate_path() else {
