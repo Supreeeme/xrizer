@@ -18,7 +18,6 @@ use skeletal::SkeletalInputActionData;
 use crate::input::devices::ProfileData;
 use crate::input::profiles::RunWithProfile;
 use crate::{
-    AtomicF32,
     openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span,
 };
@@ -62,6 +61,8 @@ pub struct Input<C: openxr_data::Compositor> {
     subaction_paths: SubactionPaths,
     events: Mutex<VecDeque<InputEvent>>,
     loading_actions: AtomicBool,
+    /// Incremented on every UpdateActionState; used for per-frame analog deltas.
+    sync_generation: std::sync::atomic::AtomicU64,
 }
 
 struct InputEvent {
@@ -135,6 +136,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             subaction_paths,
             events: Mutex::default(),
             loading_actions: false.into(),
+            sync_generation: 0.into(),
         }
     }
 
@@ -266,15 +268,55 @@ impl InputSessionData {
         }
     }
 }
+
+/// Remembers the previous value of an analog action *per subaction path* so that
+/// `deltaX/deltaY` match SteamVR: the change since the last UpdateActionState for
+/// that device. Querying one hand (or querying multiple times in a frame) must not
+/// affect the delta reported for another query.
+#[derive(Default)]
+pub(crate) struct AnalogDelta<const N: usize> {
+    entries: Mutex<Vec<AnalogDeltaEntry<N>>>,
+}
+
+/// (subaction path, generation of `current`, previous frame value, current value)
+type AnalogDeltaEntry<const N: usize> = (xr::Path, u64, [f32; N], [f32; N]);
+
+impl<const N: usize> std::fmt::Debug for AnalogDelta<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AnalogDelta")
+    }
+}
+
+impl<const N: usize> AnalogDelta<N> {
+    fn delta(&self, subaction: xr::Path, generation: u64, current: [f32; N]) -> [f32; N] {
+        let mut entries = self.entries.lock().unwrap();
+        let idx = match entries.iter().position(|e| e.0 == subaction) {
+            Some(i) => i,
+            None => {
+                entries.push((subaction, generation, [0.0; N], [0.0; N]));
+                entries.len() - 1
+            }
+        };
+        let entry = &mut entries[idx];
+        if entry.1 != generation {
+            // New frame for this device: last seen value becomes the previous value.
+            entry.2 = entry.3;
+            entry.1 = generation;
+        }
+        entry.3 = current;
+        std::array::from_fn(|i| current[i] - entry.2[i])
+    }
+}
+
 enum ActionData {
     Bool(xr::Action<bool>),
     Vector1 {
         action: xr::Action<f32>,
-        last_value: AtomicF32,
+        last_value: AnalogDelta<1>,
     },
     Vector2 {
         action: xr::Action<xr::Vector2f>,
-        last_value: (AtomicF32, AtomicF32),
+        last_value: AnalogDelta<2>,
     },
     Pose,
     Skeleton(Hand),
@@ -902,10 +944,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
                     active_hand = binding_source;
                 }
 
-                let delta = xr::Vector2f {
-                    x: state.current_state - last_value.swap(state.current_state),
-                    y: 0.0,
-                };
+                let generation = self.sync_generation.load(Ordering::Relaxed);
+                let [dx] = last_value.delta(subaction_path, generation, [state.current_state]);
+                let delta = xr::Vector2f { x: dx, y: 0.0 };
                 (
                     xr::ActionState::<xr::Vector2f> {
                         current_state: xr::Vector2f {
@@ -921,10 +962,13 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             }
             ActionData::Vector2 { action, last_value } => {
                 let state = action.state(&session_data.session, subaction_path).unwrap();
-                let delta = xr::Vector2f {
-                    x: state.current_state.x - last_value.0.swap(state.current_state.x),
-                    y: state.current_state.y - last_value.1.swap(state.current_state.y),
-                };
+                let generation = self.sync_generation.load(Ordering::Relaxed);
+                let [dx, dy] = last_value.delta(
+                    subaction_path,
+                    generation,
+                    [state.current_state.x, state.current_state.y],
+                );
+                let delta = xr::Vector2f { x: dx, y: dy };
                 (state, delta)
             }
             _ => return vr::EVRInputError::WrongType,
@@ -1025,6 +1069,9 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
 
         let active_sets =
             unsafe { std::slice::from_raw_parts(active_sets, active_set_count as usize) };
+
+        // New frame: analog deltas are now relative to the values seen until here.
+        self.sync_generation.fetch_add(1, Ordering::Relaxed);
 
         if active_sets
             .iter()

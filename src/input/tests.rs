@@ -1085,3 +1085,65 @@ fn load_actions_race() {
     let res = f.get_bool_state(boolact);
     assert!(res.is_ok(), "{res:?}");
 }
+
+/// Blade & Sorcery binds the "Cast" vector1 action to both triggers and queries it
+/// per hand every frame. In SteamVR, deltaX is the change since the last
+/// UpdateActionState for *that* device; querying the other hand must not affect it.
+#[test]
+fn analog_delta_tracked_per_hand() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let vec1 = f.get_action_handle(c"/actions/set1/in/vec1act");
+    let left = f.get_input_source_handle(c"/user/hand/left");
+    let right = f.get_input_source_handle(c"/user/hand/right");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<OculusTouch>(LeftHand);
+    f.set_interaction_profile::<OculusTouch>(RightHand);
+    let act = f.get_action::<f32>(vec1);
+
+    let get = |f: &Fixture, hand| {
+        let mut s = vr::InputAnalogActionData_t::default();
+        assert_eq!(
+            f.input.GetAnalogActionData(
+                vec1,
+                &mut s,
+                std::mem::size_of::<vr::InputAnalogActionData_t>() as u32,
+                hand,
+            ),
+            vr::EVRInputError::None
+        );
+        s
+    };
+    let frame = |f: &mut Fixture, l: f32, r: f32| {
+        fakexr::set_action_state(act, fakexr::ActionState::Float(l), LeftHand);
+        fakexr::set_action_state(act, fakexr::ActionState::Float(r), RightHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+        (get(f, left), get(f, right))
+    };
+
+    frame(&mut f, 0.0, 0.0);
+
+    // Right trigger pressed (left idle)
+    let (l, r) = frame(&mut f, 0.0, 1.0);
+    assert_eq!(l.x, 0.0);
+    assert_eq!(r.x, 1.0);
+    assert_eq!(l.deltaX, 0.0, "left delta on right press");
+    assert_eq!(r.deltaX, 1.0, "right delta on press");
+
+    // Held
+    let (_, r) = frame(&mut f, 0.0, 1.0);
+    assert_eq!(r.deltaX, 0.0, "right delta while held");
+
+    // Right trigger released: this is the cast release the game must see
+    let (l, r) = frame(&mut f, 0.0, 0.0);
+    assert_eq!(l.deltaX, 0.0, "left delta on right release");
+    assert_eq!(r.deltaX, -1.0, "right delta on release (release lost)");
+
+    // Both hands pressed differently
+    let (l, r) = frame(&mut f, 0.3, 0.8);
+    assert!((l.deltaX - 0.3).abs() < 1e-6, "left delta {}", l.deltaX);
+    assert!((r.deltaX - 0.8).abs() < 1e-6, "right delta {}", r.deltaX);
+}

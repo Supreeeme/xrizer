@@ -1,5 +1,4 @@
 use super::action_manifest::{ClickThresholdParams, GrabParameters};
-use crate::AtomicF32;
 use crate::input::{ActionData, ExtraActionData};
 use crate::openxr_data::SessionData;
 use log::error;
@@ -44,7 +43,7 @@ impl AsActionData for xr::Action<f32> {
     fn as_action_data(&self) -> Vec<ActionData> {
         vec![ActionData::Vector1 {
             action: self.clone(),
-            last_value: AtomicF32::new(0.),
+            last_value: Default::default(),
         }]
     }
 }
@@ -52,7 +51,7 @@ impl AsActionData for xr::Action<xr::Vector2f> {
     fn as_action_data(&self) -> Vec<ActionData> {
         vec![ActionData::Vector2 {
             action: self.clone(),
-            last_value: (AtomicF32::new(0.), AtomicF32::new(0.)),
+            last_value: Default::default(),
         }]
     }
 }
@@ -309,11 +308,11 @@ impl AsActionData for GrabActions<Actions> {
         vec![
             ActionData::Vector1 {
                 action: self.force_action.clone(),
-                last_value: AtomicF32::new(0.),
+                last_value: Default::default(),
             },
             ActionData::Vector1 {
                 action: self.value_action.clone(),
-                last_value: AtomicF32::new(0.),
+                last_value: Default::default(),
             },
         ]
     }
