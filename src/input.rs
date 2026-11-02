@@ -147,6 +147,44 @@ impl<C: openxr_data::Compositor> Input<C> {
         }
     }
 
+    /// For analog actions queried for "any" device, SteamVR reports which device the
+    /// value comes from in activeOrigin. Games use this (e.g. Blade & Sorcery ignores
+    /// locomotion while a hand points at a menu unless it comes from the other hand),
+    /// so report the hand that provides the value.
+    fn analog_origin_hand(
+        &self,
+        action: &ActionData,
+        session: &xr::Session<xr::AnyGraphics>,
+    ) -> vr::VRInputValueHandle_t {
+        let magnitude = |hand: Hand| -> Option<f32> {
+            let path = self.get_subaction_path(hand);
+            match action {
+                ActionData::Vector1 { action, .. } => action
+                    .state(session, path)
+                    .ok()
+                    .filter(|s| s.is_active)
+                    .map(|s| s.current_state.abs()),
+                ActionData::Vector2 { action, .. } => action
+                    .state(session, path)
+                    .ok()
+                    .filter(|s| s.is_active)
+                    .map(|s| s.current_state.x.hypot(s.current_state.y)),
+                _ => None,
+            }
+        };
+        let left = self.left_hand_key.0.as_ffi();
+        let right = self.right_hand_key.0.as_ffi();
+        match (magnitude(Hand::Left), magnitude(Hand::Right)) {
+            (Some(l), Some(r)) if r > l => right,
+            (Some(l), Some(r)) if l > r => left,
+            // both active and equal (usually both at rest): origin is ambiguous
+            (Some(_), Some(_)) => vr::k_ulInvalidInputValueHandle,
+            (Some(_), None) => left,
+            (None, Some(_)) => right,
+            (None, None) => vr::k_ulInvalidInputValueHandle,
+        }
+    }
+
     fn subaction_path_from_handle(&self, handle: vr::VRInputValueHandle_t) -> Option<xr::Path> {
         if handle == vr::k_ulInvalidInputValueHandle {
             Some(xr::Path::NULL)
@@ -973,6 +1011,10 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
             }
             _ => return vr::EVRInputError::WrongType,
         };
+
+        if active_hand == vr::k_ulInvalidInputValueHandle && state.is_active {
+            active_hand = self.analog_origin_hand(action, &session_data.session);
+        }
 
         *out.value = vr::InputAnalogActionData_t {
             bActive: state.is_active,

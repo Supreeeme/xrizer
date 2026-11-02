@@ -1147,3 +1147,56 @@ fn analog_delta_tracked_per_hand() {
     assert!((l.deltaX - 0.3).abs() < 1e-6, "left delta {}", l.deltaX);
     assert!((r.deltaX - 0.8).abs() < 1e-6, "right delta {}", r.deltaX);
 }
+
+/// SteamVR reports the origin device of an analog value queried for "any" device.
+/// Blade & Sorcery reads "Move" for any device and stops locomotion while pointing at
+/// a menu unless it can tell the movement comes from the other hand.
+#[test]
+fn analog_any_query_reports_origin_hand() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let vec2 = f.get_action_handle(c"/actions/set1/in/vec2act");
+    let left = f.get_input_source_handle(c"/user/hand/left");
+    let right = f.get_input_source_handle(c"/user/hand/right");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<OculusTouch>(LeftHand);
+    f.set_interaction_profile::<OculusTouch>(RightHand);
+    let act = f.get_action::<xr::Vector2f>(vec2);
+
+    let any = |f: &mut Fixture, l: (f32, f32), r: (f32, f32)| {
+        fakexr::set_action_state(act, fakexr::ActionState::Vector2(l.0, l.1), LeftHand);
+        fakexr::set_action_state(act, fakexr::ActionState::Vector2(r.0, r.1), RightHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+        let mut s = vr::InputAnalogActionData_t::default();
+        assert_eq!(
+            f.input.GetAnalogActionData(
+                vec2,
+                &mut s,
+                std::mem::size_of::<vr::InputAnalogActionData_t>() as u32,
+                0,
+            ),
+            vr::EVRInputError::None
+        );
+        s
+    };
+
+    let s = any(&mut f, (0.0, 0.8), (0.0, 0.0));
+    assert!(s.bActive);
+    assert_eq!(s.activeOrigin, left, "left stick moving -> origin left");
+
+    let s = any(&mut f, (0.0, 0.0), (0.6, 0.0));
+    assert_eq!(s.activeOrigin, right, "right stick moving -> origin right");
+
+    // Restricted queries keep the requested device as origin
+    let mut s = vr::InputAnalogActionData_t::default();
+    f.input.GetAnalogActionData(
+        vec2,
+        &mut s,
+        std::mem::size_of::<vr::InputAnalogActionData_t>() as u32,
+        left,
+    );
+    assert_eq!(s.activeOrigin, left);
+}
