@@ -10,6 +10,7 @@ mod misc_unknown;
 mod openxr_data;
 mod overlay;
 mod overlayview;
+mod quirks;
 mod rendermodels;
 mod screenshots;
 mod settings;
