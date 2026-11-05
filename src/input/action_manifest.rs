@@ -255,31 +255,47 @@ impl<C: openxr_data::Compositor> Input<C> {
         bindings: Vec<actions::DefaultBindings>,
         context: &mut context::BindingsLoadContext,
     ) {
+        let custom_bindings_dir =
+            if let Ok(custom_bindings_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
+                PathBuf::from(custom_bindings_dir)
+            } else {
+                current_dir().unwrap().join("xrizer")
+            };
+
+        let mut bindings = bindings.clone();
+        if let Ok(additional_bindings) = std::env::var("XRIZER_ADDITIONAL_BINDINGS") {
+            bindings.extend(additional_bindings.split(';').map(|s| {
+                // additional_bindings is a semicolon-separated list of controller_type names.
+                let controller_type = s.parse().unwrap_or_else(|_| {
+                    panic!("Invalid controller type in XRIZER_ADDITIONAL_BINDINGS: {s}")
+                });
+                actions::DefaultBindings {
+                    binding_url: PathBuf::from(format!("bindings_{controller_type}.json")),
+                    controller_type,
+                }
+            }));
+        }
+
         let mut it = bindings.into_iter().peekable();
         while let Some(actions::DefaultBindings {
             binding_url,
             controller_type,
         }) = it.next()
         {
-            let custom_path = if let Ok(custom_dir) = std::env::var("XRIZER_CUSTOM_BINDINGS_DIR") {
-                PathBuf::from(custom_dir)
-            } else {
-                current_dir().unwrap().join("xrizer")
-            }
-            .join(format!("{controller_type:?}.json").to_lowercase());
+            let custom_path = custom_bindings_dir.join(format!("{controller_type}.json"));
             let bindings_path = match custom_path.exists() {
                 true => custom_path,
                 false => parent_path.join(binding_url),
             };
             debug!(
-                "Reading bindings for {controller_type:?} (at {})",
+                "Reading bindings for {controller_type} (at {})",
                 bindings_path.display()
             );
 
             let data = match std::fs::read(bindings_path) {
                 Ok(data) => data,
                 Err(e) => {
-                    error!("Couldn't load bindings for {controller_type:?}: {e}");
+                    error!("Couldn't load bindings for {controller_type}: {e}");
                     continue;
                 }
             };
@@ -287,7 +303,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             let bindings = match serde_json::from_slice(&data) {
                 Ok(bindings) => bindings,
                 Err(e) => {
-                    error!("Failed to parse bindings for {controller_type:?}: {e}");
+                    error!("Failed to parse bindings for {controller_type}: {e}");
                     continue;
                 }
             };
