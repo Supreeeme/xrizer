@@ -1,7 +1,8 @@
 use super::actions::LoadedActionDataMap;
 use super::bindings::{ActionPath, DpadParameters, DpadSubMode};
 use crate::input::custom_bindings::{
-    AsActionData, AsIter, BoolBindingData, CustomBindingHelper, Names,
+    AsActionData, AsIter, BoolBindingData, CustomBindingHelper, Names, Vector2BindingData,
+    Vector2Inversion,
 };
 use crate::input::profiles::{DynInputPath, paths};
 use crate::input::skeletal::SkeletalInputActionData;
@@ -81,6 +82,7 @@ impl BindingsLoadContext<'_> {
             .entry(interaction_profile)
             .or_default();
         Some(BindingsProfileLoadContext {
+            interaction_profile,
             action_sets: self.action_sets,
             actions: &mut self.actions,
             extra_actions: &mut self.extra_actions,
@@ -99,6 +101,7 @@ impl BindingsLoadContext<'_> {
 }
 
 pub(super) struct BindingsProfileLoadContext<'a> {
+    interaction_profile: xr::Path,
     pub action_sets: &'a HashMap<String, xr::ActionSet>,
     pub actions: &'a mut LoadedActionDataMap,
     extra_actions: &'a mut HashMap<String, ExtraActionData>,
@@ -228,6 +231,48 @@ impl BindingsProfileLoadContext<'_> {
         T::ExtraActions::from_iter(full_names)
     }
 
+    pub fn add_vector2_binding(
+        &mut self,
+        output: &ActionPath,
+        path: DynInputPath,
+        invert: Vector2Inversion,
+        action_set: &xr::ActionSet,
+    ) {
+        if !self.find_action(&output.path) {
+            return;
+        }
+        xr::Vector2f::check_match(&self.actions[&output.path], &output.path);
+        // Every transformed source gets a distinct action, including sources for
+        // the same output, hand or path in another interaction profile.
+        let name = format!("xrizer-vector2-invert-{}", self.actions.len());
+        let action = action_set
+            .create_action::<xr::Vector2f>(&name, &name, &self.hands)
+            .unwrap();
+        let key = format!("{}/{name}", output.action_set_name());
+        self.actions.insert(
+            key.clone(),
+            ActionData::Vector2 {
+                action: action.clone(),
+                data: Default::default(),
+            },
+        );
+        let binding_path = self.instance.string_to_path(&path.to_string()).unwrap();
+        self.push_binding(key, binding_path);
+        let hand = self
+            .instance
+            .string_to_path(hand_to_path(path.hand))
+            .unwrap();
+        let ActionData::Vector2 { data, .. } = self.actions.get_mut(&output.path).unwrap() else {
+            unreachable!();
+        };
+        data.bindings.push(Vector2BindingData {
+            action,
+            profile: self.interaction_profile,
+            hand,
+            invert,
+        });
+    }
+
     pub fn push_binding(&mut self, action: String, path: xr::Path) {
         self.bindings.push((action, path));
     }
@@ -261,7 +306,7 @@ impl BindingsProfileLoadContext<'_> {
 
                 ActionData::Vector2 {
                     action,
-                    last_value: Default::default(),
+                    data: Default::default(),
                 }
             });
         let ActionData::Vector2 {
