@@ -188,6 +188,55 @@ impl Compositor {
     }
 }
 
+/// Whether the OpenVR app is a Windows program under Wine (`XRIZER_WINE_APP=1`). Its Vulkan
+/// instance and device are created through winevulkan, which only accepts Windows extension
+/// names; it maps them to the host's own (an `_win32` external handle becomes an fd).
+fn wine_app() -> bool {
+    std::env::var("XRIZER_WINE_APP").as_deref() == Ok("1")
+}
+
+/// The runtime's extension list as a Windows app under Wine has to ask for it, when
+/// `XRIZER_WINE_APP=1` (see [`wine_app_extensions`]); unchanged otherwise.
+fn for_wine_app(extensions: String) -> String {
+    if wine_app() {
+        wine_app_extensions(&extensions)
+    } else {
+        extensions
+    }
+}
+
+/// `extensions` with window-system, direct-display and dma-buf extensions dropped (the app never
+/// uses them, and winevulkan rejects them, failing the whole create call) and Linux external
+/// handles named by their Windows twins, which winevulkan maps back to fds on the host.
+fn wine_app_extensions(extensions: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for ext in extensions.split_ascii_whitespace() {
+        let ext = match ext {
+            // Window systems and direct display: the app never presents or scans out itself.
+            "VK_KHR_xcb_surface"
+            | "VK_KHR_xlib_surface"
+            | "VK_KHR_wayland_surface"
+            | "VK_EXT_acquire_drm_display"
+            | "VK_EXT_acquire_xlib_display"
+            | "VK_EXT_direct_mode_display"
+            | "VK_GOOGLE_display_timing" => continue,
+            // Linux buffer sharing: runtimes use it for optional desktop imports, never for the
+            // app's frames, which travel as the external handles mapped below.
+            "VK_EXT_external_memory_dma_buf"
+            | "VK_EXT_image_drm_format_modifier"
+            | "VK_EXT_physical_device_drm" => continue,
+            "VK_KHR_external_memory_fd" => "VK_KHR_external_memory_win32",
+            "VK_KHR_external_semaphore_fd" => "VK_KHR_external_semaphore_win32",
+            "VK_KHR_external_fence_fd" => "VK_KHR_external_fence_win32",
+            other => other,
+        };
+        if !out.contains(&ext) {
+            out.push(ext);
+        }
+    }
+    out.join(" ")
+}
+
 fn fill_vk_extensions_buffer(extensions: String, buffer: *mut c_char, buffer_size: u32) -> u32 {
     let bytes = unsafe {
         std::slice::from_raw_parts(extensions.as_ptr() as *const c_char, extensions.len())
@@ -378,6 +427,7 @@ impl vr::IVRCompositor029_Interface for Compositor {
             .instance
             .vulkan_legacy_device_extensions(self.openxr.system_id)
             .unwrap();
+        let exts = for_wine_app(exts);
         log::debug!("required device extensions: {exts}");
         fill_vk_extensions_buffer(exts, buffer, buffer_size)
     }
@@ -392,6 +442,7 @@ impl vr::IVRCompositor029_Interface for Compositor {
             .instance
             .vulkan_legacy_instance_extensions(self.openxr.system_id)
             .unwrap();
+        let exts = for_wine_app(exts);
         log::debug!("required instance extensions: {exts}");
         fill_vk_extensions_buffer(exts, buffer, buffer_size)
     }
@@ -2012,5 +2063,32 @@ mod tests {
         assert_eq!(overlays.ShowOverlay(overlay), vr::EVROverlayError::None);
         f.comp.PostPresentHandoff();
         f.check_frame_state(fakexr::FrameState::Ended);
+    }
+}
+
+#[cfg(test)]
+mod wine_app_tests {
+    use super::wine_app_extensions;
+
+    #[test]
+    fn host_only_extensions_become_what_winevulkan_accepts() {
+        let runtime = "VK_KHR_surface VK_KHR_xcb_surface VK_KHR_wayland_surface \
+                       VK_KHR_external_memory VK_KHR_external_memory_fd \
+                       VK_KHR_external_semaphore_fd VK_KHR_external_memory_win32 \
+                       VK_EXT_external_memory_dma_buf VK_EXT_image_drm_format_modifier \
+                       VK_KHR_swapchain";
+        assert_eq!(
+            wine_app_extensions(runtime),
+            "VK_KHR_surface VK_KHR_external_memory VK_KHR_external_memory_win32 \
+             VK_KHR_external_semaphore_win32 VK_KHR_swapchain"
+                .split_ascii_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
+
+    #[test]
+    fn an_empty_list_stays_empty() {
+        assert_eq!(wine_app_extensions(""), "");
     }
 }
