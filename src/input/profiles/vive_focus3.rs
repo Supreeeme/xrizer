@@ -26,7 +26,7 @@ impl InteractionProfile for ViveFocus3 {
             (Thumbrest, Touch),
         >,
         Left::<(X, Click), (Y, Click), (Menu, Click)>,
-        Right::<(A, Click), (B, Click)>
+        Right::<(A, Click), (B, Click), (System, Click)>
     ];
 
     fn properties() -> &'static ProfileProperties {

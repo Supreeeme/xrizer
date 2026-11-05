@@ -23,7 +23,7 @@ impl InteractionProfile for MetaTouchPlus {
             (Thumbrest, Touch),
         >,
         Left::<(X, Click), (X, Touch), (Y, Click), (Y, Touch), (Menu, Click)>,
-        Right::<(A, Click), (A, Touch), (B, Click), (B, Touch)>
+        Right::<(A, Click), (A, Touch), (B, Click), (B, Touch), (System, Click)>
     ];
     fn properties() -> &'static ProfileProperties {
         use openvr::EVRButtonId::*;
