@@ -1085,3 +1085,173 @@ fn load_actions_race() {
     let res = f.get_bool_state(boolact);
     assert!(res.is_ok(), "{res:?}");
 }
+
+#[track_caller]
+fn buf_str(buf: &[std::ffi::c_char]) -> String {
+    unsafe { CStr::from_ptr(buf.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[track_caller]
+fn get_binding_info(f: &Fixture, action: vr::VRActionHandle_t) -> Vec<vr::InputBindingInfo_t> {
+    let mut count = 0;
+    assert_eq!(
+        vr::IVRInput011_Interface::GetActionBindingInfo(
+            f.input.as_ref(),
+            action,
+            std::ptr::null_mut(),
+            0,
+            0,
+            &mut count,
+        ),
+        vr::EVRInputError::None
+    );
+
+    let mut info = vec![vr::InputBindingInfo_t::default(); count as usize];
+    if count > 0 {
+        assert_eq!(
+            vr::IVRInput011_Interface::GetActionBindingInfo(
+                f.input.as_ref(),
+                action,
+                info.as_mut_ptr(),
+                std::mem::size_of::<vr::InputBindingInfo_t>() as u32,
+                count,
+                &mut count,
+            ),
+            vr::EVRInputError::None
+        );
+    }
+    info
+}
+
+#[track_caller]
+fn get_action_origins(
+    f: &Fixture,
+    set: vr::VRActionSetHandle_t,
+    action: vr::VRActionHandle_t,
+) -> Vec<vr::VRInputValueHandle_t> {
+    let mut origins = [vr::k_ulInvalidInputValueHandle; 8];
+    assert_eq!(
+        vr::IVRInput011_Interface::GetActionOrigins(
+            f.input.as_ref(),
+            set,
+            action,
+            origins.as_mut_ptr(),
+            origins.len() as u32,
+        ),
+        vr::EVRInputError::None
+    );
+    origins
+        .into_iter()
+        .filter(|o| *o != vr::k_ulInvalidInputValueHandle)
+        .collect()
+}
+
+#[track_caller]
+fn get_origin_info(f: &Fixture, origin: vr::VRInputValueHandle_t) -> vr::InputOriginInfo_t {
+    let mut info = vr::InputOriginInfo_t::default();
+    assert_eq!(
+        vr::IVRInput011_Interface::GetOriginTrackedDeviceInfo(
+            f.input.as_ref(),
+            origin,
+            &mut info,
+            std::mem::size_of::<vr::InputOriginInfo_t>() as u32,
+        ),
+        vr::EVRInputError::None
+    );
+    info
+}
+
+#[test]
+fn action_binding_info() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<OculusTouch>(LeftHand);
+    f.set_interaction_profile::<OculusTouch>(RightHand);
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    // Bound only to the left trigger touch in oculus.json.
+    let action = f.get_action_handle(c"/actions/set1/in/boolact3");
+    let info = get_binding_info(&f, action);
+
+    assert_eq!(info.len(), 1);
+    assert_eq!(buf_str(&info[0].rchDevicePathName), "/user/hand/left");
+    assert_eq!(buf_str(&info[0].rchInputPathName), "/input/trigger");
+    assert_eq!(buf_str(&info[0].rchModeName), "trigger");
+    assert_eq!(buf_str(&info[0].rchSlotName), "touch");
+    assert_eq!(buf_str(&info[0].rchInputSourceType), "trigger");
+}
+
+#[test]
+fn action_origins() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<OculusTouch>(LeftHand);
+    f.set_interaction_profile::<OculusTouch>(RightHand);
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    let action = f.get_action_handle(c"/actions/set1/in/boolact3");
+    let origins = get_action_origins(&f, set1, action);
+    assert!(!origins.is_empty());
+
+    let info = get_origin_info(&f, origins[0]);
+    assert_eq!(info.trackedDeviceIndex, Hand::Left as u32);
+    assert_eq!(buf_str(&info.rchRenderModelComponentName), "trigger");
+
+    let mut name = [0 as std::ffi::c_char; 256];
+    assert_eq!(
+        vr::IVRInput011_Interface::GetOriginLocalizedName(
+            f.input.as_ref(),
+            origins[0],
+            name.as_mut_ptr(),
+            name.len() as u32,
+            0x01 | 0x02 | 0x04,
+        ),
+        vr::EVRInputError::None
+    );
+    assert_eq!(
+        buf_str(&name),
+        "Left Hand / touch controller / /user/hand/left/input/trigger/touch"
+    );
+}
+
+#[test]
+fn dpad_action_binding_info() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    f.load_actions(c"actions_dpad.json");
+    f.set_interaction_profile::<ViveWands>(LeftHand);
+    f.sync(vr::VRActiveActionSet_t {
+        ulActionSet: set1,
+        ..Default::default()
+    });
+
+    // Bound to the north direction of a trackpad dpad, which is driven by the
+    // synthetic parent action (see wands_dpad.json).
+    let action = f.get_action_handle(c"/actions/set1/in/boolact");
+    let info = get_binding_info(&f, action);
+
+    assert_eq!(info.len(), 1);
+    assert_eq!(buf_str(&info[0].rchDevicePathName), "/user/hand/left");
+    assert_eq!(buf_str(&info[0].rchInputPathName), "/input/trackpad");
+    assert_eq!(buf_str(&info[0].rchModeName), "trackpad");
+    assert_eq!(buf_str(&info[0].rchSlotName), "position");
+
+    let origins = get_action_origins(&f, set1, action);
+    assert!(!origins.is_empty());
+
+    let origin_info = get_origin_info(&f, origins[0]);
+    assert_eq!(
+        buf_str(&origin_info.rchRenderModelComponentName),
+        "trackpad"
+    );
+}

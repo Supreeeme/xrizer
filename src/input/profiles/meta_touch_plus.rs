@@ -47,6 +47,7 @@ impl InteractionProfile for MetaTouchPlus {
             },
             tracking_system_name: c"oculus",
             manufacturer_name: c"Oculus",
+            input_profile_path: c"{meta}/input/touch_controller_plus_profile.json",
             main_axis: MainAxisType::Thumbstick,
             legacy_buttons_mask: button_mask_from_ids!(
                 System,
