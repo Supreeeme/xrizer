@@ -499,11 +499,24 @@ pub fn compare_pose(expected: xr::Posef, actual: xr::Posef) {
 }
 
 #[test]
-fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
+fn raw_pose_waitgetposes_and_skeletal_pose_identical_for_valid_pose() {
+    raw_pose_waitgetposes_and_skeletal_pose_identical_harness(true);
+}
+
+#[test]
+fn raw_pose_waitgetposes_and_skeletal_pose_identical_for_invalid_pose() {
+    raw_pose_waitgetposes_and_skeletal_pose_identical_harness(false);
+}
+
+// Helper to test pose generation against valid & invalid poses.
+fn raw_pose_waitgetposes_and_skeletal_pose_identical_harness(valid_poses: bool) {
     let mut f = Fixture::new();
+
+    let set1 = f.get_action_set_handle(c"/actions/set1");
     let left_hand = f.get_input_source_handle(c"/user/hand/left");
     let pose_handle = f.get_action_handle(c"/actions/set1/in/pose");
     let skel_handle = f.get_action_handle(c"/actions/set1/in/skellyl");
+
     f.load_actions(c"actions.json");
     f.set_interaction_profile::<Knuckles>(LeftHand);
 
@@ -542,11 +555,26 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
     };
     fakexr::set_grip(f.raw_session(), LeftHand, pose);
     fakexr::set_aim(f.raw_session(), LeftHand, pose);
+    if valid_poses {
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+    }
+
+    let assert_validity = |val: bool, pose_descr: &str| {
+        if valid_poses {
+            assert!(val, "{pose_descr} pose should be valid");
+        } else {
+            assert!(!val, "{pose_descr} pose should be invalid");
+        }
+    };
 
     let seated_origin = vr::ETrackingUniverseOrigin::Seated;
-    let waitgetposes_pose = f
-        .input
-        .get_controller_pose(super::Hand::Left, Some(seated_origin));
+    let waitgetposes_pose =
+        f.input
+            .get_controller_pose(super::Hand::Left, Some(seated_origin), None);
+    assert_validity(waitgetposes_pose.unwrap().bPoseIsValid, "WaitGetPoses");
 
     let mut raw_pose = vr::InputPoseActionData_t {
         pose: vr::TrackedDevicePose_t {
@@ -565,6 +593,7 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
         left_hand,
     );
     assert_eq!(ret, vr::EVRInputError::None);
+    assert_validity(raw_pose.pose.bPoseIsValid, "GetPoseActionDataForNextFrame");
     compare_pose(
         waitgetposes_pose.unwrap().mDeviceToAbsoluteTracking.into(),
         raw_pose.pose.mDeviceToAbsoluteTracking.into(),
@@ -578,6 +607,10 @@ fn raw_pose_waitgetposes_and_skeletal_pose_identical() {
         0,
     );
     assert_eq!(ret, vr::EVRInputError::None);
+    assert_validity(
+        skel_pose.pose.bPoseIsValid,
+        "GetPoseActionDataForNextFrame skeletal",
+    );
 
     compare_pose(
         waitgetposes_pose.unwrap().mDeviceToAbsoluteTracking.into(),
