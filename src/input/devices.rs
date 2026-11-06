@@ -4,7 +4,7 @@ use std::ffi::{CStr, CString};
 use std::mem::MaybeUninit;
 use std::sync::Mutex;
 
-use glam::Mat4;
+use glam::{EulerRot, Mat4, Quat};
 use openvr as vr;
 use openxr as xr;
 use openxr::sys::Handle;
@@ -70,6 +70,9 @@ pub struct ProfileData {
     /// in OpenXR, we only want to consume the skeletal data from a CONTROLLER source
     /// for devices that actually have some sort of finger-sensing.
     pub force_synthesise_skeleton: bool,
+    /// HACK: The wrist bone on SteamVR's OpenXR implementation is rotated wrong. :(
+    /// See https://steamcommunity.com/app/250820/discussions/8/596282871323451307/
+    pub steamvr_wrist_bone_hack: bool,
 }
 
 impl ProfileData {
@@ -80,6 +83,7 @@ impl ProfileData {
             force_estimated_thumb: TypeId::of::<P>() == TypeId::of::<Knuckles>(),
             force_synthesise_skeleton: TypeId::of::<P>() != TypeId::of::<Knuckles>()
                 && TypeId::of::<P>() != TypeId::of::<FrameController>(),
+            steamvr_wrist_bone_hack: TypeId::of::<P>() == TypeId::of::<FrameController>(),
         }
     }
 
@@ -257,6 +261,7 @@ impl TrackedDevice {
         base: &xr::Space,
     ) -> Option<HandSkeleton> {
         let TrackedDeviceType::Controller {
+            hand,
             hand_tracker,
             skeleton_cache,
             ..
@@ -270,7 +275,7 @@ impl TrackedDevice {
         }
 
         let display_time = xr_data.display_time.get();
-        let r = if xr_data.enabled_extensions.ext_hand_tracking_data_source {
+        let mut r = if xr_data.enabled_extensions.ext_hand_tracking_data_source {
             get_joints_with_data_source(base, hand_tracker.as_ref()?, display_time)
                 .unwrap_or_default()
         } else {
@@ -281,6 +286,40 @@ impl TrackedDevice {
                     data_source: xr::HandTrackingDataSourceEXT::UNOBSTRUCTED,
                 })
         };
+
+        match r {
+            Some(HandSkeleton { ref mut joints, .. })
+                if self
+                    .profile_data
+                    .as_ref()
+                    .is_some_and(|p| p.steamvr_wrist_bone_hack) =>
+            {
+                let wrist = &mut joints[xr::HandJoint::WRIST];
+
+                let correction = match hand {
+                    Hand::Left => {
+                        Quat::from_euler(EulerRot::XYZ, 0.0_f32, 30.0_f32.to_radians(), 0.0_f32)
+                    }
+                    Hand::Right => {
+                        Quat::from_euler(EulerRot::XYZ, 0.0_f32, -30.0_f32.to_radians(), 0.0_f32)
+                    }
+                };
+                let corrected = Quat::from_xyzw(
+                    wrist.pose.orientation.x,
+                    wrist.pose.orientation.y,
+                    wrist.pose.orientation.z,
+                    wrist.pose.orientation.w,
+                ) * correction;
+
+                wrist.pose.orientation = xr::Quaternionf {
+                    x: corrected.x,
+                    y: corrected.y,
+                    z: corrected.z,
+                    w: corrected.w,
+                };
+            }
+            _ => {}
+        }
 
         skeleton_cache.insert(base.as_raw().into_raw(), r.clone());
         r
