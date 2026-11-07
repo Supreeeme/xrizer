@@ -32,6 +32,7 @@ impl InteractionProfile for OculusTouch {
                 right: c"Oculus Quest2 (Right Controller)",
             },
             openvr_controller_type: c"oculus_touch",
+            input_profile_path: Some(c"{oculus}/input/touch_profile.json"),
             render_model_name: Property::PerHand {
                 left: c"oculus_quest2_controller_left",
                 right: c"oculus_quest2_controller_right",

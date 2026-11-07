@@ -33,6 +33,7 @@ impl InteractionProfile for MetaTouchPlus {
                 right: c"Oculus Quest3 (Right Controller)",
             },
             openvr_controller_type: c"oculus_touch",
+            input_profile_path: Some(c"{oculus}/input/touch_profile.json"),
             render_model_name: Property::PerHand {
                 left: c"oculus_quest_plus_controller_left",
                 right: c"oculus_quest_plus_controller_right",
