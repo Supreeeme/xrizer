@@ -433,6 +433,16 @@ fn unversion_impl(impl_item: &mut syn::ItemImpl) {
                 if let syn::ReturnType::Type(_, ty) = &mut sig.output {
                     unversion_type(ty).unwrap();
                 }
+
+                // bindgen 0.72 emits `root::vr_X::Type(..)` constructor calls in the
+                // bodies of generated bitflag operators.
+                for stmt in &mut item.block.stmts {
+                    if let syn::Stmt::Expr(syn::Expr::Call(call), _) = stmt
+                        && let syn::Expr::Path(syn::ExprPath { path, .. }) = &mut *call.func
+                    {
+                        unversion_path(path);
+                    }
+                }
             }
             syn::ImplItem::Const(item) => {
                 unversion_type(&mut item.ty).unwrap();
