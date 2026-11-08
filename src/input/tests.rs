@@ -1085,3 +1085,173 @@ fn load_actions_race() {
     let res = f.get_bool_state(boolact);
     assert!(res.is_ok(), "{res:?}");
 }
+
+/// Blade & Sorcery binds the "Cast" vector1 action to both triggers and queries it
+/// per hand every frame. In SteamVR, deltaX is the change since the last
+/// UpdateActionState for *that* device; querying the other hand must not affect it.
+#[test]
+fn analog_delta_tracked_per_hand() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let vec1 = f.get_action_handle(c"/actions/set1/in/vec1act");
+    let left = f.get_input_source_handle(c"/user/hand/left");
+    let right = f.get_input_source_handle(c"/user/hand/right");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<OculusTouch>(LeftHand);
+    f.set_interaction_profile::<OculusTouch>(RightHand);
+    let act = f.get_action::<f32>(vec1);
+
+    let get = |f: &Fixture, hand| {
+        let mut s = vr::InputAnalogActionData_t::default();
+        assert_eq!(
+            f.input.GetAnalogActionData(
+                vec1,
+                &mut s,
+                std::mem::size_of::<vr::InputAnalogActionData_t>() as u32,
+                hand,
+            ),
+            vr::EVRInputError::None
+        );
+        s
+    };
+    let frame = |f: &mut Fixture, l: f32, r: f32| {
+        fakexr::set_action_state(act, fakexr::ActionState::Float(l), LeftHand);
+        fakexr::set_action_state(act, fakexr::ActionState::Float(r), RightHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+        (get(f, left), get(f, right))
+    };
+
+    frame(&mut f, 0.0, 0.0);
+
+    // Right trigger pressed (left idle)
+    let (l, r) = frame(&mut f, 0.0, 1.0);
+    assert_eq!(l.x, 0.0);
+    assert_eq!(r.x, 1.0);
+    assert_eq!(l.deltaX, 0.0, "left delta on right press");
+    assert_eq!(r.deltaX, 1.0, "right delta on press");
+
+    // Held
+    let (_, r) = frame(&mut f, 0.0, 1.0);
+    assert_eq!(r.deltaX, 0.0, "right delta while held");
+
+    // Right trigger released: this is the cast release the game must see
+    let (l, r) = frame(&mut f, 0.0, 0.0);
+    assert_eq!(l.deltaX, 0.0, "left delta on right release");
+    assert_eq!(r.deltaX, -1.0, "right delta on release (release lost)");
+
+    // Both hands pressed differently
+    let (l, r) = frame(&mut f, 0.3, 0.8);
+    assert!((l.deltaX - 0.3).abs() < 1e-6, "left delta {}", l.deltaX);
+    assert!((r.deltaX - 0.8).abs() < 1e-6, "right delta {}", r.deltaX);
+}
+
+/// SteamVR reports the origin device of an analog value queried for "any" device.
+/// Blade & Sorcery reads "Move" for any device and stops locomotion while pointing at
+/// a menu unless it can tell the movement comes from the other hand.
+#[test]
+fn analog_any_query_reports_origin_hand() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let vec2 = f.get_action_handle(c"/actions/set1/in/vec2act");
+    let left = f.get_input_source_handle(c"/user/hand/left");
+    let right = f.get_input_source_handle(c"/user/hand/right");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<OculusTouch>(LeftHand);
+    f.set_interaction_profile::<OculusTouch>(RightHand);
+    let act = f.get_action::<xr::Vector2f>(vec2);
+
+    let any = |f: &mut Fixture, l: (f32, f32), r: (f32, f32)| {
+        fakexr::set_action_state(act, fakexr::ActionState::Vector2(l.0, l.1), LeftHand);
+        fakexr::set_action_state(act, fakexr::ActionState::Vector2(r.0, r.1), RightHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+        let mut s = vr::InputAnalogActionData_t::default();
+        assert_eq!(
+            f.input.GetAnalogActionData(
+                vec2,
+                &mut s,
+                std::mem::size_of::<vr::InputAnalogActionData_t>() as u32,
+                0,
+            ),
+            vr::EVRInputError::None
+        );
+        s
+    };
+
+    let s = any(&mut f, (0.0, 0.8), (0.0, 0.0));
+    assert!(s.bActive);
+    assert_eq!(s.activeOrigin, left, "left stick moving -> origin left");
+
+    let s = any(&mut f, (0.0, 0.0), (0.6, 0.0));
+    assert_eq!(s.activeOrigin, right, "right stick moving -> origin right");
+
+    // Restricted queries keep the requested device as origin
+    let mut s = vr::InputAnalogActionData_t::default();
+    f.input.GetAnalogActionData(
+        vec2,
+        &mut s,
+        std::mem::size_of::<vr::InputAnalogActionData_t>() as u32,
+        left,
+    );
+    assert_eq!(s.activeOrigin, left);
+}
+
+/// A "scroll" mode binding turns the stick into a scroll wheel: apps (e.g. Blade &
+/// Sorcery menus) read the scroll amount from deltaX/deltaY every frame, so holding
+/// the stick has to keep scrolling instead of reporting a delta of 0.
+#[test]
+fn scroll_binding_reports_scroll_amount_per_frame() {
+    let mut f = Fixture::new();
+    let set1 = f.get_action_set_handle(c"/actions/set1");
+    let scroll = f.get_action_handle(c"/actions/set1/in/scrollact");
+    let vec2 = f.get_action_handle(c"/actions/set1/in/vec2act");
+    let left = f.get_input_source_handle(c"/user/hand/left");
+    f.load_actions(c"actions.json");
+    f.set_interaction_profile::<Knuckles>(LeftHand);
+    f.set_interaction_profile::<Knuckles>(RightHand);
+    let scroll_act = f.get_action::<xr::Vector2f>(scroll);
+    let vec2_act = f.get_action::<xr::Vector2f>(vec2);
+
+    let get = |f: &Fixture, handle| {
+        let mut s = vr::InputAnalogActionData_t::default();
+        assert_eq!(
+            f.input.GetAnalogActionData(
+                handle,
+                &mut s,
+                std::mem::size_of::<vr::InputAnalogActionData_t>() as u32,
+                left,
+            ),
+            vr::EVRInputError::None
+        );
+        s
+    };
+    let frame = |f: &mut Fixture, y: f32| {
+        fakexr::set_action_state(scroll_act, fakexr::ActionState::Vector2(0.0, y), LeftHand);
+        fakexr::set_action_state(vec2_act, fakexr::ActionState::Vector2(0.0, y), LeftHand);
+        f.sync(vr::VRActiveActionSet_t {
+            ulActionSet: set1,
+            ..Default::default()
+        });
+        (get(f, scroll), get(f, vec2))
+    };
+
+    frame(&mut f, 0.0);
+    for _ in 0..3 {
+        let (s, j) = frame(&mut f, 0.5);
+        assert!(s.bActive);
+        assert_eq!(s.y, 0.5);
+        assert_eq!(s.deltaY, 0.5, "held stick must keep scrolling");
+        // A normal joystick binding still reports the change since the last frame.
+        assert_eq!(j.y, 0.5);
+    }
+    let (_, j) = frame(&mut f, 0.5);
+    assert_eq!(j.deltaY, 0.0, "joystick delta while held");
+
+    let (s, _) = frame(&mut f, 0.0);
+    assert_eq!(s.deltaY, 0.0, "released stick stops scrolling");
+}
