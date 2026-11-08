@@ -1,6 +1,6 @@
 use super::{
-    InteractionProfile, MainAxisType, ProfileProperties, Property, SkeletalInputBindings,
-    legal_paths, paths::*,
+    HmdProperties, InteractionProfile, MainAxisType, ProfileProperties, Property,
+    SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
 use crate::input::legacy::{self, LegacyBindings, button_mask_from_id};
@@ -57,6 +57,12 @@ impl InteractionProfile for ViveFocus3 {
                 btn::Axis3,
                 btn::Axis4,
             ),
+            // TODO: These are guesses, not pulled from a real system report
+            hmd: HmdProperties {
+                model: c"VIVE Focus 3",
+                controller_type: c"vive_focus3",
+                serial_number: c"HMD",
+            },
         };
         &DEVICE_PROPERTIES
     }

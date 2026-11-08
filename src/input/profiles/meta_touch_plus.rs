@@ -1,5 +1,5 @@
 use super::{
-    InteractionProfile, Left, MainAxisType, ProfileProperties, Property, Right,
+    HmdProperties, InteractionProfile, Left, MainAxisType, ProfileProperties, Property, Right,
     SkeletalInputBindings, legal_paths, paths::*,
 };
 use crate::button_mask_from_ids;
@@ -57,6 +57,11 @@ impl InteractionProfile for MetaTouchPlus {
                 Axis1,
                 Axis2
             ),
+            hmd: HmdProperties {
+                model: c"Oculus Quest3",
+                controller_type: c"rift",
+                serial_number: c"WMHD315M3010GV",
+            },
         };
         &DEVICE_PROPERTIES
     }

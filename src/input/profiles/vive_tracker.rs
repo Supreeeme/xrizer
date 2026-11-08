@@ -1,4 +1,7 @@
-use super::{InteractionProfile, MainAxisType, ProfileProperties, Property, SkeletalInputBindings};
+use super::{
+    HmdProperties, InteractionProfile, MainAxisType, ProfileProperties, Property,
+    SkeletalInputBindings,
+};
 use crate::{input::legacy::LegacyBindings, openxr_data::Hand};
 use glam::Mat4;
 
@@ -23,6 +26,11 @@ impl InteractionProfile for ViveTracker {
             tracking_system_name: c"lighthouse",
             manufacturer_name: c"HTC",
             legacy_buttons_mask: 0u64, // This is the closest thing I could think of to NOOP this
+            hmd: HmdProperties {
+                model: c"Vive. MV",
+                controller_type: c"vive",
+                serial_number: c"LHR-00000000",
+            },
         };
 
         &DEVICE_PROPERTIES
