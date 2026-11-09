@@ -27,7 +27,7 @@ pub struct ActionManifest {
     // localization_files
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct DefaultBindings {
     pub binding_url: PathBuf,
     pub controller_type: ControllerType,
@@ -40,9 +40,20 @@ pub enum ControllerType {
     #[serde(rename = "vive_focus3_controller")]
     ViveFocus3,
     Knuckles,
+    FrameController,
     OculusTouch,
     #[serde(untagged)]
     Unknown(String),
+}
+
+impl ControllerType {
+    pub const VALUES: [ControllerType; 5] = [
+        ControllerType::ViveController,
+        ControllerType::ViveFocus3,
+        ControllerType::Knuckles,
+        ControllerType::FrameController,
+        ControllerType::OculusTouch,
+    ];
 }
 
 #[derive(Deserialize)]

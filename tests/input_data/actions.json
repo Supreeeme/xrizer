@@ -87,6 +87,10 @@
 			"controller_type": "knuckles"
 		},
 		{
+			"binding_url": "frame.json",
+			"controller_type": "frame_controller"
+		},
+		{
 			"binding_url": "oculus.json",
 			"controller_type": "oculus_touch"
 		},
