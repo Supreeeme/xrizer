@@ -18,6 +18,9 @@ pub(super) struct LegacyState {
     // Index->Vive compat state, per hand.
     compat_stick: [AtomicU8; 2],
     compat_stick_mag: [crate::AtomicF32; 2],
+    /// Seconds (since first use) at which compat_stick_mag was recorded.
+    compat_stick_time: [crate::AtomicF32; 2],
+    compat_touch_reported: [AtomicBool; 2],
     compat_trigger_pressed: [AtomicBool; 2],
 }
 
@@ -30,7 +33,11 @@ const STICK_LATCHED: u8 = 2;
 
 const STICK_TOUCH_ON: f32 = 0.25;
 const STICK_TOUCH_OFF: f32 = 0.15;
-const STICK_SPRING_BACK: f32 = 0.3;
+/// Stick return speed (deflection units per second) above which we assume the stick is
+/// springing back from a release, rather than being deliberately eased back.
+const STICK_SPRING_SPEED: f32 = 6.0;
+/// Don't re-evaluate more often than this, so multiple reads per frame don't hide the speed.
+const STICK_MIN_DT: f32 = 0.004;
 const TRIGGER_PRESS_ON: f32 = 0.85;
 const TRIGGER_PRESS_OFF: f32 = 0.7;
 
@@ -306,34 +313,59 @@ impl<C: openxr_data::Compositor> Input<C> {
         if compat {
             let h = hand as usize - 1;
 
-            // Emulate a trackpad: only "touched" while the stick is meaningfully deflected,
-            // and report no position while untouched.
+            // Emulate a trackpad: only "touched" while the stick is meaningfully deflected
+            // (or clicked), and report no position while untouched.
+            static START: std::sync::LazyLock<std::time::Instant> =
+                std::sync::LazyLock::new(std::time::Instant::now);
+            let now = START.elapsed().as_secs_f32();
+
             let mag = stick.0.hypot(stick.1);
-            let prev_mag = self.legacy_state.compat_stick_mag[h].load();
-            self.legacy_state.compat_stick_mag[h].store(mag);
             let prev = self.legacy_state.compat_stick[h].load(Ordering::Relaxed);
-            let next = match prev {
-                _ if prev_mag - mag > STICK_SPRING_BACK && mag > STICK_TOUCH_OFF => STICK_LATCHED,
-                STICK_TOUCHED if mag > STICK_TOUCH_OFF => STICK_TOUCHED,
-                STICK_LATCHED if mag > STICK_TOUCH_OFF => STICK_LATCHED,
-                STICK_UNTOUCHED if mag > STICK_TOUCH_ON => STICK_TOUCHED,
-                _ => STICK_UNTOUCHED,
+            let dt = now - self.legacy_state.compat_stick_time[h].load();
+            let next = if dt < STICK_MIN_DT {
+                // Too soon to measure speed; keep the previous decision (but still release
+                // if the stick is back near center).
+                if mag > STICK_TOUCH_OFF { prev } else { STICK_UNTOUCHED }
+            } else {
+                let prev_mag = self.legacy_state.compat_stick_mag[h].load();
+                let returning_speed = (prev_mag - mag) / dt;
+                self.legacy_state.compat_stick_mag[h].store(mag);
+                self.legacy_state.compat_stick_time[h].store(now);
+                match prev {
+                    _ if returning_speed > STICK_SPRING_SPEED && mag > STICK_TOUCH_OFF => {
+                        STICK_LATCHED
+                    }
+                    STICK_TOUCHED if mag > STICK_TOUCH_OFF => STICK_TOUCHED,
+                    STICK_LATCHED if mag > STICK_TOUCH_OFF => STICK_LATCHED,
+                    STICK_UNTOUCHED if mag > STICK_TOUCH_ON => STICK_TOUCHED,
+                    _ => STICK_UNTOUCHED,
+                }
             };
             self.legacy_state.compat_stick[h].store(next, Ordering::Relaxed);
 
             let axis0 = button_mask_from_id(vr::EVRButtonId::Axis0);
-            let touched = next == STICK_TOUCHED;
-            if touched {
-                state.ulButtonTouched |= axis0;
+            // Games expect the pad to be touched while it's clicked.
+            let clicked = state.ulButtonPressed & axis0 != 0;
+            let touched = next == STICK_TOUCHED || clicked;
+            if next == STICK_TOUCHED {
                 // Start from zero at the touch threshold so the first sample isn't a big jump.
                 let scaled = ((mag - STICK_TOUCH_OFF) / (1.0 - STICK_TOUCH_OFF)).max(0.0);
                 stick = (stick.0 / mag * scaled, stick.1 / mag * scaled);
-            } else {
+            } else if !clicked {
                 stick = (0.0, 0.0);
             }
+            if touched {
+                state.ulButtonTouched |= axis0;
+            }
 
+            let was_touched = self.legacy_state.compat_touch_reported[h]
+                .swap(touched, Ordering::Relaxed);
             if let Some(events) = &mut events {
-                if touched != (prev == STICK_TOUCHED) {
+                if touched != was_touched {
+                    log::debug!(
+                        target: "index_as_vive",
+                        "hand {h} axis0 touch -> {touched} (mag {mag:.2}, clicked {clicked})"
+                    );
                     events.push_back(super::InputEvent {
                         ty: if touched {
                             vr::EVREventType::ButtonTouch
