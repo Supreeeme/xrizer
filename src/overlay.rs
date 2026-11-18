@@ -30,6 +30,7 @@ pub struct OverlayMan {
     overlays: RwLock<SlotMap<OverlayKey, Overlay>>,
     key_to_overlay: RwLock<HashMap<CString, OverlayKey>>,
     skybox: RwLock<Vec<OverlayKey>>,
+    keyboard: Arc<Mutex<crate::keyboard::KeyboardState>>,
 }
 
 #[derive(derive_more::Deref)]
@@ -44,7 +45,95 @@ impl OverlayMan {
             overlays: Default::default(),
             key_to_overlay: Default::default(),
             skybox: Default::default(),
+            keyboard: Default::default(),
         }
+    }
+
+    /// Pops the next pending keyboard event. If `overlay` is Some, only events for that
+    /// overlay are returned; if None, only events for the scene application (overlay 0).
+    /// Returns the overlay handle the event belongs to.
+    pub fn pop_keyboard_event(
+        &self,
+        overlay: Option<vr::VROverlayHandle_t>,
+        any: bool,
+        size: u32,
+        out: *mut vr::VREvent_t,
+    ) -> Option<vr::VROverlayHandle_t> {
+        use crate::keyboard::KeyboardEventKind as Kind;
+        const MIN_SIZE: usize = std::mem::offset_of!(vr::VREvent_t, data)
+            + std::mem::size_of::<vr::VREvent_Keyboard_t>();
+        if out.is_null() || (size as usize) < MIN_SIZE {
+            return None;
+        }
+        let mut state = self.keyboard.lock().unwrap();
+        let wanted = overlay.unwrap_or(0);
+        let pos = state
+            .events
+            .iter()
+            .position(|e| any || e.overlay == wanted)?;
+        let event = state.events.remove(pos)?;
+
+        let mut input = [0 as c_char; 8];
+        let ty = match &event.kind {
+            Kind::CharInput(s) => {
+                for (dst, b) in input.iter_mut().zip(s.bytes().take(7)) {
+                    *dst = b as c_char;
+                }
+                vr::EVREventType::KeyboardCharInput
+            }
+            Kind::Done => vr::EVREventType::KeyboardDone,
+            Kind::Closed => vr::EVREventType::KeyboardClosed,
+        };
+        unsafe {
+            (&raw mut (*out).eventType).write(ty as u32);
+            (&raw mut (*out).trackedDeviceIndex).write(0);
+            (&raw mut (*out).eventAgeSeconds).write(0.0);
+            let kb = &raw mut (*out).data.keyboard;
+            (&raw mut (*kb).cNewInput).write(input);
+            (&raw mut (*kb).uUserValue).write(event.user_value);
+        }
+        Some(event.overlay)
+    }
+
+    fn show_keyboard(
+        &self,
+        overlay: vr::VROverlayHandle_t,
+        line_mode: vr::EGamepadTextInputLineMode,
+        input_mode: vr::EGamepadTextInputMode,
+        flags: u32,
+        description: *const c_char,
+        char_max: u32,
+        existing_text: *const c_char,
+        user_value: u64,
+    ) -> vr::EVROverlayError {
+        let to_string = |p: *const c_char| {
+            if p.is_null() {
+                String::new()
+            } else {
+                unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
+            }
+        };
+        {
+            let mut state = self.keyboard.lock().unwrap();
+            if state.active {
+                return vr::EVROverlayError::KeyboardAlreadyInUse;
+            }
+            state.active = true;
+        }
+        crate::keyboard::show(
+            self.keyboard.clone(),
+            crate::keyboard::KeyboardRequest {
+                description: to_string(description),
+                existing_text: to_string(existing_text),
+                char_max,
+                multiline: line_mode == vr::EGamepadTextInputLineMode::MultipleLines,
+                password: input_mode == vr::EGamepadTextInputMode::Password,
+            },
+            flags & vr::EKeyboardFlags::Minimal.0 != 0,
+            overlay,
+            user_value,
+        );
+        vr::EVROverlayError::None
     }
 
     fn get_real_session_data(
@@ -334,10 +423,11 @@ impl OverlayMan {
 
     pub fn get_next_overlay_event(
         &self,
-        _event: *mut vr::VREvent_t,
+        size: u32,
+        event: *mut vr::VREvent_t,
     ) -> Option<vr::VROverlayHandle_t> {
-        // TODO: go through overlay handles and grab the next event.
-        None
+        // TODO: other overlay events.
+        self.pop_keyboard_event(None, true, size, event)
     }
 }
 
@@ -801,35 +891,60 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     fn HideKeyboard(&self) {
         crate::warn_unimplemented!("HideKeyboard");
     }
-    fn GetKeyboardText(&self, _: *mut c_char, _: u32) -> u32 {
-        todo!()
+    fn GetKeyboardText(&self, buf: *mut c_char, len: u32) -> u32 {
+        let state = self.keyboard.lock().unwrap();
+        let bytes = state.text.as_bytes();
+        if !buf.is_null() && len > 0 {
+            let n = bytes.len().min(len as usize - 1);
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr().cast(), buf, n);
+                buf.add(n).write(0);
+            }
+        }
+        bytes.len() as u32
     }
     fn ShowKeyboardForOverlay(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: vr::EGamepadTextInputMode,
-        _: vr::EGamepadTextInputLineMode,
-        _: u32,
-        _: *const c_char,
-        _: u32,
-        _: *const c_char,
-        _: u64,
+        handle: vr::VROverlayHandle_t,
+        input_mode: vr::EGamepadTextInputMode,
+        line_mode: vr::EGamepadTextInputLineMode,
+        flags: u32,
+        description: *const c_char,
+        char_max: u32,
+        existing_text: *const c_char,
+        user_value: u64,
     ) -> vr::EVROverlayError {
-        crate::warn_unimplemented!("ShowKeyboardForOverlay");
-        vr::EVROverlayError::RequestFailed
+        self.show_keyboard(
+            handle,
+            line_mode,
+            input_mode,
+            flags,
+            description,
+            char_max,
+            existing_text,
+            user_value,
+        )
     }
     fn ShowKeyboard(
         &self,
-        _: vr::EGamepadTextInputMode,
-        _: vr::EGamepadTextInputLineMode,
-        _: u32,
-        _: *const c_char,
-        _: u32,
-        _: *const c_char,
-        _: u64,
+        input_mode: vr::EGamepadTextInputMode,
+        line_mode: vr::EGamepadTextInputLineMode,
+        flags: u32,
+        description: *const c_char,
+        char_max: u32,
+        existing_text: *const c_char,
+        user_value: u64,
     ) -> vr::EVROverlayError {
-        crate::warn_unimplemented!("ShowKeyboard");
-        vr::EVROverlayError::RequestFailed
+        self.show_keyboard(
+            0,
+            line_mode,
+            input_mode,
+            flags,
+            description,
+            char_max,
+            existing_text,
+            user_value,
+        )
     }
     fn GetPrimaryDashboardDevice(&self) -> vr::TrackedDeviceIndex_t {
         todo!()
@@ -1001,11 +1116,12 @@ impl vr::IVROverlay028_Interface for OverlayMan {
     }
     fn PollNextOverlayEvent(
         &self,
-        _: vr::VROverlayHandle_t,
-        _: *mut vr::VREvent_t,
-        _: u32,
+        handle: vr::VROverlayHandle_t,
+        event: *mut vr::VREvent_t,
+        size: u32,
     ) -> bool {
-        false
+        self.pop_keyboard_event(Some(handle), false, size, event)
+            .is_some()
     }
     fn WaitFrameSync(&self, _: u32) -> vr::EVROverlayError {
         todo!()

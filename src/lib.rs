@@ -17,6 +17,7 @@ mod system;
 
 #[cfg(not(test))]
 mod error_dialog;
+mod keyboard;
 
 use clientcore::ClientCore;
 use openvr as vr;
