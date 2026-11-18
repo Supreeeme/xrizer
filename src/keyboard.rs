@@ -53,21 +53,38 @@ fn chunk_text(text: &str) -> Vec<String> {
     chunks
 }
 
-/// Shows the popup on a background thread. When it finishes, `state` is updated and
-/// the relevant keyboard events are queued.
-pub fn show(
-    state: Arc<Mutex<KeyboardState>>,
-    request: KeyboardRequest,
-    minimal: bool,
-    overlay: u64,
-    user_value: u64,
-) {
-    let result = Arc::new(Mutex::new(None));
-    let result_clone = result.clone();
-    let spawned = std::thread::Builder::new()
-        .name("xrizer-keyboard".into())
-        .spawn(move || {
-            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+/// Runs the popup in a forked child process and returns the submitted text, if any.
+///
+/// miniquad keeps its window state in process-wide globals that can only be initialized once,
+/// so a second `miniquad::start` in the same process crashes. Running every prompt in its own
+/// child process gives each one a pristine copy of that state (the parent never starts miniquad).
+fn run_dialog(request: KeyboardRequest) -> Option<String> {
+    use std::io::{Read, Write};
+    use std::os::fd::FromRawFd;
+
+    let mut fds = [0 as libc::c_int; 2];
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        log::error!("Failed to create keyboard pipe: {}", std::io::Error::last_os_error());
+        return None;
+    }
+    let [read_fd, write_fd] = fds;
+
+    match unsafe { libc::fork() } {
+        -1 => {
+            log::error!("Failed to fork keyboard dialog: {}", std::io::Error::last_os_error());
+            unsafe {
+                libc::close(read_fd);
+                libc::close(write_fd);
+            }
+            None
+        }
+        0 => {
+            // Child. Other threads of the host process don't exist here, so avoid anything
+            // that might take a lock they held (notably logging) and always _exit.
+            unsafe { libc::close(read_fd) };
+            let result = Arc::new(Mutex::new(None));
+            let result_clone = result.clone();
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 miniquad::start(
                     Conf {
                         window_title: "xrizer keyboard".to_string(),
@@ -79,11 +96,48 @@ pub fn show(
                     move || Box::new(Dialog::new(request, result_clone)),
                 )
             }));
-            if let Err(e) = r {
-                log::error!("Keyboard dialog panicked: {e:?}");
+            let text: Option<String> = result.lock().ok().and_then(|mut r| r.take());
+            let mut out = unsafe { std::fs::File::from_raw_fd(write_fd) };
+            if let Some(text) = text {
+                // Leading marker byte distinguishes an empty submission from a cancel.
+                let _ = out.write_all(b"1");
+                let _ = out.write_all(text.as_bytes());
             }
+            drop(out);
+            unsafe { libc::_exit(0) }
+        }
+        pid => {
+            unsafe { libc::close(write_fd) };
+            let mut input = unsafe { std::fs::File::from_raw_fd(read_fd) };
+            let mut buf = Vec::new();
+            let read = input.read_to_end(&mut buf);
+            drop(input);
+            let mut status = 0;
+            unsafe { libc::waitpid(pid, &mut status, 0) };
+            let ok = read.is_ok() && libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0;
+            match buf.split_first() {
+                Some((b'1', text)) if ok => Some(String::from_utf8_lossy(text).into_owned()),
+                _ => None,
+            }
+        }
+    }
+}
 
-            let text: Option<String> = result.lock().unwrap().take();
+/// Shows the popup from a background thread. When it finishes, `state` is updated and
+/// the relevant keyboard events are queued.
+pub fn show(
+    state: Arc<Mutex<KeyboardState>>,
+    request: KeyboardRequest,
+    minimal: bool,
+    overlay: u64,
+    user_value: u64,
+) {
+    let thread_state = state.clone();
+    let spawned = std::thread::Builder::new()
+        .name("xrizer-keyboard".into())
+        .spawn(move || {
+            let state = thread_state;
+            let text = run_dialog(request);
             let mut state = state.lock().unwrap();
             state.active = false;
             if let Some(text) = text {
@@ -111,6 +165,7 @@ pub fn show(
         });
     if let Err(e) = spawned {
         log::error!("Failed to spawn keyboard thread: {e}");
+        state.lock().unwrap().active = false;
     }
 }
 
