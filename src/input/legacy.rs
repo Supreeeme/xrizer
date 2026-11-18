@@ -9,13 +9,30 @@ use crate::{
 use log::{debug, trace, warn};
 use openvr as vr;
 use openxr as xr;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 #[derive(Default)]
 pub(super) struct LegacyState {
     packet_num: AtomicU32,
     got_state_this_frame: [AtomicBool; 2],
+    // Index->Vive compat state, per hand.
+    compat_stick: [AtomicU8; 2],
+    compat_stick_mag: [crate::AtomicF32; 2],
+    compat_trigger_pressed: [AtomicBool; 2],
 }
+
+/// Emulated trackpad touch state for the thumbstick (see `index_as_vive`).
+const STICK_UNTOUCHED: u8 = 0;
+const STICK_TOUCHED: u8 = 1;
+/// The stick snapped back toward center. Stay "untouched" until it settles, so games
+/// that scroll based on touch movement don't see the spring-back as a swipe.
+const STICK_LATCHED: u8 = 2;
+
+const STICK_TOUCH_ON: f32 = 0.25;
+const STICK_TOUCH_OFF: f32 = 0.15;
+const STICK_SPRING_BACK: f32 = 0.3;
+const TRIGGER_PRESS_ON: f32 = 0.85;
+const TRIGGER_PRESS_OFF: f32 = 0.7;
 
 impl LegacyState {
     pub fn on_action_sync(&self) {
@@ -279,12 +296,59 @@ impl<C: openxr_data::Compositor> Input<C> {
         read_button(vr::EVRButtonId::Axis2, &actions.squeeze_click, None);
 
         let j = actions.main_xy.state(&data.session, hand_path).unwrap();
+        let t = actions.trigger.state(&data.session, hand_path).unwrap();
+
+        let mut stick = (j.current_state.x, j.current_state.y);
+
+        if crate::input::profiles::knuckles::index_as_vive() {
+            let h = hand as usize - 1;
+
+            // Emulate a trackpad: only "touched" while the stick is meaningfully deflected,
+            // and report no position while untouched.
+            let mag = stick.0.hypot(stick.1);
+            let prev_mag = self.legacy_state.compat_stick_mag[h].load();
+            self.legacy_state.compat_stick_mag[h].store(mag);
+            let prev = self.legacy_state.compat_stick[h].load(Ordering::Relaxed);
+            let next = match prev {
+                _ if prev_mag - mag > STICK_SPRING_BACK && mag > STICK_TOUCH_OFF => STICK_LATCHED,
+                STICK_TOUCHED if mag > STICK_TOUCH_OFF => STICK_TOUCHED,
+                STICK_LATCHED if mag > STICK_TOUCH_OFF => STICK_LATCHED,
+                STICK_UNTOUCHED if mag > STICK_TOUCH_ON => STICK_TOUCHED,
+                _ => STICK_UNTOUCHED,
+            };
+            self.legacy_state.compat_stick[h].store(next, Ordering::Relaxed);
+
+            let axis0 = button_mask_from_id(vr::EVRButtonId::Axis0);
+            if next == STICK_TOUCHED {
+                state.ulButtonTouched |= axis0;
+            } else {
+                state.ulButtonTouched &= !axis0;
+                stick = (0.0, 0.0);
+            }
+
+            // Vive triggers only click at the end of the pull; use a high threshold on the
+            // analog value rather than the runtime's click.
+            let was_pressed = self.legacy_state.compat_trigger_pressed[h].load(Ordering::Relaxed);
+            let pressed = t.current_state
+                > if was_pressed {
+                    TRIGGER_PRESS_OFF
+                } else {
+                    TRIGGER_PRESS_ON
+                };
+            self.legacy_state.compat_trigger_pressed[h].store(pressed, Ordering::Relaxed);
+            let trig = button_mask_from_id(vr::EVRButtonId::SteamVR_Trigger);
+            if pressed {
+                state.ulButtonPressed |= trig;
+            } else {
+                state.ulButtonPressed &= !trig;
+            }
+        }
+
         state.rAxis[0] = vr::VRControllerAxis_t {
-            x: j.current_state.x,
-            y: j.current_state.y,
+            x: stick.0,
+            y: stick.1,
         };
 
-        let t = actions.trigger.state(&data.session, hand_path).unwrap();
         state.rAxis[1] = vr::VRControllerAxis_t {
             x: t.current_state,
             y: 0.0,
