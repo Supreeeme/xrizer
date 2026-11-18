@@ -280,10 +280,13 @@ impl<C: openxr_data::Compositor> Input<C> {
                 }
             };
 
+        let compat = crate::input::profiles::knuckles::index_as_vive();
+        // In Index->Vive compat mode, Axis0 touch is emulated from stick deflection below, so
+        // the runtime's thumbstick touch (a resting thumb) must not generate state or events.
         read_button(
             vr::EVRButtonId::Axis0,
             &actions.main_xy_click,
-            Some(&actions.main_xy_touch),
+            (!compat).then_some(&actions.main_xy_touch),
         );
         read_button(
             vr::EVRButtonId::SteamVR_Trigger,
@@ -300,7 +303,7 @@ impl<C: openxr_data::Compositor> Input<C> {
 
         let mut stick = (j.current_state.x, j.current_state.y);
 
-        if crate::input::profiles::knuckles::index_as_vive() {
+        if compat {
             let h = hand as usize - 1;
 
             // Emulate a trackpad: only "touched" while the stick is meaningfully deflected,
@@ -319,11 +322,30 @@ impl<C: openxr_data::Compositor> Input<C> {
             self.legacy_state.compat_stick[h].store(next, Ordering::Relaxed);
 
             let axis0 = button_mask_from_id(vr::EVRButtonId::Axis0);
-            if next == STICK_TOUCHED {
+            let touched = next == STICK_TOUCHED;
+            if touched {
                 state.ulButtonTouched |= axis0;
+                // Start from zero at the touch threshold so the first sample isn't a big jump.
+                let scaled = ((mag - STICK_TOUCH_OFF) / (1.0 - STICK_TOUCH_OFF)).max(0.0);
+                stick = (stick.0 / mag * scaled, stick.1 / mag * scaled);
             } else {
-                state.ulButtonTouched &= !axis0;
                 stick = (0.0, 0.0);
+            }
+
+            if let Some(events) = &mut events {
+                if touched != (prev == STICK_TOUCHED) {
+                    events.push_back(super::InputEvent {
+                        ty: if touched {
+                            vr::EVREventType::ButtonTouch
+                        } else {
+                            vr::EVREventType::ButtonUntouch
+                        },
+                        index: device_index,
+                        data: vr::VREvent_Controller_t {
+                            button: vr::EVRButtonId::Axis0 as u32,
+                        },
+                    });
+                }
             }
 
             // Vive triggers only click at the end of the pull; use a high threshold on the
