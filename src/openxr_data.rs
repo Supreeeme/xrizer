@@ -72,7 +72,7 @@ impl From<SessionCreationError> for InitError {
     }
 }
 
-fn get_app_name() -> Option<String> {
+pub(crate) fn get_app_name() -> Option<String> {
     let exe = std::fs::read_link("/proc/self/exe")
         .inspect_err(|e| warn!("Couldn't get app name from /proc/self/exe: {e}"))
         .ok()?;

@@ -15,7 +15,9 @@ pub struct Knuckles;
 /// Index -> Vive wand compatibility mode, for games that only speak the legacy
 /// `GetControllerState` API and only understand HTC Vive wands.
 ///
-/// Enabled by setting `XRIZER_INDEX_AS_VIVE` to anything other than `0`/empty.
+/// Enabled automatically for known legacy-only games (matched by executable name, see
+/// `BUILTIN_APPS` and `~/.config/xrizer/index_as_vive_apps`), or for every app by setting
+/// `XRIZER_INDEX_AS_VIVE` to anything other than `0`/empty.
 /// When active, Knuckles controllers identify as Vive wands (controller type, model,
 /// render model, axis types, supported buttons) and the legacy button layout is remapped:
 ///
@@ -27,15 +29,41 @@ pub struct Knuckles;
 /// | Grip button             | Squeeze                             |
 /// | Application menu        | B                                   |
 pub fn index_as_vive() -> bool {
+    /// Games known to only work with Vive wands. Matched case-insensitively against the
+    /// executable name (without `.exe`).
+    const BUILTIN_APPS: &[&str] = &["SkyrimVR", "sksevr_loader"];
+
     static ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-        let enabled =
-            std::env::var("XRIZER_INDEX_AS_VIVE").is_ok_and(|v| !v.is_empty() && v != "0");
-        if enabled {
-            log::info!(
-                "XRIZER_INDEX_AS_VIVE is set: Index controllers will present as Vive wands"
-            );
+        if std::env::var("XRIZER_INDEX_AS_VIVE").is_ok_and(|v| !v.is_empty() && v != "0") {
+            log::info!("XRIZER_INDEX_AS_VIVE is set: Index controllers will present as Vive wands");
+            return true;
         }
-        enabled
+
+        let Some(app) = crate::openxr_data::get_app_name() else {
+            return false;
+        };
+
+        // Extra apps can be listed one per line in $XDG_CONFIG_HOME/xrizer/index_as_vive_apps
+        // (default ~/.config/xrizer/index_as_vive_apps), since env vars often don't reach
+        // games launched through Wine/Proton.
+        let extra = std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".config")))
+            .and_then(|d| std::fs::read_to_string(d.join("xrizer").join("index_as_vive_apps")).ok())
+            .unwrap_or_default();
+
+        let matched = BUILTIN_APPS
+            .iter()
+            .copied()
+            .chain(extra.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')))
+            .any(|name| name.eq_ignore_ascii_case(&app));
+
+        if matched {
+            log::info!("{app} is on the Index->Vive list: Index controllers will present as Vive wands");
+        } else {
+            log::info!("Index->Vive compat not enabled for app '{app}'");
+        }
+        matched
     });
     *ENABLED
 }
