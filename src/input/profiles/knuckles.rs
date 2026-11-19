@@ -24,7 +24,8 @@ pub struct Knuckles;
 /// | Vive wand               | Index controller                    |
 /// |-------------------------|-------------------------------------|
 /// | Trackpad (Axis0) xy     | Thumbstick                          |
-/// | Trackpad click / touch  | Thumbstick click / touch, or A click|
+/// | Trackpad click / touch  | Thumbstick click / touch            |
+/// | A button                | A (bottom face button)              |
 /// | Trigger (Axis1)         | Trigger                             |
 /// | Grip button             | Squeeze                             |
 /// | Application menu        | B                                   |
@@ -118,6 +119,7 @@ impl InteractionProfile for Knuckles {
                     EVRButtonId::System,
                     EVRButtonId::ApplicationMenu,
                     EVRButtonId::Grip,
+                    EVRButtonId::A,
                     EVRButtonId::Axis0,
                     EVRButtonId::Axis1
                 ),
@@ -175,29 +177,21 @@ impl InteractionProfile for Knuckles {
 
     fn legacy_bindings(c: &super::InputToXrPath<Self>) -> LegacyBindings {
         if index_as_vive() {
-            // Vive wands have no A button, and many Vive games treat a trackpad press as
-            // their primary "select", so let A also act as a trackpad click.
+            // The bottom face button (A) stays a separate A button, as on Oculus/Touch
+            // controllers, rather than acting as a trackpad click.
             return LegacyBindings {
                 extra: legacy::Bindings {
                     grip_pose: c.pose(),
                 },
                 app_menu: c.leftright::<B, Click, _, _>(),
-                a: vec![],
+                a: c.leftright::<A, Click, _, _>(),
                 trigger: c.leftright::<Trigger, Value, _, _>(),
                 trigger_click: c.leftright::<Trigger, Click, _, _>(),
                 squeeze: c.leftright::<Squeeze, Value, _, _>(),
                 squeeze_click: c.leftright::<Squeeze, Value, _, _>(),
                 main_xy: c.leftright::<Thumbstick, (), _, _>(),
-                main_xy_click: c
-                    .leftright::<Thumbstick, Click, _, _>()
-                    .into_iter()
-                    .chain(c.leftright::<A, Click, _, _>())
-                    .collect(),
-                main_xy_touch: c
-                    .leftright::<Thumbstick, Touch, _, _>()
-                    .into_iter()
-                    .chain(c.leftright::<A, Touch, _, _>())
-                    .collect(),
+                main_xy_click: c.leftright::<Thumbstick, Click, _, _>(),
+                main_xy_touch: c.leftright::<Thumbstick, Touch, _, _>(),
                 haptic: c.haptics(),
             };
         }
