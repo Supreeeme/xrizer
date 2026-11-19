@@ -497,7 +497,7 @@ impl vr::IVRSystem026_Interface for System {
             return false;
         };
 
-        if let Some(handle) = overlay.get_next_overlay_event(event) {
+        if let Some(handle) = overlay.get_next_overlay_event(std::mem::size_of::<vr::VREvent_t>() as u32, event) {
             if !overlay_handle.is_null() {
                 unsafe {
                     overlay_handle.write(handle);
@@ -519,6 +519,21 @@ impl vr::IVRSystem026_Interface for System {
         let Some(input) = self.input.get() else {
             return false;
         };
+
+        // Keyboard events for the scene app
+        if let Some(overlay) = self.overlay.get() {
+            if overlay
+                .pop_keyboard_event(None, false, size, event)
+                .is_some()
+            {
+                if !pose.is_null() {
+                    unsafe {
+                        pose.write(input.get_device_pose(0, Some(origin)).unwrap());
+                    }
+                }
+                return true;
+            }
+        }
 
         let got_event = input.get_next_event(size, event);
         if got_event && !pose.is_null() {

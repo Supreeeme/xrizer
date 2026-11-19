@@ -12,6 +12,63 @@ use std::iter::Iterator;
 
 pub struct Knuckles;
 
+/// Index -> Vive wand compatibility mode, for games that only speak the legacy
+/// `GetControllerState` API and only understand HTC Vive wands.
+///
+/// Enabled automatically for known legacy-only games (matched by executable name, see
+/// `BUILTIN_APPS` and `~/.config/xrizer/index_as_vive_apps`), or for every app by setting
+/// `XRIZER_INDEX_AS_VIVE` to anything other than `0`/empty.
+/// When active, Knuckles controllers identify as Vive wands (controller type, model,
+/// render model, axis types, supported buttons) and the legacy button layout is remapped:
+///
+/// | Vive wand               | Index controller                    |
+/// |-------------------------|-------------------------------------|
+/// | Trackpad (Axis0) xy     | Thumbstick                          |
+/// | Trackpad click / touch  | Thumbstick click / touch            |
+/// | A button                | A (bottom face button)              |
+/// | Trigger (Axis1)         | Trigger                             |
+/// | Grip button             | Squeeze                             |
+/// | Application menu        | B                                   |
+pub fn index_as_vive() -> bool {
+    /// Games known to only work with Vive wands. Matched case-insensitively against the
+    /// executable name (without `.exe`).
+    const BUILTIN_APPS: &[&str] = &["SkyrimVR", "sksevr_loader"];
+
+    static ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        if std::env::var("XRIZER_INDEX_AS_VIVE").is_ok_and(|v| !v.is_empty() && v != "0") {
+            log::info!("XRIZER_INDEX_AS_VIVE is set: Index controllers will present as Vive wands");
+            return true;
+        }
+
+        let Some(app) = crate::openxr_data::get_app_name() else {
+            return false;
+        };
+
+        // Extra apps can be listed one per line in $XDG_CONFIG_HOME/xrizer/index_as_vive_apps
+        // (default ~/.config/xrizer/index_as_vive_apps), since env vars often don't reach
+        // games launched through Wine/Proton.
+        let extra = std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".config")))
+            .and_then(|d| std::fs::read_to_string(d.join("xrizer").join("index_as_vive_apps")).ok())
+            .unwrap_or_default();
+
+        let matched = BUILTIN_APPS
+            .iter()
+            .copied()
+            .chain(extra.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')))
+            .any(|name| name.eq_ignore_ascii_case(&app));
+
+        if matched {
+            log::info!("{app} is on the Index->Vive list: Index controllers will present as Vive wands");
+        } else {
+            log::info!("Index->Vive compat not enabled for app '{app}'");
+        }
+        matched
+    });
+    *ENABLED
+}
+
 impl InteractionProfile for Knuckles {
     type LegalPaths = legal_paths![
         Both::<
@@ -40,6 +97,35 @@ impl InteractionProfile for Knuckles {
         true
     }
     fn properties() -> &'static ProfileProperties {
+        if index_as_vive() {
+            // Reuse the Vive wand's identity, but keep Index's serial/registered
+            // device type so the device stays unique and is still tracked as lighthouse.
+            static VIVE_COMPAT_PROPERTIES: ProfileProperties = ProfileProperties {
+                model: Property::BothHands(c"Vive. MV"),
+                openvr_controller_type: c"vive_controller",
+                render_model_name: Property::BothHands(c"vr_controller_vive_1_5"),
+                main_axis: MainAxisType::Trackpad,
+                registered_device_type: Property::PerHand {
+                    left: c"htc/vive_controllerLHR-FFFFFFF1",
+                    right: c"htc/vive_controllerLHR-FFFFFFF2",
+                },
+                serial_number: Property::PerHand {
+                    left: c"LHR-FFFFFFF1",
+                    right: c"LHR-FFFFFFF2",
+                },
+                tracking_system_name: c"lighthouse",
+                manufacturer_name: c"HTC",
+                legacy_buttons_mask: button_mask_from_ids!(
+                    EVRButtonId::System,
+                    EVRButtonId::ApplicationMenu,
+                    EVRButtonId::Grip,
+                    EVRButtonId::A,
+                    EVRButtonId::Axis0,
+                    EVRButtonId::Axis1
+                ),
+            };
+            return &VIVE_COMPAT_PROPERTIES;
+        }
         static DEVICE_PROPERTIES: ProfileProperties = ProfileProperties {
             model: Property::PerHand {
                 left: c"Knuckles Left",
@@ -90,6 +176,25 @@ impl InteractionProfile for Knuckles {
     }
 
     fn legacy_bindings(c: &super::InputToXrPath<Self>) -> LegacyBindings {
+        if index_as_vive() {
+            // The bottom face button (A) stays a separate A button, as on Oculus/Touch
+            // controllers, rather than acting as a trackpad click.
+            return LegacyBindings {
+                extra: legacy::Bindings {
+                    grip_pose: c.pose(),
+                },
+                app_menu: c.leftright::<B, Click, _, _>(),
+                a: c.leftright::<A, Click, _, _>(),
+                trigger: c.leftright::<Trigger, Value, _, _>(),
+                trigger_click: c.leftright::<Trigger, Click, _, _>(),
+                squeeze: c.leftright::<Squeeze, Value, _, _>(),
+                squeeze_click: c.leftright::<Squeeze, Value, _, _>(),
+                main_xy: c.leftright::<Thumbstick, (), _, _>(),
+                main_xy_click: c.leftright::<Thumbstick, Click, _, _>(),
+                main_xy_touch: c.leftright::<Thumbstick, Touch, _, _>(),
+                haptic: c.haptics(),
+            };
+        }
         LegacyBindings {
             extra: legacy::Bindings {
                 grip_pose: c.pose(),
@@ -123,6 +228,10 @@ impl InteractionProfile for Knuckles {
     }
 
     fn offset_grip_pose(hand: Hand) -> Mat4 {
+        if index_as_vive() {
+            // The Vive render model's origin matches the raw OpenXR grip pose.
+            return Mat4::IDENTITY;
+        }
         match hand {
             Hand::Left => Mat4::from_rotation_translation(
                 Quat::from_euler(
