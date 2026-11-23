@@ -9,8 +9,8 @@ use crate::{
     input::{
         GrabActions,
         custom_bindings::{
-            DoubleTapData, DpadActions, DpadBindingParams, DpadData, GrabBindingData,
-            ThresholdBindingFloat, ThresholdBindingVector2, ToggleData,
+            DpadActions, DpadBindingParams, DpadData, GrabBindingData, ThresholdBindingFloat,
+            ThresholdBindingVector2, ToggleData,
         },
     },
     openxr_data::Hand,
@@ -25,6 +25,7 @@ use serde::{
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::str::FromStr;
+use std::time::Duration;
 
 /**
  * Structure for binding files
@@ -308,6 +309,7 @@ struct ButtonParameters {
     force_input: Option<ButtonForceInput>,
     #[serde(flatten)]
     click_threshold: ClickThresholdParams,
+    double_press_delay: Option<FromString<f64>>,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug)]
@@ -617,29 +619,27 @@ pub fn handle_sources(
                 }
 
                 let click_path = path.with_component(DynComponent::Click);
+                let mut click = click.as_ref();
+                let double_press_delay = parameters
+                    .and_then(|p| p.double_press_delay)
+                    .and_then(|seconds| Duration::try_from_secs_f64(*seconds).ok());
                 if let Some(double) = double
+                    && context.find_action(&double.output.path)
                     && let Ok(complete_path) = validate_path(click_path)
                         .ok_or_else(|| InvalidActionPath(click_path, &double.output.path))
                         .inspect_err(InvalidActionPath::warn)
                 {
-                    let name = context.add_custom_binding::<DoubleTapData>(
-                        &double.output,
-                        complete_path.hand,
-                        action_set_name,
+                    let single = click.take().filter(|c| context.find_action(&c.output.path));
+                    context.bind_taps(
                         action_set,
-                        None,
-                    );
-
-                    context.push_binding(
-                        name,
-                        context
-                            .instance
-                            .string_to_path(&complete_path.to_string())
-                            .unwrap(),
+                        complete_path,
+                        &double.output,
+                        single.map(|c| &c.output),
+                        double_press_delay,
                     );
                 }
 
-                for click in [click, grab].into_iter().flatten() {
+                for click in [click, grab.as_ref()].into_iter().flatten() {
                     let target = parameters.and_then(|x| x.force_input).unwrap_or(
                         // Default to value for clicky components, because the click point
                         // does not necessarily match SteamVR's click point.

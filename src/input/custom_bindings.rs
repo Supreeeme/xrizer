@@ -7,7 +7,7 @@ use openxr as xr;
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use xr::{Haptic, HapticVibration};
 
 mod marker {
@@ -654,129 +654,148 @@ impl<T: ThresholdType> BoolCustomBinding for ThresholdBindingData<T> {
     }
 }
 
-mod atomic_time {
-    use openxr as xr;
-    use std::sync::atomic::{AtomicI64, Ordering};
+pub(super) const DEFAULT_DOUBLE_PRESS: Duration = Duration::from_millis(250);
 
-    pub struct AtomicTime(AtomicI64);
-
-    impl AtomicTime {
-        pub fn new(time: i64) -> Self {
-            Self(time.into())
-        }
-
-        pub fn store(&self, time: xr::Time) {
-            self.0.store(time.as_nanos(), Ordering::Relaxed);
-        }
-
-        pub fn load(&self) -> xr::Time {
-            xr::Time::from_nanos(self.0.load(Ordering::Relaxed))
-        }
-    }
-}
-use atomic_time::AtomicTime;
-
-pub(super) struct DoubleTapData {
-    clicked_once: AtomicBool,
-    first_release_time: AtomicTime,
-    active: AtomicBool,
+fn is_double_tap(press_time: xr::Time, release_time: xr::Time, window: Duration) -> bool {
+    let elapsed: xr::Duration = press_time - release_time;
+    Duration::from_nanos(elapsed.as_nanos().try_into().unwrap_or(0)) <= window
 }
 
-impl DoubleTapData {
-    const TIMEOUT_MS: u128 = 300;
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum TapOutput {
+    Single = 0,
+    Double = 1,
 }
 
-impl BoolCustomBinding for DoubleTapData {
-    type ExtraActions<M: ActionsMarker> = Action<bool, M>;
-    type BindingParams = ();
+/// One button source feeds both outputs, even when the application polls only one of them.
+pub(super) struct TapBinding {
+    pub(super) action: xr::Action<bool>,
+    profile: xr::Path,
+    hand: xr::Path,
+    window: Duration,
+    taps: Mutex<ButtonTaps>,
+}
 
-    fn extra_action_names(cleaned_action_name: &str) -> Self::ExtraActions<Names> {
-        format!("{cleaned_action_name}_dbl")
+impl TapBinding {
+    pub fn new(
+        action: xr::Action<bool>,
+        profile: xr::Path,
+        hand: xr::Path,
+        window: Option<Duration>,
+    ) -> Self {
+        Self {
+            action,
+            profile,
+            hand,
+            window: window.unwrap_or(DEFAULT_DOUBLE_PRESS),
+            taps: Mutex::default(),
+        }
     }
 
-    fn get_actions(
-        extra_actions: &mut ExtraActionData,
-    ) -> Option<&mut Option<Self::ExtraActions<Actions>>> {
-        Some(&mut extra_actions.double_action)
+    pub fn sync(&self, session: &xr::Session<xr::AnyGraphics>, now: Instant) {
+        let mut taps = self.taps.lock().unwrap();
+        let raw = match self.action.state(session, self.hand) {
+            Ok(state) if state.is_active => state,
+            _ => {
+                *taps = ButtonTaps::default();
+                return;
+            }
+        };
+        let single = taps.update(self.window, raw.current_state, raw.last_change_time, now);
+        let double = matches!(taps.phase, TapPhase::Double);
+        for (slot, pressed) in taps.outputs.iter_mut().zip([single, double]) {
+            *slot = Some(xr::ActionState {
+                current_state: pressed,
+                changed_since_last_sync: slot.is_some_and(|s| s.current_state) != pressed,
+                ..raw
+            });
+        }
     }
 
-    fn create_actions(
-        action_name: &Self::ExtraActions<Names>,
-        action_set: &xr::ActionSet,
-        subaction_paths: &[xr::Path],
-    ) -> Self::ExtraActions<Actions> {
-        action_set
-            .create_action(
-                action_name,
-                &format!("{action_name} (double)"),
-                subaction_paths,
-            )
-            .unwrap()
-    }
-
-    fn create_binding_data(_: Option<&Self::BindingParams>) -> BoolBindingType {
-        BoolBindingType::DoubleTap(DoubleTapData {
-            clicked_once: false.into(),
-            active: false.into(),
-            first_release_time: AtomicTime::new(0),
-        })
-    }
-
-    fn state(
+    pub fn output(
         &self,
-        action: &Self::ExtraActions<Actions>,
-        session: &xr::Session<xr::AnyGraphics>,
-        subaction_path: xr::Path,
-    ) -> xr::Result<Option<xr::ActionState<bool>>> {
-        let state = action.state(session, subaction_path)?;
-        if !state.is_active {
-            return Ok(None);
+        kind: TapOutput,
+        profile: xr::Path,
+        hand: xr::Path,
+    ) -> Option<xr::ActionState<bool>> {
+        if self.profile != profile || self.hand != hand {
+            return None;
         }
+        self.taps.lock().unwrap().outputs[kind as usize]
+    }
+}
 
-        if !state.current_state {
-            if self.clicked_once.load(Ordering::Relaxed) {
-                self.first_release_time.store(state.last_change_time);
+#[derive(Clone, Copy, Default)]
+enum TapPhase {
+    #[default]
+    Idle,
+    Down(Instant),
+    /// Held past the window: reported as a held click.
+    Held,
+    /// `owed`: the press hasn't been reported as a click yet.
+    Up {
+        seen: Instant,
+        release_time: xr::Time,
+        owed: bool,
+    },
+    /// Second press of a double press.
+    Double,
+}
+
+#[derive(Default)]
+struct ButtonTaps {
+    phase: TapPhase,
+    pulse_end: Option<Instant>,
+    outputs: [Option<xr::ActionState<bool>>; 2],
+}
+
+impl ButtonTaps {
+    /// How long a tap is reported as pressed, since there's no real release to follow.
+    /// Long enough for apps that sync several times per frame to see it.
+    const PULSE: Duration = Duration::from_millis(80);
+
+    /// Compare input timestamps for a double, and time held clicks and pulses from the sync.
+    fn update(
+        &mut self,
+        window: Duration,
+        pressed: bool,
+        change_time: xr::Time,
+        now: Instant,
+    ) -> bool {
+        use TapPhase::*;
+        let mut click = false;
+        self.phase = match (self.phase, pressed) {
+            (Idle, true) => Down(now),
+            (Down(since), true) if now - since > window => Held,
+            (Down(_), false) => Up {
+                seen: now,
+                release_time: change_time,
+                owed: true,
+            },
+            (Held, false) => Up {
+                seen: now,
+                release_time: change_time,
+                owed: false,
+            },
+            (Up { release_time, .. }, true) if is_double_tap(change_time, release_time, window) => {
+                Double
             }
-            return Ok(Some(xr::ActionState {
-                current_state: false,
-                changed_since_last_sync: self.active.swap(false, Ordering::Relaxed),
-                ..state
-            }));
-        }
-
-        if self.active.load(Ordering::Relaxed) {
-            Ok(Some(state))
-        } else {
-            let clicked_once = self.clicked_once.fetch_not(Ordering::Relaxed);
-            let active = clicked_once && {
-                let elapsed: xr::Duration = state.last_change_time - self.first_release_time.load();
-                let elapsed = Duration::from_nanos(
-                    elapsed
-                        .as_nanos()
-                        .try_into()
-                        // A controller's clock can briefly run backwards (a sample
-                        // timestamped in the past), making elapsed negative. Out of
-                        // order events are equivalent to zero elapsed time here, so
-                        // clamp instead of panicking.
-                        .unwrap_or(0),
-                );
-                elapsed.as_millis() <= Self::TIMEOUT_MS
-            };
-
-            if active {
-                self.active.store(true, Ordering::Relaxed);
-            } else if clicked_once {
-                // If the double tap timed out, we'll need to reset our clicked state
-                // If clicked_once is true, then self.clicked_once is false (because of fetch_not)
-                self.clicked_once.store(true, Ordering::Relaxed);
+            (Up { owed, .. }, true) => {
+                click = owed;
+                Down(now)
             }
-
-            Ok(Some(xr::ActionState {
-                current_state: active,
-                changed_since_last_sync: active,
-                ..state
-            }))
+            (Up { seen, owed, .. }, false) if now - seen > window => {
+                click = owed;
+                Idle
+            }
+            (Double, false) => Idle,
+            (phase, _) => phase,
+        };
+        if click {
+            self.pulse_end = Some(now + Self::PULSE);
         }
+        self.pulse_end = self.pulse_end.filter(|&end| now < end);
+        matches!(self.phase, Held) || self.pulse_end.is_some()
     }
 }
 
@@ -806,7 +825,6 @@ pub enum BoolBindingType {
     //  the xr::Action is read from ActionData
     // This can include actions where behavior is customized via OXR extensions
     Dpad(DpadData),
-    DoubleTap(DoubleTapData),
     Toggle(ToggleData),
     Grab(GrabBindingData),
     ThresholdFloat(ThresholdBindingFloat),
@@ -856,9 +874,6 @@ impl BoolBindingData {
             }
             BoolBindingType::ThresholdVec2(threshold) => {
                 get_state!(threshold, vector2_action)
-            }
-            BoolBindingType::DoubleTap(double) => {
-                get_state!(double, double_action)
             }
         }?;
 
@@ -950,9 +965,13 @@ mod tests {
             let input = $fixture.input.clone();
             let data = input.openxr.session_data.get();
             let actions = data.input_data.get_loaded_actions().unwrap();
-            let ExtraActionData { double_action, .. } = actions.try_get_extra($handle).unwrap();
-
-            let $double_data = double_action.as_ref().unwrap();
+            let extras = actions.try_get_extra($handle).unwrap();
+            let (_, tap) = extras
+                .taps
+                .iter()
+                .find(|(kind, _)| *kind == TapOutput::Double)
+                .unwrap();
+            let $double_data = &tap.action;
         };
     }
 
@@ -1710,6 +1729,7 @@ mod tests {
             ..Default::default()
         };
         let boolact = f.get_action_handle(c"/actions/set1/in/boolact3");
+        let click = f.get_action_handle(c"/actions/set1/in/boolact");
         f.load_actions(c"actions.json");
         get_double_action!(f, boolact, double_action);
         let set_action = |state: bool| {
@@ -1726,18 +1746,20 @@ mod tests {
         let inactive_state = BoolState::default().set_active();
         f.verify_bool_state(boolact, inactive_state);
 
+        // The app only polls the click during the first tap.
         set_action(true);
         f.sync(active_set);
-        f.verify_bool_state(boolact, inactive_state);
-
+        f.verify_bool_state(click, inactive_state);
         set_action(false);
         f.sync(active_set);
-        f.verify_bool_state(boolact, inactive_state);
+        f.verify_bool_state(click, inactive_state);
 
         set_action(true);
         let active_state = inactive_state.set_state();
         f.sync(active_set);
         f.verify_bool_state(boolact, active_state.set_changed());
+
+        f.verify_bool_state(click, inactive_state);
 
         // Hold
         set_action(true);
@@ -1751,6 +1773,18 @@ mod tests {
         set_action(false);
         f.sync(active_set);
         f.verify_bool_state(boolact, inactive_state);
+
+        // Right A has no double binding and drives the same click action immediately.
+        f.set_interaction_profile::<Knuckles>(RightHand);
+        let right = f.get_input_source_handle(c"/user/hand/right");
+        let raw = f.get_action::<bool>(click);
+        for (pressed, changed) in [(false, false), (true, true), (false, true)] {
+            fakexr::set_action_state(raw, pressed.into(), RightHand);
+            f.sync(active_set);
+            let state = f.get_bool_state_hand(click, right).unwrap();
+            assert!(state.bActive);
+            assert_eq!((state.bState, state.bChanged), (pressed, changed));
+        }
     }
 
     #[test]
@@ -1787,29 +1821,28 @@ mod tests {
         f.sync(active_set);
         f.verify_bool_state(boolact, inactive_state);
 
-        let duration = std::time::Duration::from_millis(DoubleTapData::TIMEOUT_MS as u64 + 1);
-        let late_press_time = xr::Time::from_nanos(duration.as_nanos() as _);
-        let set_action_late = |state| {
+        // Test the configured 400 ms at both sides of the cutoff.
+        let set_action_at = |state, ms: i64| {
             fakexr::set_action_state_with_time(
                 double_action.as_raw(),
                 fakexr::ActionState::Bool(state),
                 LeftHand,
-                late_press_time,
+                xr::Time::from_nanos(ms * 1_000_000),
             );
         };
 
         // fail
-        set_action_late(true);
+        set_action_at(true, 401);
         f.sync(active_set);
         f.verify_bool_state(boolact, inactive_state);
 
         // following double tap should succeed
-        set_action_late(false);
+        set_action_at(false, 450);
         f.sync(active_set);
         f.verify_bool_state(boolact, inactive_state);
 
         let active_state = inactive_state.set_state();
-        set_action_late(true);
+        set_action_at(true, 850);
         f.sync(active_set);
         f.verify_bool_state(boolact, active_state.set_changed());
     }
@@ -1824,5 +1857,60 @@ mod tests {
             ExtraActionType::Double,
             ["/user/hand/left/input/a/click".to_string()],
         );
+    }
+
+    /// Polls a [`ButtonTaps`] every 10 ms until `end` and returns the times its output changed.
+    /// `inputs` are (time, pressed). All times in ms.
+    fn tap_edges(inputs: &[(u64, bool)], end: u64) -> Vec<u64> {
+        let t0 = Instant::now();
+        let mut click = ButtonTaps::default();
+        let (mut last, mut edges) = (false, vec![]);
+        for now in (0..=end).step_by(10) {
+            let &(change_time, pressed) = inputs
+                .iter()
+                .rev()
+                .find(|(at, _)| *at <= now)
+                .unwrap_or(&(0, false));
+            let output = click.update(
+                DEFAULT_DOUBLE_PRESS,
+                pressed,
+                xr::Time::from_nanos(change_time as i64 * 1_000_000),
+                t0 + Duration::from_millis(now),
+            );
+            if output != last {
+                edges.push(now);
+                last = output;
+            }
+        }
+        edges
+    }
+
+    #[test]
+    fn button_taps() {
+        // Tap: a pulse once the window has passed.
+        let tap = [(0, true), (80, false)];
+        assert_eq!(tap_edges(&tap, 1000), [340, 420]);
+        // Double press: nothing, only the double fires.
+        let double = [(0, true), (80, false), (200, true), (280, false)];
+        assert!(tap_edges(&double, 1000).is_empty());
+        // Second press after the window: two taps.
+        let slow_double = [(0, true), (80, false), (400, true), (480, false)];
+        assert_eq!(tap_edges(&slow_double, 1500), [340, 420, 740, 820]);
+        // Hold: pressed once the window has passed, until release.
+        let hold = [(0, true), (700, false)];
+        assert_eq!(tap_edges(&hold, 1500), [260, 700]);
+        // A tap right after a hold is a double press.
+        let hold_tap = [(0, true), (700, false), (800, true), (850, false)];
+        assert_eq!(tap_edges(&hold_tap, 1500), [260, 700]);
+        // Triple: a double press, then a tap.
+        let triple = [
+            (0, true),
+            (50, false),
+            (100, true),
+            (150, false),
+            (200, true),
+            (250, false),
+        ];
+        assert_eq!(tap_edges(&triple, 1500), [510, 590]);
     }
 }

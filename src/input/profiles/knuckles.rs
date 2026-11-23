@@ -164,7 +164,6 @@ mod tests {
             path,
             c"/actions/set1/in/boolact",
             [
-                "/user/hand/left/input/a/click".into(),
                 "/user/hand/right/input/a/click".into(),
                 "/user/hand/left/input/b/click".into(),
                 "/user/hand/right/input/b/click".into(),
@@ -195,6 +194,13 @@ mod tests {
             path,
             c"/user/hand/left/input/trackpad/click-/actions/set1",
             ["/user/hand/left/input/trackpad/force".into()],
+        );
+
+        f.verify_extra_bindings(
+            path,
+            c"/actions/set1/in/boolact",
+            crate::input::tests::ExtraActionType::DeferredClick,
+            ["/user/hand/left/input/a/click".into()],
         );
 
         let handle = f.get_action_handle(c"/actions/set1/in/boolact");

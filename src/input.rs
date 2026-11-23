@@ -22,7 +22,7 @@ use crate::{
     openxr_data::{self, Hand, OpenXrData, SessionData},
     tracy_span,
 };
-use custom_bindings::{BoolBindingData, GrabActions};
+use custom_bindings::{BoolBindingData, GrabActions, TapBinding, TapOutput};
 use glam::Quat;
 use legacy::LegacyActionData;
 use log::{debug, info, trace, warn};
@@ -207,18 +207,20 @@ impl<C: openxr_data::Compositor> Input<C> {
             .session
             .current_interaction_profile(subaction)
             .ok()?;
+        let extra_data = loaded_actions.try_get_extra(action).ok()?;
+        let taps = extra_data
+            .taps
+            .iter()
+            .filter_map(|(kind, tap)| tap.output(*kind, interaction_profile, subaction));
         let bindings = loaded_actions
             .try_get_bindings(action, interaction_profile)
-            .ok()?;
-        let extra_data = loaded_actions.try_get_extra(action).ok()?;
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|b| b.state(&session, extra_data, subaction).ok().flatten());
 
         let mut best_state: Option<xr::ActionState<bool>> = None;
-
-        for x in bindings.iter() {
-            let Ok(Some(state)) = x.state(&session, extra_data, subaction) else {
-                continue;
-            };
-
+        for state in taps.chain(bindings) {
             if state.is_active
                 && (!best_state.is_some_and(|x| x.is_active)
                     || state.current_state && !best_state.is_some_and(|x| x.current_state))
@@ -285,7 +287,7 @@ enum ActionData {
 struct ExtraActionData {
     toggle_action: Option<xr::Action<bool>>,
     analog_action: Option<xr::Action<f32>>,
-    double_action: Option<xr::Action<bool>>,
+    taps: Vec<(TapOutput, Arc<TapBinding>)>,
     vector2_action: Option<xr::Action<xr::Vector2f>>,
     grab_actions: Option<GrabActions<custom_bindings::Actions>>,
 }
@@ -1065,6 +1067,16 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         {
             tracy_span!("xrSyncActions");
             data.session.sync_actions(&sync_sets).unwrap();
+        }
+
+        // Every tap source has exactly one double output, including double-only bindings.
+        let now = std::time::Instant::now();
+        for (_, extra) in &actions.extra_actions {
+            for (kind, tap) in &extra.taps {
+                if matches!(kind, TapOutput::Double) {
+                    tap.sync(&data.session, now);
+                }
+            }
         }
 
         let devices = data.input_data.devices.read().unwrap();

@@ -1,5 +1,6 @@
 use super::{
     ActionData, Input, InteractionProfile,
+    custom_bindings::TapOutput,
     profiles::{
         knuckles::Knuckles, oculus_touch::OculusTouch, simple_controller::SimpleController,
         vive_controller::ViveWands,
@@ -76,6 +77,7 @@ pub enum ExtraActionType {
     DpadDirection,
     ToggleAction,
     Double,
+    DeferredClick,
 }
 
 impl Fixture {
@@ -284,13 +286,21 @@ impl Fixture {
             .expect("Actions aren't loaded");
         let extras = actions.try_get_extra(handle).ok()?;
 
+        let tap = |kind| {
+            extras
+                .taps
+                .iter()
+                .find(|(output, _)| *output == kind)
+                .map(|(_, tap)| tap.action.as_raw())
+        };
         Some(match extra_action_type {
             ExtraActionType::Analog => extras.analog_action.as_ref()?.as_raw(),
             ExtraActionType::GrabTouch => extras.grab_actions.as_ref()?.value_action.as_raw(),
             ExtraActionType::GrabForce => extras.grab_actions.as_ref()?.force_action.as_raw(),
             ExtraActionType::DpadDirection => extras.vector2_action.as_ref()?.as_raw(),
             ExtraActionType::ToggleAction => extras.toggle_action.as_ref()?.as_raw(),
-            ExtraActionType::Double => extras.double_action.as_ref()?.as_raw(),
+            ExtraActionType::Double => tap(TapOutput::Double)?,
+            ExtraActionType::DeferredClick => tap(TapOutput::Single)?,
         })
     }
 
