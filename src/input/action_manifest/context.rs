@@ -1,7 +1,7 @@
 use super::actions::LoadedActionDataMap;
 use super::bindings::{ActionPath, DpadParameters, DpadSubMode};
 use crate::input::custom_bindings::{
-    AsActionData, AsIter, BoolBindingData, CustomBindingHelper, Names,
+    AsActionData, AsIter, BoolBindingData, CustomBindingHelper, Names, TapBinding, TapOutput,
 };
 use crate::input::profiles::{DynInputPath, paths};
 use crate::input::skeletal::SkeletalInputActionData;
@@ -10,6 +10,8 @@ use crate::openxr_data::{self, Hand};
 use log::{info, trace, warn};
 use openxr as xr;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
 
 pub(super) struct BindingsLoadContext<'a> {
     pub action_sets: &'a HashMap<String, xr::ActionSet>,
@@ -92,6 +94,7 @@ impl BindingsLoadContext<'_> {
             skeletal_input: self.skeletal_input,
             instance,
             hands,
+            profile: interaction_profile,
             bindings: Vec::new(),
             use_force_for_dpad: P::USE_FORCE_DPAD,
         })
@@ -111,6 +114,7 @@ pub(super) struct BindingsProfileLoadContext<'a> {
     pub instance: &'a xr::Instance,
     pub hands: [xr::Path; 2],
     pub bindings: Vec<(String, xr::Path)>,
+    profile: xr::Path,
     use_force_for_dpad: bool,
 }
 
@@ -226,6 +230,39 @@ impl BindingsProfileLoadContext<'_> {
             ));
 
         T::ExtraActions::from_iter(full_names)
+    }
+
+    pub fn bind_taps(
+        &mut self,
+        set: &xr::ActionSet,
+        path: DynInputPath,
+        double: &ActionPath,
+        click: Option<&ActionPath>,
+        window: Option<Duration>,
+    ) {
+        let hand = match path.hand {
+            Hand::Left => self.hands[0],
+            Hand::Right => self.hands[1],
+        };
+        let name = format!("xrizer-tap-{}", self.actions.len());
+        let raw = set.create_action(&name, &name, &[hand]).unwrap();
+        let binding = self.instance.string_to_path(&path.to_string()).unwrap();
+        self.actions
+            .insert(name.clone(), ActionData::Bool(raw.clone()));
+        self.push_binding(name, binding);
+
+        let tap = Arc::new(TapBinding::new(raw, self.profile, hand, window));
+        let mut bind = |output: &ActionPath, kind| {
+            self.extra_actions
+                .entry(output.path.clone())
+                .or_default()
+                .taps
+                .push((kind, tap.clone()));
+        };
+        bind(double, TapOutput::Double);
+        if let Some(output) = click {
+            bind(output, TapOutput::Single);
+        }
     }
 
     pub fn push_binding(&mut self, action: String, path: xr::Path) {
