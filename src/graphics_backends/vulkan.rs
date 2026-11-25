@@ -12,8 +12,13 @@ struct RealSessionData {
     format: vk::Format,
     pool: vk::CommandPool,
     bufs: Vec<vk::CommandBuffer>,
+    /// One fence per entry in `bufs`, signaled when that buffer's last submission completes.
+    fences: Vec<vk::Fence>,
     overlay_pipeline: Option<PipelineData>,
 }
+
+/// Upper bound for waiting on our own submissions. Healthy copies finish in well under a frame.
+const OWN_WORK_TIMEOUT_NS: u64 = 1_000_000_000;
 
 pub struct VulkanData {
     _entry: ash::Entry,
@@ -23,30 +28,68 @@ pub struct VulkanData {
     pub queue: vk::Queue,
     pub queue_family_index: u32,
     real_data: Option<RealSessionData>,
+    /// True only for the temporary device/instance we created ourselves (`new_temporary`).
+    /// Otherwise the device, its queues and the instance belong to the app.
+    owns_device: bool,
 }
 
 impl Drop for VulkanData {
     fn drop(&mut self) {
-        unsafe {
-            self.device.device_wait_idle().unwrap();
+        if let Some(data) = self.real_data.take() {
+            self.destroy_real_data(data);
         }
-        match &self.real_data {
-            // Temporary session - we created these handles, so let's destroy them
-            None => unsafe {
+        if self.owns_device {
+            // Temporary session - we created these handles and nobody else uses them.
+            unsafe {
+                self.device.device_wait_idle().unwrap();
                 self.device.destroy_device(None);
                 self.instance.destroy_instance(None);
-            },
-            // Real session - the handles come from the app, only destroy the command pool we created
-            Some(data) => unsafe {
-                self.device.destroy_command_pool(data.pool, None);
-                if let Some(data) = &data.overlay_pipeline {
-                    self.device.destroy_pipeline(data.pipeline, None);
-                    self.device.destroy_pipeline_layout(data.layout, None);
-                    self.device.destroy_render_pass(data.renderpass, None);
-                    self.device.destroy_descriptor_pool(data.pool, None);
-                    self.device.destroy_sampler(data.sampler, None);
-                }
-            },
+            }
+        }
+    }
+}
+
+impl VulkanData {
+    /// Waits (bounded) until every submission we made from `data` has completed.
+    ///
+    /// The device and queue may belong to the app (e.g. DXVK under Proton), which keeps
+    /// submitting from its own threads. vkDeviceWaitIdle/vkQueueWaitIdle require external
+    /// synchronisation of those queues and can deadlock the driver against the app's submit
+    /// thread, so we only ever wait on our own fences, which needs no queue access.
+    fn wait_own_work(&self, data: &RealSessionData) -> bool {
+        if data.fences.is_empty() {
+            return true;
+        }
+        match unsafe {
+            self.device
+                .wait_for_fences(&data.fences, true, OWN_WORK_TIMEOUT_NS)
+        } {
+            Ok(()) => true,
+            Err(e) => {
+                warn!("waiting for our own GPU work failed ({e:?}) - leaking its resources");
+                false
+            }
+        }
+    }
+
+    /// Releases what we created on the app's device. Leaks instead of destroying anything
+    /// that may still be in use by the GPU.
+    fn destroy_real_data(&self, data: RealSessionData) {
+        if !self.wait_own_work(&data) {
+            return;
+        }
+        unsafe {
+            for fence in &data.fences {
+                self.device.destroy_fence(*fence, None);
+            }
+            self.device.destroy_command_pool(data.pool, None);
+            if let Some(data) = &data.overlay_pipeline {
+                self.device.destroy_pipeline(data.pipeline, None);
+                self.device.destroy_pipeline_layout(data.layout, None);
+                self.device.destroy_render_pass(data.renderpass, None);
+                self.device.destroy_descriptor_pool(data.pool, None);
+                self.device.destroy_sampler(data.sampler, None);
+            }
         }
     }
 }
@@ -118,17 +161,27 @@ impl GraphicsBackend for VulkanData {
                 )
                 .unwrap()
         };
+        let fences = bufs
+            .iter()
+            .map(|_| unsafe {
+                self.device
+                    .create_fence(
+                        &vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED),
+                        None,
+                    )
+                    .unwrap()
+            })
+            .collect();
 
         if let Some(data) = self.real_data.replace(RealSessionData {
             images,
             format: vk::Format::from_raw(format as _),
             pool,
             bufs,
+            fences,
             overlay_pipeline: Default::default(),
         }) {
-            unsafe {
-                self.device.destroy_command_pool(data.pool, None);
-            }
+            self.destroy_real_data(data);
         }
     }
 
@@ -463,6 +516,23 @@ impl GraphicsBackend for VulkanData {
 }
 impl VulkanData {
     pub fn record_commands(&self, buf: vk::CommandBuffer, cmds: impl FnOnce()) {
+        // The buffer may still be pending from its previous use: wait for its own fence
+        // (never for the app's queue) before re-recording it.
+        let fence = self.real_data.as_ref().and_then(|data| {
+            let i = data.bufs.iter().position(|b| *b == buf)?;
+            Some(data.fences[i])
+        });
+        if let Some(fence) = fence {
+            unsafe {
+                if let Err(e) = self
+                    .device
+                    .wait_for_fences(&[fence], true, OWN_WORK_TIMEOUT_NS)
+                {
+                    warn!("previous copy did not finish ({e:?}) - re-recording anyway");
+                }
+                self.device.reset_fences(&[fence]).unwrap();
+            }
+        }
         unsafe {
             self.device
                 .begin_command_buffer(
@@ -482,7 +552,7 @@ impl VulkanData {
                 .queue_submit(
                     self.queue,
                     &[vk::SubmitInfo::default().command_buffers(&[buf])],
-                    vk::Fence::null(),
+                    fence.unwrap_or(vk::Fence::null()),
                 )
                 .unwrap();
         }
@@ -511,6 +581,7 @@ impl VulkanData {
             queue: vk::Queue::from_raw(data.m_pQueue as _),
             queue_family_index: data.m_nQueueFamilyIndex,
             real_data: Default::default(),
+            owns_device: false,
         }
     }
 
@@ -591,6 +662,7 @@ impl VulkanData {
             queue,
             queue_family_index,
             real_data: Default::default(),
+            owns_device: true,
         }
     }
 }
@@ -908,5 +980,147 @@ fn new_entry() -> ash::Entry {
         ash::Entry::from_static_fn(ash::StaticFn {
             get_instance_proc_addr: fakexr::vulkan::get_instance_proc_addr,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fakexr::vulkan::{device_stats, set_gpu_stuck};
+    use std::sync::atomic::Ordering;
+
+    /// A device "owned by the app" (like DXVK's under Proton), created through the fake loader.
+    struct AppDevice {
+        instance: ash::Instance,
+        device: ash::Device,
+        texture: vr::VRVulkanTextureData_t,
+    }
+
+    impl AppDevice {
+        fn new() -> Self {
+            let entry = new_entry();
+            let instance = unsafe {
+                entry
+                    .create_instance(&vk::InstanceCreateInfo::default(), None)
+                    .unwrap()
+            };
+            let device = unsafe {
+                instance
+                    .create_device(
+                        vk::PhysicalDevice::null(),
+                        &vk::DeviceCreateInfo::default(),
+                        None,
+                    )
+                    .unwrap()
+            };
+            let mut texture: vr::VRVulkanTextureData_t = unsafe { std::mem::zeroed() };
+            texture.m_pInstance = instance.handle().as_raw() as _;
+            texture.m_pDevice = device.handle().as_raw() as _;
+            texture.m_pQueue = 1 as _;
+            Self {
+                instance,
+                device,
+                texture,
+            }
+        }
+
+        fn stats(&self) -> &'static fakexr::vulkan::DeviceStats {
+            device_stats(self.device.handle())
+        }
+    }
+
+    impl Drop for AppDevice {
+        fn drop(&mut self) {
+            set_gpu_stuck(false);
+            // Panics inside the fake if xrizer already destroyed the app's device.
+            unsafe {
+                self.device.destroy_device(None);
+                self.instance.destroy_instance(None);
+            }
+        }
+    }
+
+    fn with_swapchain(app: &AppDevice) -> VulkanData {
+        let mut vk = VulkanData::new(&app.texture);
+        vk.store_swapchain_images(vec![1, 2], vk::Format::R8G8B8A8_SRGB.as_raw() as u32);
+        vk
+    }
+
+    #[test]
+    fn dropping_backend_without_swapchain_leaves_app_device_alive() {
+        // An overlay backend whose texture turned out invalid never gets a swapchain;
+        // dropping it used to destroy the app's VkDevice and VkInstance.
+        let app = AppDevice::new();
+        drop(VulkanData::new(&app.texture));
+        assert_eq!(app.stats().device_wait_idle.load(Ordering::Relaxed), 0);
+        // `app` drop destroys the device; the fake panics if it was destroyed before.
+    }
+
+    #[test]
+    fn drop_never_idles_the_app_device_and_frees_own_objects() {
+        let app = AppDevice::new();
+        let vk = with_swapchain(&app);
+        let bufs = vk.real_data.as_ref().unwrap().bufs.clone();
+        assert_eq!(app.stats().live_fences.load(Ordering::Relaxed), 4);
+        for buf in &bufs {
+            vk.record_commands(*buf, || {});
+        }
+        drop(vk);
+        let s = app.stats();
+        assert_eq!(
+            s.device_wait_idle.load(Ordering::Relaxed),
+            0,
+            "must not idle the app device"
+        );
+        assert_eq!(s.live_fences.load(Ordering::Relaxed), 0);
+        assert_eq!(s.live_command_pools.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn reusing_a_buffer_waits_for_its_own_fence() {
+        let app = AppDevice::new();
+        let vk = with_swapchain(&app);
+        let buf = vk.real_data.as_ref().unwrap().bufs[0];
+        let before = app.stats().wait_for_fences.load(Ordering::Relaxed);
+        vk.record_commands(buf, || {});
+        vk.record_commands(buf, || {});
+        assert_eq!(
+            app.stats().wait_for_fences.load(Ordering::Relaxed) - before,
+            2,
+            "each re-record waits on that buffer's fence"
+        );
+    }
+
+    #[test]
+    fn swapchain_recreation_releases_the_previous_objects() {
+        let app = AppDevice::new();
+        let mut vk = with_swapchain(&app);
+        let buf = vk.real_data.as_ref().unwrap().bufs[1];
+        vk.record_commands(buf, || {});
+        vk.store_swapchain_images(vec![3, 4, 5], vk::Format::R8G8B8A8_SRGB.as_raw() as u32);
+        let s = app.stats();
+        assert_eq!(s.live_fences.load(Ordering::Relaxed), 6);
+        assert_eq!(s.live_command_pools.load(Ordering::Relaxed), 1);
+        assert_eq!(s.device_wait_idle.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn wedged_gpu_leaks_instead_of_hanging_or_destroying_pending_objects() {
+        let app = AppDevice::new();
+        let vk = with_swapchain(&app);
+        let buf = vk.real_data.as_ref().unwrap().bufs[0];
+        set_gpu_stuck(true);
+        vk.record_commands(buf, || {});
+        // Second use of the same buffer: its fence never signals -> bounded wait, no hang.
+        vk.record_commands(buf, || {});
+        drop(vk);
+        let s = app.stats();
+        assert_eq!(s.device_wait_idle.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            s.live_fences.load(Ordering::Relaxed),
+            4,
+            "pending work: leaked, not freed"
+        );
+        assert_eq!(s.live_command_pools.load(Ordering::Relaxed), 1);
     }
 }
