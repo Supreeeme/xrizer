@@ -1,7 +1,11 @@
 use ash::vk::{self, Handle};
 use openxr_sys as xr_sys;
 use paste::paste;
+use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, Ordering};
 
 macro_rules! get_fn {
     ($name:expr => $($fn:ident),+) => {
@@ -60,7 +64,21 @@ extern "system" fn get_device_proc_addr(
         None
     } else {
         let name = unsafe { CStr::from_ptr(name) };
-        get_fn![name => GetDeviceQueue, DeviceWaitIdle, DestroyDevice]
+        get_fn![name =>
+            GetDeviceQueue,
+            DeviceWaitIdle,
+            DestroyDevice,
+            CreateCommandPool,
+            DestroyCommandPool,
+            AllocateCommandBuffers,
+            BeginCommandBuffer,
+            EndCommandBuffer,
+            QueueSubmit,
+            CreateFence,
+            DestroyFence,
+            WaitForFences,
+            ResetFences
+        ]
     }
 }
 
@@ -69,6 +87,62 @@ struct Instance;
 #[repr(C)]
 pub(crate) struct Device {
     debug: u64,
+    stats: DeviceStats,
+}
+
+/// Call counters of a fake device, for tests that must prove what was (not) called on it.
+#[derive(Default, Debug)]
+pub struct DeviceStats {
+    pub device_wait_idle: AtomicU32,
+    pub wait_for_fences: AtomicU32,
+    pub live_fences: AtomicI32,
+    pub live_command_pools: AtomicI32,
+}
+
+/// Counters of a device created through the fake loader. The device must still be alive.
+pub fn device_stats(device: vk::Device) -> &'static DeviceStats {
+    assert!(Device::validate(device.as_raw()), "not a live fake device");
+    unsafe { &(*(device.as_raw() as *const Device)).stats }
+}
+
+thread_local! {
+    /// While set, submissions on this thread never complete (a wedged GPU queue).
+    static GPU_STUCK: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Make submissions from the current thread never signal their fence.
+pub fn set_gpu_stuck(stuck: bool) {
+    GPU_STUCK.with(|s| s.set(stuck));
+}
+
+/// Fence state lives here, keyed by handle, instead of behind a heap pointer: a test may leak
+/// fences on purpose (wedged GPU), and leaked heap memory would fail the Miri run in CI.
+static FENCES: Mutex<BTreeMap<u64, bool>> = Mutex::new(BTreeMap::new());
+/// Handles for fake fences and command pools; never 0 (= VK_NULL_HANDLE).
+static NEXT_HANDLE: AtomicU64 = AtomicU64::new(0x10_0000);
+
+fn next_handle() -> u64 {
+    NEXT_HANDLE.fetch_add(1, Ordering::Relaxed)
+}
+
+fn fence_signaled(fence: vk::Fence) -> bool {
+    *FENCES
+        .lock()
+        .unwrap()
+        .get(&fence.as_raw())
+        .expect("not a live fake fence")
+}
+
+fn set_fence(fence: vk::Fence, signaled: bool) {
+    *FENCES
+        .lock()
+        .unwrap()
+        .get_mut(&fence.as_raw())
+        .expect("not a live fake fence") = signaled;
+}
+
+fn stats_of(device: vk::Device) -> &'static DeviceStats {
+    device_stats(device)
 }
 
 impl Device {
@@ -107,6 +181,7 @@ extern "system" fn create_device(
 ) -> vk::Result {
     let d = Box::new(Device {
         debug: Device::DEBUG_VAL,
+        stats: DeviceStats::default(),
     });
     unsafe {
         *device = vk::Device::from_raw(Box::into_raw(d) as u64);
@@ -115,7 +190,13 @@ extern "system" fn create_device(
 }
 
 extern "system" fn destroy_device(device: vk::Device, _: *const vk::AllocationCallbacks<'_>) {
-    drop(unsafe { Box::from_raw(device.as_raw() as *mut Device) });
+    assert!(
+        Device::validate(device.as_raw()),
+        "destroying a dead fake device"
+    );
+    let mut d = unsafe { Box::from_raw(device.as_raw() as *mut Device) };
+    d.debug = 0; // catches a second destroy / later use of this handle
+    drop(d);
 }
 
 extern "system" fn get_device_queue(
@@ -131,7 +212,127 @@ extern "system" fn get_device_queue(
     }
 }
 
-extern "system" fn device_wait_idle(_: vk::Device) -> vk::Result {
+extern "system" fn device_wait_idle(device: vk::Device) -> vk::Result {
+    stats_of(device)
+        .device_wait_idle
+        .fetch_add(1, Ordering::Relaxed);
+    vk::Result::SUCCESS
+}
+
+extern "system" fn create_command_pool(
+    device: vk::Device,
+    _: *const vk::CommandPoolCreateInfo<'_>,
+    _: *const vk::AllocationCallbacks<'_>,
+    pool: *mut vk::CommandPool,
+) -> vk::Result {
+    stats_of(device)
+        .live_command_pools
+        .fetch_add(1, Ordering::Relaxed);
+    unsafe { *pool = vk::CommandPool::from_raw(next_handle()) };
+    vk::Result::SUCCESS
+}
+
+extern "system" fn destroy_command_pool(
+    device: vk::Device,
+    pool: vk::CommandPool,
+    _: *const vk::AllocationCallbacks<'_>,
+) {
+    stats_of(device)
+        .live_command_pools
+        .fetch_sub(1, Ordering::Relaxed);
+    assert_ne!(
+        pool,
+        vk::CommandPool::null(),
+        "destroying a null fake command pool"
+    );
+}
+
+extern "system" fn allocate_command_buffers(
+    _: vk::Device,
+    info: *const vk::CommandBufferAllocateInfo<'_>,
+    bufs: *mut vk::CommandBuffer,
+) -> vk::Result {
+    let count = unsafe { (*info).command_buffer_count } as usize;
+    let bufs = unsafe { std::slice::from_raw_parts_mut(bufs, count) };
+    for (i, buf) in bufs.iter_mut().enumerate() {
+        *buf = vk::CommandBuffer::from_raw(0x1000 + i as u64);
+    }
+    vk::Result::SUCCESS
+}
+
+extern "system" fn begin_command_buffer(
+    _: vk::CommandBuffer,
+    _: *const vk::CommandBufferBeginInfo<'_>,
+) -> vk::Result {
+    vk::Result::SUCCESS
+}
+
+extern "system" fn end_command_buffer(_: vk::CommandBuffer) -> vk::Result {
+    vk::Result::SUCCESS
+}
+
+extern "system" fn queue_submit(
+    _: vk::Queue,
+    _: u32,
+    _: *const vk::SubmitInfo<'_>,
+    fence: vk::Fence,
+) -> vk::Result {
+    if fence != vk::Fence::null() && !GPU_STUCK.with(|s| s.get()) {
+        set_fence(fence, true);
+    }
+    vk::Result::SUCCESS
+}
+
+extern "system" fn create_fence(
+    device: vk::Device,
+    info: *const vk::FenceCreateInfo<'_>,
+    _: *const vk::AllocationCallbacks<'_>,
+    fence: *mut vk::Fence,
+) -> vk::Result {
+    stats_of(device).live_fences.fetch_add(1, Ordering::Relaxed);
+    let signaled = unsafe { (*info).flags }.contains(vk::FenceCreateFlags::SIGNALED);
+    let handle = next_handle();
+    FENCES.lock().unwrap().insert(handle, signaled);
+    unsafe { *fence = vk::Fence::from_raw(handle) };
+    vk::Result::SUCCESS
+}
+
+extern "system" fn destroy_fence(
+    device: vk::Device,
+    fence: vk::Fence,
+    _: *const vk::AllocationCallbacks<'_>,
+) {
+    stats_of(device).live_fences.fetch_sub(1, Ordering::Relaxed);
+    assert!(
+        FENCES.lock().unwrap().remove(&fence.as_raw()).is_some(),
+        "destroying a dead fake fence"
+    );
+}
+
+extern "system" fn wait_for_fences(
+    device: vk::Device,
+    count: u32,
+    fences: *const vk::Fence,
+    _wait_all: vk::Bool32,
+    _timeout: u64,
+) -> vk::Result {
+    stats_of(device)
+        .wait_for_fences
+        .fetch_add(1, Ordering::Relaxed);
+    let fences = unsafe { std::slice::from_raw_parts(fences, count as usize) };
+    let all = fences.iter().all(|&f| fence_signaled(f));
+    if all {
+        vk::Result::SUCCESS
+    } else {
+        vk::Result::TIMEOUT
+    }
+}
+
+extern "system" fn reset_fences(_: vk::Device, count: u32, fences: *const vk::Fence) -> vk::Result {
+    let fences = unsafe { std::slice::from_raw_parts(fences, count as usize) };
+    for &f in fences {
+        set_fence(f, false);
+    }
     vk::Result::SUCCESS
 }
 
